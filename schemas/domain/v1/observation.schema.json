@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.org/schemas/domain/v1/observation.schema.json",
+  "title": "Observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "observation_id", "analysis_id", "attempt_id", "kind", "subject_uri",
+    "observed_at", "probe_id", "tool_name", "tool_version",
+    "payload_schema_version", "payload", "content_hash", "error_code", "truncated"
+  ],
+  "properties": {
+    "observation_id": {"$ref": "#/$defs/identifier"},
+    "analysis_id": {"$ref": "#/$defs/identifier"},
+    "attempt_id": {"$ref": "#/$defs/identifier"},
+    "kind": {"$ref": "#/$defs/identifier"},
+    "subject_uri": {"type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 2048},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "probe_id": {"$ref": "#/$defs/identifier"},
+    "tool_name": {"$ref": "#/$defs/identifier"},
+    "tool_version": {"$ref": "#/$defs/identifier"},
+    "payload_schema_version": {"$ref": "#/$defs/identifier"},
+    "payload": {"type": "object"},
+    "content_hash": {"$ref": "#/$defs/sha256"},
+    "error_code": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "truncated": {"type": "boolean"}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 256},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

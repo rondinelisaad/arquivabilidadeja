@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.org/schemas/domain/v1/indicator-result.schema.json",
+  "title": "IndicatorResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "indicator_id", "state", "confidence", "score", "analysis_id",
+    "evidence_ids", "evidence_hashes", "measured_at", "probe_ids",
+    "tool_versions", "measurement_method_version"
+  ],
+  "properties": {
+    "indicator_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "state": {"enum": ["pass", "warning", "fail", "unknown", "not_applicable", "context"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "analysis_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "evidence_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "evidence_hashes": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "measured_at": {"type": ["string", "null"], "format": "date-time"},
+    "probe_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "tool_versions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "measurement_method_version": {"type": ["string", "null"], "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"enum": ["unknown", "not_applicable", "context"]}}, "required": ["state"]},
+      "then": {"properties": {"score": {"type": "null"}}}
+    }
+  ]
+}
