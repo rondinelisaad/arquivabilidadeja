@@ -285,7 +285,12 @@ class OrchestratorPersistenceTests(unittest.TestCase):
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
         self.assertEqual(
-            [("001_initial",), ("002_analysis_lifecycle",)], versions
+            [
+                ("001_initial",),
+                ("002_analysis_lifecycle",),
+                ("003_assessment_jobs",),
+            ],
+            versions,
         )
 
 

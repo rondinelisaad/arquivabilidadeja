@@ -80,7 +80,7 @@ repository = SqliteEvidenceRepository(connection)
 
 Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distintos para migrations e runtime. O usuário da aplicação deve possuir somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
 
-As tabelas mutáveis de ciclo de vida (`analyses` e `attempts`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL.
+As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`.
 
 ## Ciclo de vida da análise
 
@@ -143,7 +143,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `HttpMetadataAssessmentService` carrega uma observação já persistida, confirma a metodologia e a tentativa bem-sucedida, deriva `Evidence` e `IndicatorResult` e encerra a análise. A gravação dos artefatos e a transição de `Analysis` ocorrem na mesma transação. Repetir exatamente o mesmo processamento produz um replay idempotente auditado, sem duplicar os registros append-only nem avançar novamente a revisão; conteúdo parcial ou conflitante é rejeitado.
 
-O próximo passo é executar essa coordenação por uma fila local durável, com reivindicação exclusiva do job, retry limitado e recuperação segura após interrupções, ainda sem agendamento ou coleta externa automática.
+`HttpAssessmentQueueService` e `HttpAssessmentWorker` fornecem uma fila SQLite local e durável para essa derivação. Cada observação possui no máximo um job; a reivindicação usa lease exclusivo e revisão otimista, falhas recebem backoff exponencial limitado e um worker pode recuperar leases expirados. O ACK acontece depois da avaliação: se houver interrupção entre as duas etapas, a recuperação executa o replay idempotente. Os eventos de enqueue, claim, retry, sucesso e falha são auditados sem URL ou mensagem de exceção, e jobs não podem ser excluídos.
+
+O próximo passo é criar um caso de uso explícito de ponta a ponta que coordene `Analysis → Attempt → Probe → AssessmentJob`, ainda sem endpoint público nem agendamento automático.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

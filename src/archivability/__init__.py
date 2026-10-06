@@ -22,6 +22,16 @@ from archivability.lifecycle import (
     AttemptState,
     LifecycleError,
 )
+from archivability.jobs import (
+    AssessmentJob,
+    AssessmentJobRepository,
+    AssessmentJobState,
+    EnqueueOutcome,
+    HttpAssessmentQueueService,
+    HttpAssessmentWorker,
+    JobError,
+    WorkerOutcome,
+)
 from archivability.methodology.loader import load_methodology
 from archivability.methodology.models import (
     AssessmentResult,
@@ -53,6 +63,7 @@ from archivability.storage import (
     IntegrityViolation,
     PersistenceError,
     SqliteEvidenceRepository,
+    SqliteAssessmentJobRepository,
     SqliteLifecycleRepository,
     apply_sqlite_migrations,
     configure_sqlite_connection,
@@ -60,6 +71,9 @@ from archivability.storage import (
 
 __all__ = [
     "AssessmentResult",
+    "AssessmentJob",
+    "AssessmentJobRepository",
+    "AssessmentJobState",
     "Analysis",
     "AnalysisOrchestrator",
     "AnalysisState",
@@ -74,13 +88,17 @@ __all__ = [
     "Evidence",
     "EvidenceSource",
     "EvidenceValidationError",
+    "EnqueueOutcome",
     "HttpAssessmentOutcome",
+    "HttpAssessmentQueueService",
     "HttpAssessmentRepository",
+    "HttpAssessmentWorker",
     "HttpMetadataAssessmentService",
     "HttpMetadataDerivation",
     "HttpMetadataDerivationError",
     "IndicatorResult",
     "IntegrityViolation",
+    "JobError",
     "LegacyClearPlusInput",
     "LifecycleError",
     "MethodologyConfig",
@@ -99,8 +117,10 @@ __all__ = [
     "ResultState",
     "ScoringEngine",
     "SqliteEvidenceRepository",
+    "SqliteAssessmentJobRepository",
     "SqliteLifecycleRepository",
     "SsrfPolicy",
+    "WorkerOutcome",
     "apply_sqlite_migrations",
     "configure_sqlite_connection",
     "derive_indicator_result",
