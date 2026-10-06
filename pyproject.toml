@@ -12,6 +12,7 @@ license = {text = "To be defined before public release"}
 dependencies = [
     "PyJWT>=2.15.1,<3",
     "cryptography>=50.0.2,<51",
+    "psycopg[binary]>=3.3.6,<4",
 ]
 
 [tool.setuptools]

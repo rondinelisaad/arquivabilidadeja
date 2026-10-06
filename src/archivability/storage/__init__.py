@@ -10,6 +10,7 @@ from archivability.storage.errors import (
     PersistenceError,
 )
 from archivability.storage.postgresql import apply_postgresql_migrations
+from archivability.storage.postgresql_lifecycle import PostgreSqlLifecycleRepository
 from archivability.storage.sqlite import (
     SqliteEvidenceRepository,
     SqliteLifecycleRepository,
@@ -26,6 +27,7 @@ __all__ = [
     "DuplicateRecordError",
     "IntegrityViolation",
     "PersistenceError",
+    "PostgreSqlLifecycleRepository",
     "SqliteEvidenceRepository",
     "SqliteAssessmentJobRepository",
     "SqliteLifecycleRepository",

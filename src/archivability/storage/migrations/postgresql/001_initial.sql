@@ -1,4 +1,4 @@
-SET LOCAL search_path = pg_catalog, archivability;
+SET LOCAL search_path = archivability, pg_catalog;
 
 CREATE TABLE analyses (
     analysis_id TEXT PRIMARY KEY,
