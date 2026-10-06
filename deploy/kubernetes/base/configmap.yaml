@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arquivabilidade-config
+  namespace: arquivabilidade-ja
+data:
+  ARCHIVABILITY_ENVIRONMENT: production
+  ARCHIVABILITY_METHODOLOGY_PATH: /app/methodology/v0.1.0
+  ARCHIVABILITY_OIDC_ISSUER: https://identity.example.invalid/
+  ARCHIVABILITY_OIDC_AUDIENCE: arquivabilidade-api
+  ARCHIVABILITY_OIDC_JWKS_URI: https://identity.example.invalid/.well-known/jwks.json
+  ARCHIVABILITY_DB_POOL_MIN_SIZE: "2"
+  ARCHIVABILITY_DB_POOL_MAX_SIZE: "10"
+  ARCHIVABILITY_MAX_RATE_LIMIT_BUCKETS: "100000"
+  ARCHIVABILITY_WORKER_POLL_MILLISECONDS: "500"
+  ARCHIVABILITY_WORKER_LEASE_SECONDS: "300"
+  ARCHIVABILITY_WORKER_RETRY_BASE_SECONDS: "30"

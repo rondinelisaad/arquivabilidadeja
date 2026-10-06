@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arquivabilidade-worker
+  namespace: arquivabilidade-ja
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arquivabilidade-ja
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arquivabilidade-ja
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: arquivabilidade-runtime
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/rondinelisaad/arquivabilidade-ja:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["archivability-worker"]
+          envFrom:
+            - configMapRef:
+                name: arquivabilidade-config
+          env:
+            - name: ARCHIVABILITY_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: arquivabilidade-runtime
+                  key: database-dsn
+            - name: ARCHIVABILITY_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          startupProbe:
+            exec:
+              command: ["archivability-worker-health"]
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["archivability-worker-health"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os; os.kill(1, 0)"
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: temporary
+          emptyDir:
+            sizeLimit: 64Mi

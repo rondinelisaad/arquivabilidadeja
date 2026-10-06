@@ -125,6 +125,16 @@ uvicorn --factory archivability.asgi:create_app
 
 O limite `ARCHIVABILITY_MAX_RATE_LIMIT_BUCKETS` controla a quantidade máxima de identidades ativas. O limiter usa relógio do PostgreSQL, bloqueio por linha e lock transacional na criação para manter o consumo consistente entre processos e réplicas. Uma implementação alternativa ainda pode ser injetada em `create_production_app` para testes ou outra infraestrutura.
 
+### Saúde e métricas operacionais
+
+A composição de produção expõe três rotas operacionais exatas, antes da autenticação de negócio:
+
+- `GET /health/live` confirma somente que o processo ASGI responde;
+- `GET /health/ready` confirma startup, pool PostgreSQL e a migration mínima esperada;
+- `GET /internal/metrics` retorna contagens agregadas da fila no formato Prometheus.
+
+As respostas não incluem configuração, DSN, IDs de análise, URLs ou payloads. A leitura de métricas gera `access.assessment_queue_metrics` com IP, contagens agregadas e resultado; os probes de saúde não escrevem no banco para que liveness continue independente e readiness possa sinalizar indisponibilidade do próprio banco. A rota de métricas deve permanecer em rede interna e não deve ser publicada pelo Ingress.
+
 ## Worker de avaliação
 
 O comando `archivability-worker` consome a fila PostgreSQL e executa a derivação HTTP já persistida, sem realizar coleta externa. Ele valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa os eventos de job existentes para claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; jobs interrompidos abruptamente continuam recuperáveis pelo lease.
@@ -144,6 +154,14 @@ Se `ARCHIVABILITY_WORKER_ID` não for definido, cada inicialização gera um UUI
 ```bash
 archivability-worker
 ```
+
+`archivability-worker-health` valida configuração, conexão, role restrita e migration, retornando apenas o exit code. Ele é adequado para startup/readiness probes e nunca imprime DSN ou detalhes de erro.
+
+## Imagem e implantação inicial
+
+O `Dockerfile` usa usuário sem privilégios e instala o extra `server`, que fixa a linha compatível do Uvicorn. A base em `deploy/kubernetes/base` separa API e worker, define requests/limits, filesystem somente leitura, seccomp, capabilities removidas, probes, tempo de encerramento do worker, PodDisruptionBudget e políticas default-deny.
+
+O manifesto não contém Secret. Antes de aplicar, crie externamente `arquivabilidade-runtime` com a chave `database-dsn`, substitua os endpoints OIDC `.invalid`, use uma imagem por digest e adapte os seletores de rede ao PostgreSQL e ao controlador de entrada reais. Consulte `deploy/kubernetes/README.md` para os pré-requisitos e limitações da política de egress HTTPS.
 
 ## Ciclo de vida da análise
 
