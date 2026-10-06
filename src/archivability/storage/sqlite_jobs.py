@@ -7,6 +7,7 @@ from typing import Any
 
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.state_machine import claim_assessment_job
+from archivability.lifecycle.models import AnalysisState
 from archivability.storage.audit import AuditContext
 from archivability.storage.errors import (
     ConcurrencyConflict,
@@ -334,6 +335,146 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
             valid = False
         if not valid:
             raise IntegrityViolation("HTTP workflow audit event is inconsistent")
+
+    def load_analysis_report_snapshot(self, analysis_id: str):
+        if self._connection.in_transaction:
+            raise PersistenceError("nested or externally managed transactions are unsupported")
+        self._connection.execute("BEGIN")
+        try:
+            analysis = self.get_analysis(analysis_id)
+            if analysis is None:
+                snapshot = None
+            else:
+                attempts = self.list_attempts(analysis_id)
+                job_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT job_id FROM assessment_jobs
+                        WHERE analysis_id = ?
+                        ORDER BY created_at, job_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                jobs = tuple(self.get_assessment_job(job_id) for job_id in job_ids)
+                evidence_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT evidence_id FROM evidence
+                        WHERE analysis_id = ?
+                        ORDER BY indicator_id, evidence_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                evidence = tuple(self.get_evidence(value) for value in evidence_ids)
+                indicator_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT indicator_id FROM indicator_results
+                        WHERE analysis_id = ?
+                        ORDER BY indicator_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                results = tuple(
+                    self.get_indicator_result(analysis_id, value)
+                    for value in indicator_ids
+                )
+                if any(value is None for value in (*jobs, *evidence, *results)):
+                    raise IntegrityViolation(
+                        "analysis report relation disappeared during snapshot"
+                    )
+                from archivability.application.read_model import AnalysisReportSnapshot
+
+                try:
+                    snapshot = AnalysisReportSnapshot(
+                        analysis=analysis,
+                        attempts=attempts,
+                        jobs=tuple(value for value in jobs if value is not None),
+                        indicator_results=tuple(
+                            value for value in results if value is not None
+                        ),
+                        evidence=tuple(value for value in evidence if value is not None),
+                    )
+                except ValueError as exc:
+                    raise IntegrityViolation(
+                        "analysis report snapshot failed integrity validation"
+                    ) from exc
+        except Exception:
+            self._connection.rollback()
+            raise
+        else:
+            self._connection.commit()
+            return snapshot
+
+    def record_analysis_report_access(
+        self,
+        *,
+        analysis_id: str,
+        result: str,
+        error_code: str | None,
+        state: str | None,
+        attempt_count: int,
+        job_count: int,
+        result_count: int,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = analysis_id
+        try:
+            if result not in {"success", "failure"}:
+                raise IntegrityViolation("analysis report result is invalid")
+            if result == "success" and error_code is not None:
+                raise IntegrityViolation("successful report access cannot have an error")
+            if result == "failure" and error_code not in {
+                "ANALYSIS_NOT_FOUND",
+                "REPORT_BUILD_FAILED",
+            }:
+                raise IntegrityViolation("report failure code is invalid")
+            if state is not None and state not in {item.value for item in AnalysisState}:
+                raise IntegrityViolation("analysis report state is invalid")
+            counts = (attempt_count, job_count, result_count)
+            if any(not isinstance(value, int) or value < 0 for value in counts):
+                raise IntegrityViolation("analysis report counts are invalid")
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_report",
+                    resource_id=analysis_id,
+                    result=result,
+                    audit=audit,
+                    action="access.analysis_report",
+                    extra={
+                        "error_code": error_code,
+                        "state": state,
+                        "attempt_count": attempt_count,
+                        "job_count": job_count,
+                        "result_count": result_count,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis_report",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_report",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis_report",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_report",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
 
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(

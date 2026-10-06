@@ -1,10 +1,15 @@
 """Core domain package for Arquivabilidade JA."""
 
 from archivability.application import (
+    AnalysisReport,
+    AnalysisReportRepository,
+    AnalysisReportService,
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
     HttpWorkflowRepository,
     ProbeLimits,
+    ReportError,
+    ReportNotFoundError,
     WorkflowError,
 )
 from archivability.evidence import (
@@ -83,6 +88,9 @@ __all__ = [
     "AssessmentJobState",
     "Analysis",
     "AnalysisOrchestrator",
+    "AnalysisReport",
+    "AnalysisReportRepository",
+    "AnalysisReportService",
     "AnalysisState",
     "AddressResolver",
     "AuditContext",
@@ -126,6 +134,8 @@ __all__ = [
     "ProbeRunner",
     "ProbeValidationError",
     "ResultState",
+    "ReportError",
+    "ReportNotFoundError",
     "ScoringEngine",
     "SqliteEvidenceRepository",
     "SqliteAssessmentJobRepository",

@@ -147,7 +147,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `HttpAssessmentWorkflow` oferece o caso de uso explícito `Analysis → Attempt → Probe → AssessmentJob`. Ele valida limites antes da coleta, aceita somente o contrato `http-metadata`, converte saída incompatível do probe em falha de tentativa antes da persistência e permite retry manual apenas após uma tentativa realmente falha. Uma tentativa bem-sucedida gera exatamente um job durável e bloqueia novas coletas para a mesma análise. O evento agregado `job.http_assessment_workflow` registra o desfecho somente com IDs opacos e códigos estáveis. O workflow não é endpoint, scheduler ou daemon: a aplicação chamadora ainda precisa acioná-lo explicitamente e fornecer o probe.
 
-O próximo passo é criar um modelo de leitura seguro para consultar progresso, tentativas, resultados e proveniência de uma análise antes de expor esse fluxo em uma API Web.
+`AnalysisReportService` cria um snapshot transacional de progresso, tentativas, jobs, resultados e proveniência. O contrato de saída reduz o alvo à origem (`scheme://host[:port]/`) e não inclui caminho, query string, fragmento, payload de observação, cabeçalhos ou dados derivados internos. A proveniência pública contém somente IDs, hashes, métodos, versões e timestamps. Cada leitura — inclusive análise inexistente — gera `access.analysis_report` com contagens e códigos estáveis, nunca com o conteúdo do relatório.
+
+O próximo passo é definir a fronteira da API Web sobre esse modelo de leitura, incluindo autenticação, autorização por análise, limites de requisição e respostas de erro sem detalhes internos, antes de disponibilizar endpoints públicos.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
