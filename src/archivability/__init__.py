@@ -1,9 +1,13 @@
 """Core domain package for Arquivabilidade JA."""
 
 from archivability.evidence import (
+    DerivationPersistenceResult,
     Evidence,
     EvidenceSource,
     EvidenceValidationError,
+    HttpAssessmentOutcome,
+    HttpAssessmentRepository,
+    HttpMetadataAssessmentService,
     HttpMetadataDerivation,
     HttpMetadataDerivationError,
     Observation,
@@ -66,9 +70,13 @@ __all__ = [
     "ApprovedTarget",
     "ConcurrencyConflict",
     "DuplicateRecordError",
+    "DerivationPersistenceResult",
     "Evidence",
     "EvidenceSource",
     "EvidenceValidationError",
+    "HttpAssessmentOutcome",
+    "HttpAssessmentRepository",
+    "HttpMetadataAssessmentService",
     "HttpMetadataDerivation",
     "HttpMetadataDerivationError",
     "IndicatorResult",

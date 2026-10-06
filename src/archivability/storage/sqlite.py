@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 from uuid import uuid4
 
 from archivability.evidence.models import Evidence, EvidenceSource, Observation
@@ -19,6 +19,9 @@ from archivability.storage.errors import (
     IntegrityViolation,
     PersistenceError,
 )
+
+if TYPE_CHECKING:
+    from archivability.evidence.assessment import DerivationPersistenceResult
 
 
 _MIGRATIONS = Path(__file__).parent / "migrations" / "sqlite"
@@ -741,6 +744,116 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def complete_http_assessment(
+        self,
+        previous_analysis: Analysis,
+        current_analysis: Analysis | None,
+        evidence: tuple[Evidence, ...],
+        indicator_results: tuple[IndicatorResult, ...],
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> DerivationPersistenceResult:
+        """Persist one deterministic derivation and its lifecycle transition."""
+        resource_id = previous_analysis.analysis_id
+        try:
+            self._validate_http_assessment(
+                previous_analysis,
+                current_analysis,
+                evidence,
+                indicator_results,
+            )
+            with self._transaction():
+                outcome = self._derivation_outcome(evidence, indicator_results)
+                stored_analysis = self.get_analysis(previous_analysis.analysis_id)
+                if stored_analysis != previous_analysis:
+                    raise ConcurrencyConflict("analysis was changed by another operation")
+
+                if outcome == "created":
+                    if current_analysis is None:
+                        raise IntegrityViolation(
+                            "new derivation requires an analysis transition"
+                        )
+                    for value in evidence:
+                        self._insert_evidence(value)
+                        self._write_audit(
+                            resource="evidence",
+                            resource_id=value.evidence_id,
+                            result="success",
+                            audit=audit,
+                            after={
+                                "analysis_id": value.analysis_id,
+                                "indicator_id": value.indicator_id,
+                                "content_hash": value.content_hash,
+                            },
+                        )
+                    for value in indicator_results:
+                        self._insert_indicator_result(value)
+                        self._write_audit(
+                            resource="indicator_result",
+                            resource_id=f"{value.analysis_id}:{value.indicator_id}",
+                            result="success",
+                            audit=audit,
+                            after={
+                                "analysis_id": value.analysis_id,
+                                "indicator_id": value.indicator_id,
+                                "state": value.state.value,
+                            },
+                        )
+                    self._update_analysis(previous_analysis, current_analysis)
+                    self._write_audit(
+                        resource="analysis",
+                        resource_id=current_analysis.analysis_id,
+                        result="success",
+                        audit=audit,
+                        action="data.update",
+                        before=self._analysis_audit_state(previous_analysis),
+                        after=self._analysis_audit_state(current_analysis),
+                    )
+                elif current_analysis is not None:
+                    raise IntegrityViolation(
+                        "stored derivation cannot repeat a lifecycle transition"
+                    )
+
+                self._write_audit(
+                    resource="analysis",
+                    resource_id=resource_id,
+                    result="success",
+                    audit=audit,
+                    action="job.http_metadata_assessment",
+                    extra={
+                        "outcome": outcome,
+                        "evidence_count": len(evidence),
+                        "indicator_result_count": len(indicator_results),
+                    },
+                )
+            from archivability.evidence.assessment import DerivationPersistenceResult
+
+            return DerivationPersistenceResult(
+                outcome=outcome,
+                evidence_count=len(evidence),
+                indicator_result_count=len(indicator_results),
+            )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis",
+                resource_id,
+                audit,
+                exc,
+                action="job.http_metadata_assessment",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis",
+                resource_id,
+                audit,
+                exc,
+                action="job.http_metadata_assessment",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def update_analysis(
         self,
         previous: Analysis,
@@ -807,6 +920,111 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
             raise IntegrityViolation("probe request requires its registered running attempt")
         if subject_uri != analysis.subject_uri:
             raise IntegrityViolation("probe request subject does not match the analysis")
+
+    def _validate_http_assessment(
+        self,
+        previous: Analysis,
+        current: Analysis | None,
+        evidence: tuple[Evidence, ...],
+        results: tuple[IndicatorResult, ...],
+    ) -> None:
+        if not evidence or not results:
+            raise IntegrityViolation("HTTP assessment derivation must not be empty")
+        if len({item.evidence_id for item in evidence}) != len(evidence):
+            raise IntegrityViolation("derived evidence identities must be unique")
+        if len({item.indicator_id for item in results}) != len(results):
+            raise IntegrityViolation("derived indicator identities must be unique")
+        if any(
+            item.analysis_id != previous.analysis_id
+            or item.subject_uri != previous.subject_uri
+            for item in evidence
+        ) or any(item.analysis_id != previous.analysis_id for item in results):
+            raise IntegrityViolation("derivation does not match its analysis")
+        evidence_by_id = {item.evidence_id: item for item in evidence}
+        referenced_evidence = {
+            evidence_id for item in results for evidence_id in item.evidence_ids
+        }
+        if any(
+            not item.evidence_ids
+            or any(
+                evidence_id not in evidence_by_id
+                or evidence_by_id[evidence_id].indicator_id != item.indicator_id
+                or evidence_by_id[evidence_id].content_hash != evidence_hash
+                for evidence_id, evidence_hash in zip(
+                    item.evidence_ids, item.evidence_hashes, strict=True
+                )
+            )
+            for item in results
+        ) or referenced_evidence != set(evidence_by_id):
+            raise IntegrityViolation("indicator result provenance is inconsistent")
+        for item in evidence:
+            for source in item.sources:
+                observation = self.get_observation(source.observation_id)
+                if (
+                    observation is None
+                    or observation.analysis_id != previous.analysis_id
+                    or observation.content_hash != source.content_hash
+                    or observation.probe_id != source.probe_id
+                    or observation.tool_name != source.tool_name
+                    or observation.tool_version != source.tool_version
+                    or observation.observed_at != source.observed_at
+                ):
+                    raise IntegrityViolation("evidence source does not match its observation")
+
+        if current is None:
+            if previous.state not in {
+                AnalysisState.COMPLETED,
+                AnalysisState.PARTIALLY_COMPLETED,
+                AnalysisState.CANCELLED,
+            }:
+                raise IntegrityViolation("derivation replay requires a terminal analysis")
+            return
+        immutable_fields_match = (
+            previous.analysis_id == current.analysis_id
+            and previous.subject_uri == current.subject_uri
+            and previous.methodology_id == current.methodology_id
+            and previous.methodology_version == current.methodology_version
+            and previous.max_attempts == current.max_attempts
+            and previous.attempt_ids == current.attempt_ids
+            and previous.created_at == current.created_at
+            and previous.started_at == current.started_at
+        )
+        if (
+            previous.state is not AnalysisState.RUNNING
+            or current.state
+            not in {
+                AnalysisState.COMPLETED,
+                AnalysisState.PARTIALLY_COMPLETED,
+                AnalysisState.CANCELLED,
+            }
+            or not immutable_fields_match
+        ):
+            raise IntegrityViolation("analysis completion is inconsistent")
+
+    def _derivation_outcome(
+        self,
+        evidence: tuple[Evidence, ...],
+        results: tuple[IndicatorResult, ...],
+    ) -> str:
+        stored_evidence = tuple(self.get_evidence(item.evidence_id) for item in evidence)
+        stored_results = tuple(
+            self.get_indicator_result(item.analysis_id or "", item.indicator_id)
+            for item in results
+        )
+        present = tuple(item is not None for item in (*stored_evidence, *stored_results))
+        if not any(present):
+            return "created"
+        if not all(present):
+            raise IntegrityViolation("stored derivation is incomplete")
+        if any(
+            stored is None or stored.to_dict() != expected.to_dict()
+            for stored, expected in zip(stored_evidence, evidence, strict=True)
+        ) or any(
+            stored is None or stored.to_dict() != expected.to_dict()
+            for stored, expected in zip(stored_results, results, strict=True)
+        ):
+            raise IntegrityViolation("stored derivation conflicts with deterministic output")
+        return "replayed"
 
     @staticmethod
     def _validate_probe_completion(

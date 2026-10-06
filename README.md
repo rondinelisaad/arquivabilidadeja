@@ -141,7 +141,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `derive_http_metadata_indicators` transforma a observação HTTP em evidências versionadas para `D01` (acessibilidade da homepage) e `R06` (completude da resposta), preservando o hash da fonte. As regras distinguem sucesso, redirect não terminado, erro HTTP, truncamento por limite e inconsistência de `Content-Length`. Os demais indicadores permanecem sem resultado até existirem as evidências específicas exigidas pela metodologia.
 
-O próximo passo é persistir `Evidence` e `IndicatorResult` como uma derivação atômica e idempotente, antes de integrar a avaliação ao encerramento da análise.
+`HttpMetadataAssessmentService` carrega uma observação já persistida, confirma a metodologia e a tentativa bem-sucedida, deriva `Evidence` e `IndicatorResult` e encerra a análise. A gravação dos artefatos e a transição de `Analysis` ocorrem na mesma transação. Repetir exatamente o mesmo processamento produz um replay idempotente auditado, sem duplicar os registros append-only nem avançar novamente a revisão; conteúdo parcial ou conflitante é rejeitado.
+
+O próximo passo é executar essa coordenação por uma fila local durável, com reivindicação exclusiva do job, retry limitado e recuperação segura após interrupções, ainda sem agendamento ou coleta externa automática.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
