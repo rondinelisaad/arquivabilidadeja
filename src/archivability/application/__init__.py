@@ -10,6 +10,12 @@ from archivability.application.api import (
     ApiResponse,
     ApiValidationError,
 )
+from archivability.application.asgi import (
+    AnalysisAsgiApp,
+    AsgiAuditRecorder,
+    AsgiSyncRunner,
+    InlineAsgiSyncRunner,
+)
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
@@ -34,6 +40,7 @@ from archivability.application.read_model import (
 
 __all__ = [
     "AnalysisApi",
+    "AnalysisAsgiApp",
     "AnalysisProgress",
     "AnalysisReport",
     "AnalysisReportRepository",
@@ -47,12 +54,15 @@ __all__ = [
     "ApiRequestContext",
     "ApiResponse",
     "ApiValidationError",
+    "AsgiAuditRecorder",
+    "AsgiSyncRunner",
     "EvidenceReport",
     "EvidenceSourceReport",
     "HttpAssessmentWorkflow",
     "HttpWorkflowOutcome",
     "HttpWorkflowRepository",
     "IndicatorReport",
+    "InlineAsgiSyncRunner",
     "JobReport",
     "ProbeLimits",
     "ReportError",

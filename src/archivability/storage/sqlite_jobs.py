@@ -546,6 +546,71 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_analysis_http_event(
+        self,
+        *,
+        request_id: str,
+        route: str,
+        method: str,
+        result: str,
+        status_code: int,
+        error_code: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = request_id
+        try:
+            valid_errors = {
+                (400, "INVALID_REQUEST"),
+                (400, "INVALID_JSON"),
+                (404, "NOT_FOUND"),
+                (405, "METHOD_NOT_ALLOWED"),
+                (413, "PAYLOAD_TOO_LARGE"),
+                (415, "UNSUPPORTED_MEDIA_TYPE"),
+                (500, "INTERNAL_ERROR"),
+            }
+            if (
+                route not in {"analyses_collection", "analysis_item", "unmatched"}
+                or method
+                not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"}
+                or result != "failure"
+                or (status_code, error_code) not in valid_errors
+            ):
+                raise IntegrityViolation("analysis HTTP audit event is inconsistent")
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_http_adapter",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="access.analysis_http_adapter",
+                    extra={
+                        "route": route,
+                        "method": method,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis_http_adapter",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_http_adapter",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis_http_adapter",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_http_adapter",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             """

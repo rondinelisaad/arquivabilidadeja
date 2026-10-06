@@ -4,7 +4,7 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF, o primeiro probe de metadados HTTP, a execução coordenada de uma tentativa e a primeira derivação de indicadores HTTP. Ainda não há API ou fila; SQLite é usado somente em desenvolvimento e testes.
+O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF, o primeiro probe de metadados HTTP, uma fila local, um contrato de API e um adaptador ASGI. SQLite é usado somente em desenvolvimento e testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
@@ -151,7 +151,19 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `AnalysisApi` define a fronteira Web sem acoplamento a framework. O adaptador externo deve fornecer um `ApiPrincipal` já autenticado; políticas injetadas autorizam criação e leitura por análise e aplicam rate limiting antes da validação ou coleta. A fronteira oferece as operações equivalentes a `POST /v1/analyses` e `GET /v1/analyses/{analysis_id}`, sempre com erros estáveis, `Cache-Control: no-store`, `nosniff` e sem mensagens internas. Ausência de autenticação, negação, limite excedido, sucesso e falha são auditados sem corpo, URL analisada ou credencial. Falhas dos provedores de autorização e limite são fechadas como erro interno, sem bypass.
 
-Este núcleo não interpreta tokens nem abre um servidor HTTP. O próximo passo é implementar um adaptador ASGI concreto, escolher o mecanismo de autenticação da implantação e ligar as políticas de autorização e rate limiting a serviços reais.
+`AnalysisAsgiApp` materializa esse contrato como aplicação ASGI 3 sem dependências externas. Ele aceita somente as duas rotas previstas, limita o corpo a 4 KiB por padrão, exige JSON UTF-8, trata corpos fragmentados e emite cabeçalhos defensivos. Rejeições de transporte são auditadas com rota lógica, método, status e código estável; caminhos, query strings, cabeçalhos e corpos não entram no log.
+
+A autenticação continua deliberadamente fora do núcleo. Um middleware confiável deve validar a sessão ou token e inserir objetos já construídos no estado ASGI — o adaptador nunca interpreta `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
+
+```python
+scope["state"]["archivability.principal"] = ApiPrincipal(
+    user_id="identificador-opaco",
+    session_id="sessao-opaca",
+)
+scope["state"]["archivability.request_id"] = "request-id-confiavel"
+```
+
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. Os próximos passos são escolher e implementar o middleware OIDC da implantação e conectar autorização, rate limiting e persistência PostgreSQL reais.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

@@ -70,7 +70,19 @@ class ApiResponse:
     headers: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        if self.status_code not in {200, 202, 400, 401, 403, 404, 429, 500}:
+        if self.status_code not in {
+            200,
+            202,
+            400,
+            401,
+            403,
+            404,
+            405,
+            413,
+            415,
+            429,
+            500,
+        }:
             raise ApiValidationError("API response status is unsupported")
         object.__setattr__(self, "body", MappingProxyType(dict(self.body)))
         object.__setattr__(self, "headers", MappingProxyType(dict(self.headers)))
