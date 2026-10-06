@@ -611,6 +611,51 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_bearer_authentication_event(
+        self,
+        *,
+        request_id: str,
+        result: str,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = request_id
+        try:
+            valid = (result == "success" and error_code is None) or (
+                result == "failure" and error_code == "INVALID_TOKEN"
+            )
+            if not valid:
+                raise IntegrityViolation("bearer authentication event is inconsistent")
+            with self._transaction():
+                self._write_audit(
+                    resource="authentication",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="auth.bearer_token",
+                    extra={"error_code": error_code},
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "authentication",
+                resource_id,
+                audit,
+                exc,
+                action="auth.bearer_token",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "authentication",
+                resource_id,
+                audit,
+                exc,
+                action="auth.bearer_token",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             """

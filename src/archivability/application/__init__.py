@@ -16,6 +16,11 @@ from archivability.application.asgi import (
     AsgiSyncRunner,
     InlineAsgiSyncRunner,
 )
+from archivability.application.authentication import (
+    AuthenticationAuditRecorder,
+    BearerAuthenticationMiddleware,
+    BearerTokenVerifier,
+)
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
@@ -56,6 +61,9 @@ __all__ = [
     "ApiValidationError",
     "AsgiAuditRecorder",
     "AsgiSyncRunner",
+    "AuthenticationAuditRecorder",
+    "BearerAuthenticationMiddleware",
+    "BearerTokenVerifier",
     "EvidenceReport",
     "EvidenceSourceReport",
     "HttpAssessmentWorkflow",

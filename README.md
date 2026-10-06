@@ -153,7 +153,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `AnalysisAsgiApp` materializa esse contrato como aplicação ASGI 3 sem dependências externas. Ele aceita somente as duas rotas previstas, limita o corpo a 4 KiB por padrão, exige JSON UTF-8, trata corpos fragmentados e emite cabeçalhos defensivos. Rejeições de transporte são auditadas com rota lógica, método, status e código estável; caminhos, query strings, cabeçalhos e corpos não entram no log.
 
-A autenticação continua deliberadamente fora do núcleo. Um middleware confiável deve validar a sessão ou token e inserir objetos já construídos no estado ASGI — o adaptador nunca interpreta `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
+A autenticação continua deliberadamente fora do núcleo. `BearerAuthenticationMiddleware` aceita exclusivamente um cabeçalho `Authorization: Bearer`, limita seu tamanho e entrega o valor opaco a um `BearerTokenVerifier` injetado. O verificador específico da implantação deve restringir algoritmos criptográficos aprovados e validar assinatura, emissor, audiência, expiração e início de validade antes de devolver um `ApiPrincipal`. Claims não verificados nunca são interpretados pelo middleware; tokens, cabeçalhos e detalhes do provedor nunca entram na auditoria.
+
+Depois da verificação, o middleware insere objetos já construídos no estado ASGI. O adaptador nunca interpreta diretamente `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
 
 ```python
 scope["state"]["archivability.principal"] = ApiPrincipal(
@@ -163,7 +165,9 @@ scope["state"]["archivability.principal"] = ApiPrincipal(
 scope["state"]["archivability.request_id"] = "request-id-confiavel"
 ```
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. Os próximos passos são escolher e implementar o middleware OIDC da implantação e conectar autorização, rate limiting e persistência PostgreSQL reais.
+Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
+
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. Os próximos passos são escolher o provedor OIDC e implementar seu `BearerTokenVerifier` com biblioteca JOSE madura, cache seguro de JWKS e allowlist explícita de algoritmos; depois, conectar autorização, rate limiting e persistência PostgreSQL reais.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

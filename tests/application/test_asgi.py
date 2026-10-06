@@ -169,6 +169,7 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(401, status)
         self.assertEqual("AUTHENTICATION_REQUIRED", response["error"]["code"])
+        self.assertEqual('Bearer realm="arquivabilidade-ja"', headers["www-authenticate"])
         self.assertNotEqual("client-controlled", headers["x-request-id"])
         self.assertIsNone(self.api.calls[0][2].principal)
 

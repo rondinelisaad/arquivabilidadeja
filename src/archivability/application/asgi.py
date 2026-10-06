@@ -338,6 +338,8 @@ class AnalysisAsgiApp:
             separators=(",", ":"),
         ).encode("utf-8")
         headers = {**_SECURITY_HEADERS, **dict(response.headers), "X-Request-ID": request_id}
+        if response.status_code == 401:
+            headers["WWW-Authenticate"] = 'Bearer realm="arquivabilidade-ja"'
         await send(
             {
                 "type": "http.response.start",
