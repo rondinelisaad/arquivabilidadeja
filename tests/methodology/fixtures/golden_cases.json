@@ -1,0 +1,96 @@
+{
+  "methodology_version": "0.1.0",
+  "cases": [
+    {
+      "id": "healthy_minimal_profile",
+      "applicable_indicator_ids": ["D01", "R01", "S01", "C01", "M01", "O01"],
+      "indicator_results": {
+        "D01": {"state": "pass", "confidence": 1.0},
+        "R01": {"state": "pass", "confidence": 1.0},
+        "S01": {"state": "pass", "confidence": 1.0},
+        "C01": {"state": "pass", "confidence": 1.0},
+        "M01": {"state": "pass", "confidence": 1.0},
+        "O01": {"state": "pass", "confidence": 1.0}
+      },
+      "expected": {
+        "overall_state": "assessable",
+        "triggered_gates": [],
+        "dimension_results": {
+          "discoverability": {"score": 100.0, "coverage": 1.0, "status": "sufficient"},
+          "retrievability": {"score": 100.0, "coverage": 1.0, "status": "sufficient"},
+          "standards_formats": {"score": 100.0, "coverage": 1.0, "status": "sufficient"},
+          "dependency_cohesion": {"score": 100.0, "coverage": 1.0, "status": "sufficient"},
+          "metadata_context": {"score": 100.0, "coverage": 1.0, "status": "sufficient"},
+          "operational_harvestability": {"score": 100.0, "coverage": 1.0, "status": "sufficient"}
+        }
+      }
+    },
+    {
+      "id": "unknown_reduces_coverage_not_score",
+      "applicable_indicator_ids": ["D01", "D07"],
+      "indicator_results": {
+        "D01": {"state": "pass", "confidence": 1.0},
+        "D07": {"state": "unknown", "confidence": 0.0}
+      },
+      "expected": {
+        "overall_state": "partially_assessable",
+        "triggered_gates": [],
+        "dimension_results": {
+          "discoverability": {"score": 100.0, "coverage": 0.5, "status": "insufficient_evidence"}
+        }
+      }
+    },
+    {
+      "id": "candidate_gate_does_not_block",
+      "applicable_indicator_ids": ["D01", "O01"],
+      "indicator_results": {
+        "D01": {"state": "fail", "confidence": 1.0},
+        "O01": {"state": "fail", "confidence": 1.0}
+      },
+      "expected": {
+        "overall_state": "assessable",
+        "triggered_gates": [],
+        "dimension_results": {
+          "discoverability": {"score": 0.0, "coverage": 1.0, "status": "sufficient"},
+          "operational_harvestability": {"score": 0.0, "coverage": 1.0, "status": "sufficient"}
+        }
+      }
+    },
+    {
+      "id": "explicitly_activated_gate_blocks",
+      "applicable_indicator_ids": ["D01", "O01"],
+      "gate_status_overrides": {"HG01": "active"},
+      "indicator_results": {
+        "D01": {"state": "fail", "confidence": 1.0},
+        "O01": {"state": "fail", "confidence": 1.0}
+      },
+      "expected": {
+        "overall_state": "blocked",
+        "triggered_gates": ["HG01"],
+        "dimension_results": {
+          "discoverability": {"score": 0.0, "coverage": 1.0, "status": "sufficient"},
+          "operational_harvestability": {"score": 0.0, "coverage": 1.0, "status": "sufficient"}
+        }
+      }
+    },
+    {
+      "id": "clear_plus_article_example",
+      "applicable_indicator_ids": [],
+      "indicator_results": {},
+      "legacy_clear_plus": {
+        "facets": {"FA": 72.0, "FS": 75.0, "FC": 92.0, "FM": 100.0},
+        "applicable_facet_weights": {"FA": 29, "FS": 20, "FC": 6, "FM": 6}
+      },
+      "expected": {
+        "overall_state": "indeterminate",
+        "triggered_gates": [],
+        "dimension_results": {},
+        "legacy_clear_plus": {
+          "flat": 84.75,
+          "fixed_max": 79.342466,
+          "paper_applicable": 77.704918
+        }
+      }
+    }
+  ]
+}
