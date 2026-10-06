@@ -191,7 +191,7 @@ class EvidenceAndDerivationTests(unittest.TestCase):
     def test_domain_schemas_are_valid_json(self) -> None:
         schema_dir = ROOT / "schemas" / "domain" / "v1"
         documents = [json.loads(path.read_text(encoding="utf-8")) for path in schema_dir.glob("*.json")]
-        self.assertEqual(3, len(documents))
+        self.assertEqual(5, len(documents))
         self.assertTrue(all(item["$schema"].endswith("2020-12/schema") for item in documents))
 
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.org/schemas/domain/v1/attempt.schema.json",
+  "title": "Attempt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attempt_id", "analysis_id", "sequence", "state", "created_at",
+    "updated_at", "started_at", "finished_at", "failure_code", "revision"
+  ],
+  "properties": {
+    "attempt_id": {"$ref": "#/$defs/identifier"},
+    "analysis_id": {"$ref": "#/$defs/identifier"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "state": {"enum": ["running", "succeeded", "failed", "cancelled"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": ["string", "null"], "format": "date-time"},
+    "failure_code": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+    "revision": {"type": "integer", "minimum": 0}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 256}
+  }
+}

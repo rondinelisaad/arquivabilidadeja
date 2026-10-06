@@ -4,17 +4,18 @@ import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
 from archivability.evidence.models import Evidence, EvidenceSource, Observation
+from archivability.lifecycle.models import Analysis, AnalysisState, Attempt, AttemptState
 from archivability.methodology.models import IndicatorResult, ResultState
+from archivability.storage.audit import AuditContext
 
 
-_MIGRATION = Path(__file__).parent / "migrations" / "sqlite" / "001_initial.sql"
+_MIGRATIONS = Path(__file__).parent / "migrations" / "sqlite"
 
 
 class PersistenceError(RuntimeError):
@@ -29,17 +30,8 @@ class IntegrityViolation(PersistenceError):
     """Raised when stored content or provenance no longer verifies."""
 
 
-@dataclass(frozen=True, slots=True)
-class AuditContext:
-    user_id: str | None = None
-    ip_address: str | None = None
-    session_id: str | None = None
-
-    def __post_init__(self) -> None:
-        for field in ("user_id", "ip_address", "session_id"):
-            value = getattr(self, field)
-            if value is not None and (not value or len(value) > 256):
-                raise ValueError(f"{field} must contain between 1 and 256 characters")
+class ConcurrencyConflict(PersistenceError):
+    """Raised when a stale revision attempts to change lifecycle state."""
 
 
 def configure_sqlite_connection(connection: sqlite3.Connection) -> None:
@@ -52,7 +44,20 @@ def apply_sqlite_migrations(connection: sqlite3.Connection) -> None:
     """Provision the development/test schema; never call from application runtime."""
     if connection.in_transaction:
         raise PersistenceError("migrations require an idle connection")
-    connection.executescript(_MIGRATION.read_text(encoding="utf-8"))
+    has_registry = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+    ).fetchone()
+    applied = (
+        {
+            row[0]
+            for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
+        }
+        if has_registry
+        else set()
+    )
+    for migration in sorted(_MIGRATIONS.glob("*.sql")):
+        if migration.stem not in applied:
+            connection.executescript(migration.read_text(encoding="utf-8"))
 
 
 def _dump(value: Any) -> str:
@@ -355,6 +360,9 @@ class SqliteEvidenceRepository:
         resource_id: str,
         audit: AuditContext,
         after: dict[str, Any],
+        action: str = "data.create",
+        before: dict[str, Any] | None = None,
+        audit_result: str = "success",
     ) -> None:
         try:
             with self._transaction():
@@ -362,16 +370,21 @@ class SqliteEvidenceRepository:
                 self._write_audit(
                     resource=resource,
                     resource_id=resource_id,
-                    result="success",
+                    result=audit_result,
                     audit=audit,
+                    action=action,
+                    before=before,
                     after=after,
                 )
         except sqlite3.IntegrityError as exc:
-            self._record_failure(resource, resource_id, audit, exc)
+            self._record_failure(resource, resource_id, audit, exc, action=action)
             self._raise_integrity(exc)
         except sqlite3.DatabaseError as exc:
-            self._record_failure(resource, resource_id, audit, exc)
+            self._record_failure(resource, resource_id, audit, exc, action=action)
             raise PersistenceError("database write failed") from exc
+        except PersistenceError as exc:
+            self._record_failure(resource, resource_id, audit, exc, action=action)
+            raise
 
     def _insert_observation(self, value: Observation) -> None:
         self._connection.execute(
@@ -457,6 +470,8 @@ class SqliteEvidenceRepository:
         resource_id: str,
         result: str,
         audit: AuditContext,
+        action: str = "data.create",
+        before: dict[str, Any] | None = None,
         after: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
@@ -465,7 +480,7 @@ class SqliteEvidenceRepository:
             INSERT INTO audit_events
                 (event_id, timestamp, user_id, ip_address, session_id, action,
                  resource, resource_id, result, before_json, after_json, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 self._event_id_factory(),
@@ -473,10 +488,11 @@ class SqliteEvidenceRepository:
                 audit.user_id,
                 audit.ip_address,
                 audit.session_id,
-                "data.create",
+                action,
                 resource,
                 resource_id,
                 result,
+                _dump(before) if before is not None else None,
                 _dump(after) if after is not None else None,
                 _dump(extra) if extra is not None else None,
             ),
@@ -488,6 +504,8 @@ class SqliteEvidenceRepository:
         resource_id: str,
         audit: AuditContext,
         error: Exception,
+        *,
+        action: str = "data.create",
     ) -> None:
         try:
             with self._transaction():
@@ -496,6 +514,7 @@ class SqliteEvidenceRepository:
                     resource_id=resource_id,
                     result="failure",
                     audit=audit,
+                    action=action,
                     extra={"error_type": type(error).__name__},
                 )
         except (PersistenceError, sqlite3.DatabaseError):
@@ -529,3 +548,309 @@ class SqliteEvidenceRepository:
         if len(analysis_ids) != 1:
             raise PersistenceError("a persisted chain must belong to one analysis")
         return next(iter(analysis_ids))
+
+
+class SqliteLifecycleRepository(SqliteEvidenceRepository):
+    """SQLite lifecycle adapter with optimistic concurrency and audited transitions."""
+
+    def add_analysis(
+        self, value: Analysis, *, audit: AuditContext = AuditContext()
+    ) -> None:
+        self._execute_write(
+            lambda: self._insert_analysis(value),
+            resource="analysis",
+            resource_id=value.analysis_id,
+            audit=audit,
+            after={"state": value.state.value, "revision": value.revision},
+        )
+
+    def get_analysis(self, analysis_id: str) -> Analysis | None:
+        row = self._connection.execute(
+            "SELECT document_json, state, revision FROM analyses WHERE analysis_id = ?",
+            (analysis_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            value = self._analysis_from_document(json.loads(row[0]))
+            if (
+                value.analysis_id != analysis_id
+                or value.state.value != row[1]
+                or value.revision != row[2]
+            ):
+                raise IntegrityViolation("analysis document does not match stored columns")
+            stored_attempt_ids = tuple(
+                item[0]
+                for item in self._connection.execute(
+                    "SELECT attempt_id FROM attempts WHERE analysis_id = ? ORDER BY sequence",
+                    (analysis_id,),
+                ).fetchall()
+            )
+            if stored_attempt_ids != value.attempt_ids:
+                raise IntegrityViolation("analysis attempts do not match stored relations")
+            return value
+        except IntegrityViolation:
+            raise
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise IntegrityViolation("stored analysis failed validation") from exc
+
+    def add_attempt(
+        self,
+        previous_analysis: Analysis,
+        analysis: Analysis,
+        attempt: Attempt,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        if attempt.analysis_id != analysis.analysis_id:
+            raise IntegrityViolation("attempt and analysis identities do not match")
+        resource_id = attempt.attempt_id
+        try:
+            with self._transaction():
+                self._update_analysis(previous_analysis, analysis)
+                self._insert_attempt(attempt)
+                self._write_audit(
+                    resource="analysis",
+                    resource_id=analysis.analysis_id,
+                    result="success",
+                    audit=audit,
+                    action="data.update",
+                    before=self._analysis_audit_state(previous_analysis),
+                    after=self._analysis_audit_state(analysis),
+                )
+                self._write_audit(
+                    resource="attempt",
+                    resource_id=attempt.attempt_id,
+                    result="success",
+                    audit=audit,
+                    action="job.analysis_attempt_start",
+                    after=self._attempt_audit_state(attempt),
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "attempt", resource_id, audit, exc, action="job.analysis_attempt_start"
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "attempt", resource_id, audit, exc, action="job.analysis_attempt_start"
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
+    def get_attempt(self, attempt_id: str) -> Attempt | None:
+        row = self._connection.execute(
+            """
+            SELECT document_json, state, revision, analysis_id, sequence
+            FROM attempts
+            WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            value = self._attempt_from_document(json.loads(row[0]))
+            if (
+                value.attempt_id != attempt_id
+                or value.state.value != row[1]
+                or value.revision != row[2]
+                or value.analysis_id != row[3]
+                or value.sequence != row[4]
+            ):
+                raise IntegrityViolation("attempt document does not match stored columns")
+            return value
+        except IntegrityViolation:
+            raise
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise IntegrityViolation("stored attempt failed validation") from exc
+
+    def list_attempts(self, analysis_id: str) -> tuple[Attempt, ...]:
+        rows = self._connection.execute(
+            "SELECT attempt_id FROM attempts WHERE analysis_id = ? ORDER BY sequence",
+            (analysis_id,),
+        ).fetchall()
+        values = tuple(self.get_attempt(row[0]) for row in rows)
+        if any(value is None for value in values):
+            raise IntegrityViolation("attempt disappeared during lifecycle read")
+        return tuple(value for value in values if value is not None)
+
+    def update_attempt(
+        self,
+        previous: Attempt,
+        current: Attempt,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        if previous.attempt_id != current.attempt_id:
+            raise IntegrityViolation("attempt identity cannot change")
+        result = "failure" if current.state is AttemptState.FAILED else "success"
+        self._execute_write(
+            lambda: self._update_attempt(previous, current),
+            resource="attempt",
+            resource_id=current.attempt_id,
+            audit=audit,
+            action="job.analysis_attempt",
+            before=self._attempt_audit_state(previous),
+            after=self._attempt_audit_state(current),
+            audit_result=result,
+        )
+
+    def update_analysis(
+        self,
+        previous: Analysis,
+        current: Analysis,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        if previous.analysis_id != current.analysis_id:
+            raise IntegrityViolation("analysis identity cannot change")
+        self._execute_write(
+            lambda: self._update_analysis(previous, current),
+            resource="analysis",
+            resource_id=current.analysis_id,
+            audit=audit,
+            action="data.update",
+            before=self._analysis_audit_state(previous),
+            after=self._analysis_audit_state(current),
+        )
+
+    def _insert_analysis(self, value: Analysis) -> None:
+        timestamp = self._timestamp()
+        self._connection.execute(
+            """
+            INSERT INTO analyses
+                (analysis_id, state, revision, document_json, stored_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                value.analysis_id,
+                value.state.value,
+                value.revision,
+                _dump(value.to_dict()),
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    def _update_analysis(self, previous: Analysis, current: Analysis) -> None:
+        if current.revision != previous.revision + 1:
+            raise ConcurrencyConflict("analysis revision must increase by one")
+        cursor = self._connection.execute(
+            """
+            UPDATE analyses
+            SET state = ?, revision = ?, document_json = ?, updated_at = ?
+            WHERE analysis_id = ? AND revision = ?
+            """,
+            (
+                current.state.value,
+                current.revision,
+                _dump(current.to_dict()),
+                self._timestamp(),
+                previous.analysis_id,
+                previous.revision,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ConcurrencyConflict("analysis was changed by another operation")
+
+    def _insert_attempt(self, value: Attempt) -> None:
+        timestamp = self._timestamp()
+        self._connection.execute(
+            """
+            INSERT INTO attempts
+                (attempt_id, analysis_id, sequence, state, revision,
+                 document_json, stored_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                value.attempt_id,
+                value.analysis_id,
+                value.sequence,
+                value.state.value,
+                value.revision,
+                _dump(value.to_dict()),
+                timestamp,
+                timestamp,
+            ),
+        )
+
+    def _update_attempt(self, previous: Attempt, current: Attempt) -> None:
+        if current.revision != previous.revision + 1:
+            raise ConcurrencyConflict("attempt revision must increase by one")
+        cursor = self._connection.execute(
+            """
+            UPDATE attempts
+            SET state = ?, revision = ?, document_json = ?, updated_at = ?
+            WHERE attempt_id = ? AND revision = ?
+            """,
+            (
+                current.state.value,
+                current.revision,
+                _dump(current.to_dict()),
+                self._timestamp(),
+                previous.attempt_id,
+                previous.revision,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ConcurrencyConflict("attempt was changed by another operation")
+
+    @staticmethod
+    def _analysis_from_document(document: dict[str, Any]) -> Analysis:
+        return Analysis(
+            analysis_id=document["analysis_id"],
+            subject_uri=document["subject_uri"],
+            methodology_id=document["methodology_id"],
+            methodology_version=document["methodology_version"],
+            state=AnalysisState(document["state"]),
+            max_attempts=document["max_attempts"],
+            attempt_ids=tuple(document["attempt_ids"]),
+            created_at=_parse_datetime(document["created_at"]),
+            updated_at=_parse_datetime(document["updated_at"]),
+            started_at=(
+                _parse_datetime(document["started_at"])
+                if document["started_at"] is not None
+                else None
+            ),
+            finished_at=(
+                _parse_datetime(document["finished_at"])
+                if document["finished_at"] is not None
+                else None
+            ),
+            revision=document["revision"],
+        )
+
+    @staticmethod
+    def _attempt_from_document(document: dict[str, Any]) -> Attempt:
+        return Attempt(
+            attempt_id=document["attempt_id"],
+            analysis_id=document["analysis_id"],
+            sequence=document["sequence"],
+            state=AttemptState(document["state"]),
+            created_at=_parse_datetime(document["created_at"]),
+            updated_at=_parse_datetime(document["updated_at"]),
+            started_at=_parse_datetime(document["started_at"]),
+            finished_at=(
+                _parse_datetime(document["finished_at"])
+                if document["finished_at"] is not None
+                else None
+            ),
+            failure_code=document["failure_code"],
+            revision=document["revision"],
+        )
+
+    @staticmethod
+    def _analysis_audit_state(value: Analysis) -> dict[str, Any]:
+        return {"state": value.state.value, "revision": value.revision}
+
+    @staticmethod
+    def _attempt_audit_state(value: Attempt) -> dict[str, Any]:
+        return {
+            "analysis_id": value.analysis_id,
+            "sequence": value.sequence,
+            "state": value.state.value,
+            "revision": value.revision,
+            "failure_code": value.failure_code,
+        }

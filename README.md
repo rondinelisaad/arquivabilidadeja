@@ -4,7 +4,7 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação e a cadeia imutável `Observation → Evidence → IndicatorResult`; ainda não há API, banco, fila ou coleta em rede.
+O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult` e o ciclo de vida local `Analysis → Attempt`. Ainda não há API, fila ou coleta em rede; SQLite é usado somente em desenvolvimento e testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
@@ -78,5 +78,47 @@ repository = SqliteEvidenceRepository(connection)
 ```
 
 Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distintos para migrations e runtime. O usuário da aplicação deve possuir somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
+
+As tabelas mutáveis de ciclo de vida (`analyses` e `attempts`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL.
+
+## Ciclo de vida da análise
+
+O orquestrador controla somente estados e persistência; ele não abre conexões de rede nem executa probes. Análises e tentativas são imutáveis no domínio, e cada transição produz uma nova revisão:
+
+```text
+Analysis: requested → running → completed | partially_completed | failed | cancelled
+Attempt:  running → succeeded | failed | cancelled
+```
+
+```python
+from archivability import (
+    AnalysisOrchestrator,
+    AnalysisState,
+    AttemptState,
+    SqliteLifecycleRepository,
+    load_methodology,
+)
+
+repository = SqliteLifecycleRepository(connection)
+orchestrator = AnalysisOrchestrator(repository)
+methodology = load_methodology("methodology/v0.1.0")
+
+analysis = orchestrator.create_analysis(
+    subject_uri="https://example.org/",
+    methodology=methodology,
+)
+attempt = orchestrator.start_attempt(analysis.analysis_id)
+orchestrator.finish_attempt(
+    analysis.analysis_id,
+    attempt.attempt_id,
+    target=AttemptState.SUCCEEDED,
+)
+orchestrator.finalize_analysis(
+    analysis.analysis_id,
+    target=AnalysisState.COMPLETED,
+)
+```
+
+O banco aplica concorrência otimista por revisão, limite de tentativas e auditoria das transições. URLs analisadas não são copiadas para os eventos de auditoria.
 
 As decisões marcadas como hipótese ou proposta precisam ser revisadas antes do início da implementação.
