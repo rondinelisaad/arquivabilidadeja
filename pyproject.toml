@@ -16,6 +16,9 @@ dependencies = [
     "psycopg-pool>=3.3.3,<4",
 ]
 
+[project.scripts]
+archivability-worker = "archivability.worker:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

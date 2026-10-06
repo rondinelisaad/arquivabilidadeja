@@ -47,6 +47,11 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     archivability.assessment_jobs
 TO :"runtime_role";
 
+-- DELETE is intentionally limited to expired distributed rate-limit buckets.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    archivability.rate_limit_buckets
+TO :"runtime_role";
+
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA archivability
     REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA archivability

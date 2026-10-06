@@ -652,6 +652,60 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             )
             raise
 
+    def record_assessment_worker_lifecycle_event(
+        self,
+        *,
+        worker_id: str,
+        status: str,
+        processed_count: int,
+        error_code: str | None = None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            valid_status = status in {"started", "stopped", "failed"}
+            valid_error = (status == "failed") == (error_code is not None)
+            if (
+                not valid_status
+                or not valid_error
+                or not isinstance(processed_count, int)
+                or isinstance(processed_count, bool)
+                or processed_count < 0
+            ):
+                raise IntegrityViolation(
+                    "assessment worker lifecycle event is inconsistent"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="assessment_worker",
+                    resource_id=worker_id,
+                    result="failure" if status == "failed" else "success",
+                    audit=audit,
+                    action="system.assessment_worker_lifecycle",
+                    extra={
+                        "status": status,
+                        "processed_count": processed_count,
+                        "error_code": error_code,
+                    },
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "assessment_worker",
+                worker_id,
+                audit,
+                exc,
+                "system.assessment_worker_lifecycle",
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "assessment_worker",
+                worker_id,
+                audit,
+                exc,
+                "system.assessment_worker_lifecycle",
+            )
+            raise
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             f"""

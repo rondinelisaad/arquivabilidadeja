@@ -76,6 +76,7 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertTrue(connection.fake_cursor.closed)
         self.assertEqual("001_initial", inserts[0][0])
         self.assertEqual(64, len(inserts[0][1]))
+        self.assertEqual("002_rate_limit_buckets", inserts[1][0])
 
     def test_changed_applied_migration_is_rejected_and_rolled_back(self) -> None:
         connection = FakeConnection([("001_initial", "0" * 64)])
@@ -112,6 +113,11 @@ class PostgreSqlMigrationTests(unittest.TestCase):
             "audit_events",
         ):
             self.assertIn(f"CREATE TABLE {table}", migration)
+        rate_limit_migration = (
+            ROOT
+            / "src/archivability/storage/migrations/postgresql/002_rate_limit_buckets.sql"
+        ).read_text(encoding="utf-8")
+        self.assertIn("CREATE TABLE rate_limit_buckets", rate_limit_migration)
         self.assertIn("JSONB", migration)
         self.assertIn("TIMESTAMPTZ", migration)
         self.assertIn("REVOKE ALL ON ALL TABLES", grants)
@@ -119,6 +125,7 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertIn('REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC', grants)
         self.assertNotIn("GRANT ALL", grants)
         self.assertNotIn("GRANT DELETE", grants)
+        self.assertIn("archivability.rate_limit_buckets", grants)
         self.assertNotIn("CREATE ROLE", grants)
         self.assertNotIn("PASSWORD", grants.upper())
 

@@ -80,7 +80,7 @@ repository = SqliteEvidenceRepository(connection)
 
 Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distintos para migrations e runtime. O usuário da aplicação deve possuir somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
 
-As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
+As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigem `UPDATE`, sempre protegido por revisão otimista. Nenhuma tabela de domínio concede `DELETE` ao runtime. A única exceção é a tabela operacional `rate_limit_buckets`, na qual `DELETE` é necessário para remover buckets ociosos já totalmente recarregados e manter o armazenamento limitado. O runtime não recebe qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
 
 O schema PostgreSQL de produção é provisionado separadamente com uma conexão ociosa, transacional e pertencente ao usuário exclusivo de migrations. O executor serializa concorrentes com advisory lock, registra versão, checksum, ator e instante de aplicação e recusa migrations já aplicadas cujo checksum tenha mudado:
 
@@ -102,7 +102,7 @@ O mesmo adaptador produz snapshots de relatório em uma transação PostgreSQL `
 
 ## Composição ASGI de produção
 
-`archivability.asgi:create_app` é uma factory para servidores ASGI. Ela valida toda a configuração antes de abrir o pool, carrega a metodologia uma vez e cria um repositório PostgreSQL por requisição. O lifespan abre o pool somente no startup, aguarda as conexões mínimas, registra `system.application_lifecycle` e fecha o pool no shutdown. A checagem de cada conexão rejeita papéis com `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `CREATE`, `TEMP`, `DELETE`, `TRUNCATE` ou `TRIGGER`.
+`archivability.asgi:create_app` é uma factory para servidores ASGI. Ela valida toda a configuração antes de abrir o pool, carrega a metodologia uma vez e cria um repositório PostgreSQL por requisição. O lifespan abre o pool somente no startup, aguarda as conexões mínimas, registra `system.application_lifecycle` e fecha o pool no shutdown. A checagem de cada conexão rejeita papéis com `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `CREATE`, `TEMP`, `TRUNCATE` ou `TRIGGER`, e aceita `DELETE` exclusivamente em `rate_limit_buckets`.
 
 Variáveis obrigatórias:
 
@@ -123,7 +123,27 @@ Exemplo de inicialização, assumindo um servidor ASGI já instalado pelo ambien
 uvicorn --factory archivability.asgi:create_app
 ```
 
-O limiter incluído permanece local ao processo. Use uma única réplica enquanto ele estiver ativo; múltiplas réplicas exigem um `ApiRateLimiter` distribuído injetado em `create_production_app`.
+O limite `ARCHIVABILITY_MAX_RATE_LIMIT_BUCKETS` controla a quantidade máxima de identidades ativas. O limiter usa relógio do PostgreSQL, bloqueio por linha e lock transacional na criação para manter o consumo consistente entre processos e réplicas. Uma implementação alternativa ainda pode ser injetada em `create_production_app` para testes ou outra infraestrutura.
+
+## Worker de avaliação
+
+O comando `archivability-worker` consome a fila PostgreSQL e executa a derivação HTTP já persistida, sem realizar coleta externa. Ele valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa os eventos de job existentes para claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; jobs interrompidos abruptamente continuam recuperáveis pelo lease.
+
+Além das variáveis de banco, ambiente e metodologia usadas pelo servidor, o processo aceita limites estritos opcionais:
+
+```text
+ARCHIVABILITY_WORKER_ID
+ARCHIVABILITY_WORKER_POLL_MILLISECONDS
+ARCHIVABILITY_WORKER_LEASE_SECONDS
+ARCHIVABILITY_WORKER_RETRY_BASE_SECONDS
+ARCHIVABILITY_DB_CONNECT_TIMEOUT_SECONDS
+```
+
+Se `ARCHIVABILITY_WORKER_ID` não for definido, cada inicialização gera um UUID opaco. O identificador não deve conter hostname, credencial ou dado pessoal. Um exemplo de execução após instalar o pacote é:
+
+```bash
+archivability-worker
+```
 
 ## Ciclo de vida da análise
 
@@ -221,7 +241,7 @@ app = BearerAuthenticationMiddleware(
 
 O claim OAuth2 `scope` é validado como uma lista limitada de permissões e copiado para o `ApiPrincipal` imutável. `OwnershipAuthorizationPolicy` exige `analysis:create` para iniciar análises. A criação grava o usuário opaco como proprietário na mesma transação da análise; `analysis:read` permite consultar somente os próprios relatórios e `analysis:read:any` concede leitura administrativa explícita. A decisão consulta a tabela append-only `analysis_ownership`, nunca a trilha de auditoria. Leituras sem vínculo ou de outro proprietário falham fechadas antes de acessar o relatório, evitando IDOR e sem revelar se o ID existe. `PermissionAuthorizationPolicy` permanece disponível apenas para cenários globais sem conteúdo privado.
 
-`InMemoryTokenBucketRateLimiter` aplica regras distintas por usuário opaco e operação. O bucket é protegido contra concorrência, recarrega com relógio monotônico, nega operações desconhecidas e limita a quantidade de chaves em memória sem expulsar buckets ativos para abrir espaço a um atacante:
+`InMemoryTokenBucketRateLimiter` continua disponível para testes e desenvolvimento local. Ele aplica regras distintas por usuário opaco e operação, protege o bucket contra concorrência e limita a quantidade de chaves em memória:
 
 ```python
 authorization = OwnershipAuthorizationPolicy(repository)
@@ -234,7 +254,7 @@ rate_limiter = InMemoryTokenBucketRateLimiter(
 )
 ```
 
-O limiter local é adequado a desenvolvimento ou uma única instância. Uma implantação com vários processos ou réplicas deve substituí-lo por um backend distribuído que preserve a mesma interface e aplique limites adicionais por IP no proxy, especialmente antes da verificação criptográfica de tokens inválidos.
+Em produção, `PostgreSqlTokenBucketRateLimiter` é ligado automaticamente à conexão da requisição. O estado distribuído é transacional, recarregado pelo relógio do banco e limitado por poda conservadora de buckets ociosos. Limites adicionais por IP ainda devem ser aplicados no proxy, especialmente antes da verificação criptográfica de tokens inválidos.
 
 Depois da verificação, o middleware insere objetos já construídos no estado ASGI. O adaptador nunca interpreta diretamente `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
 
@@ -248,7 +268,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. A composição de produção usa `ThreadedAsgiSyncRunner`, mantendo cada conexão do pool vinculada a uma requisição e retirando o trabalho síncrono do event loop. A implantação ainda deve restringir egress ao host JWKS. O próximo passo recomendado é substituir o limiter local por coordenação distribuída e criar o processo de worker da fila com encerramento gracioso.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. A composição de produção usa `ThreadedAsgiSyncRunner`, mantendo cada conexão do pool vinculada a uma requisição e retirando o trabalho síncrono do event loop. A implantação ainda deve restringir egress ao host JWKS. O próximo passo recomendado é adicionar health/readiness checks separados para API e worker, métricas operacionais de fila e um manifesto de implantação com políticas explícitas de rede e recursos.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

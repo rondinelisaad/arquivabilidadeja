@@ -23,7 +23,6 @@ from archivability.application.authentication import (
 from archivability.application.http_workflow import HttpAssessmentWorkflow
 from archivability.application.oidc import OidcJwtVerifier, OidcVerifierConfig
 from archivability.application.policies import (
-    InMemoryTokenBucketRateLimiter,
     OwnershipAuthorizationPolicy,
     RateLimitRule,
 )
@@ -39,10 +38,16 @@ from archivability.probes.runner import ProbeRunner
 from archivability.probes.security import SsrfPolicy
 from archivability.storage.audit import AuditContext
 from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
-
+from archivability.storage.postgresql_rate_limit import (
+    PostgreSqlTokenBucketRateLimiter,
+)
 
 _ENVIRONMENT_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _LOCAL_DATABASE_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1"})
+_PRODUCTION_RATE_LIMIT_RULES = {
+    "analysis.create": RateLimitRule(capacity=10, refill_seconds=60),
+    "analysis.read": RateLimitRule(capacity=120, refill_seconds=60),
+}
 
 
 class RuntimeConfigurationError(ValueError):
@@ -80,6 +85,7 @@ class ProductionSettings:
     pool_close_timeout_seconds: int = 5
     max_request_body_bytes: int = 4096
     max_bearer_token_bytes: int = 8192
+    max_rate_limit_buckets: int = 100_000
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, str) or not _ENVIRONMENT_NAME.fullmatch(
@@ -112,6 +118,12 @@ class ProductionSettings:
         )
         self._bounded_int(
             "max_bearer_token_bytes", self.max_bearer_token_bytes, 256, 16_384
+        )
+        self._bounded_int(
+            "max_rate_limit_buckets",
+            self.max_rate_limit_buckets,
+            1,
+            1_000_000,
         )
 
     @classmethod
@@ -150,6 +162,9 @@ class ProductionSettings:
             ),
             max_bearer_token_bytes=cls._optional_int(
                 values, "ARCHIVABILITY_MAX_BEARER_TOKEN_BYTES", 8192
+            ),
+            max_rate_limit_buckets=cls._optional_int(
+                values, "ARCHIVABILITY_MAX_RATE_LIMIT_BUCKETS", 100_000
             ),
         )
 
@@ -495,7 +510,12 @@ def validate_runtime_database_role(connection: psycopg.Connection[Any]) -> None:
                    WHERE namespace.nspname = 'archivability'
                      AND relation.relkind IN ('r', 'p')
                      AND (
-                         has_table_privilege(current_user, relation.oid, 'DELETE')
+                         (
+                             relation.relname <> 'rate_limit_buckets'
+                             AND has_table_privilege(
+                                 current_user, relation.oid, 'DELETE'
+                             )
+                         )
                          OR has_table_privilege(current_user, relation.oid, 'TRUNCATE')
                          OR has_table_privilege(current_user, relation.oid, 'TRIGGER')
                      )
@@ -529,7 +549,11 @@ def validate_runtime_database_role(connection: psycopg.Connection[Any]) -> None:
                            ('archivability.indicator_result_evidence', 'INSERT'),
                            ('archivability.analysis_ownership', 'SELECT'),
                            ('archivability.analysis_ownership', 'INSERT'),
-                           ('archivability.audit_events', 'INSERT')
+                           ('archivability.audit_events', 'INSERT'),
+                           ('archivability.rate_limit_buckets', 'SELECT'),
+                           ('archivability.rate_limit_buckets', 'INSERT'),
+                           ('archivability.rate_limit_buckets', 'UPDATE'),
+                           ('archivability.rate_limit_buckets', 'DELETE')
                    ) AS required(table_name, privilege)
                )
         FROM pg_catalog.pg_roles AS role
@@ -561,13 +585,7 @@ def create_production_app(
         resolver = SystemAddressResolver()
     if probe is None:
         probe = HttpMetadataProbe()
-    if rate_limiter is None:
-        rate_limiter = InMemoryTokenBucketRateLimiter(
-            {
-                "analysis.create": RateLimitRule(capacity=10, refill_seconds=60),
-                "analysis.read": RateLimitRule(capacity=120, refill_seconds=60),
-            }
-        )
+    injected_rate_limiter = rate_limiter
     if pool is None:
         try:
             pool_module = importlib.import_module("psycopg_pool")
@@ -602,6 +620,13 @@ def create_production_app(
 
     def request_app(connection: psycopg.Connection[Any]) -> AsgiApplication:
         persistence = repository(connection)
+        request_rate_limiter = injected_rate_limiter
+        if request_rate_limiter is None:
+            request_rate_limiter = PostgreSqlTokenBucketRateLimiter(
+                connection,
+                _PRODUCTION_RATE_LIMIT_RULES,
+                max_buckets=settings.max_rate_limit_buckets,
+            )
         orchestrator = AnalysisOrchestrator(persistence)
         runner = ProbeRunner(
             policy=SsrfPolicy(),
@@ -624,7 +649,7 @@ def create_production_app(
             reports=AnalysisReportService(persistence),
             probe=probe,
             authorization=OwnershipAuthorizationPolicy(persistence),
-            rate_limiter=rate_limiter,
+            rate_limiter=request_rate_limiter,
             audit_recorder=persistence,
         )
         http_app = AnalysisAsgiApp(
