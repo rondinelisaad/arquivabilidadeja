@@ -612,6 +612,46 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             )
             raise
 
+    def record_application_lifecycle_event(
+        self,
+        *,
+        instance_id: str,
+        status: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            if status not in {"started", "stopped"}:
+                raise IntegrityViolation(
+                    "application lifecycle status is invalid"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="application_instance",
+                    resource_id=instance_id,
+                    result="success",
+                    audit=audit,
+                    action="system.application_lifecycle",
+                    extra={"status": status},
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "application_instance",
+                instance_id,
+                audit,
+                exc,
+                "system.application_lifecycle",
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "application_instance",
+                instance_id,
+                audit,
+                exc,
+                "system.application_lifecycle",
+            )
+            raise
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             f"""

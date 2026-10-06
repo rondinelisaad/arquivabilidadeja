@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import inspect
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping
@@ -39,7 +40,7 @@ class AuthenticationAuditRecorder(Protocol):
         result: str,
         error_code: str | None,
         audit: AuditContext,
-    ) -> None: ...
+    ) -> None | Awaitable[None]: ...
 
 
 class BearerAuthenticationMiddleware:
@@ -109,7 +110,7 @@ class BearerAuthenticationMiddleware:
                 session_id=principal.session_id,
                 ip_address=ip_address,
             )
-            self._audit_recorder.record_bearer_authentication_event(
+            await self._record_authentication_event(
                 request_id=request_id,
                 result="success",
                 error_code=None,
@@ -206,7 +207,7 @@ class BearerAuthenticationMiddleware:
         error_code = "INVALID_TOKEN"
         message = "Bearer token is invalid."
         try:
-            self._audit_recorder.record_bearer_authentication_event(
+            await self._record_authentication_event(
                 request_id=request_id,
                 result="failure",
                 error_code=error_code,
@@ -223,6 +224,23 @@ class BearerAuthenticationMiddleware:
             error_code=error_code,
             message=message,
         )
+
+    async def _record_authentication_event(
+        self,
+        *,
+        request_id: str,
+        result: str,
+        error_code: str | None,
+        audit: AuditContext,
+    ) -> None:
+        outcome = self._audit_recorder.record_bearer_authentication_event(
+            request_id=request_id,
+            result=result,
+            error_code=error_code,
+            audit=audit,
+        )
+        if inspect.isawaitable(outcome):
+            await outcome
 
     @staticmethod
     async def _send_error(
@@ -250,5 +268,11 @@ class BearerAuthenticationMiddleware:
         ]
         if status_code == 401:
             headers.append((b"www-authenticate", _WWW_AUTHENTICATE.encode("ascii")))
-        await send({"type": "http.response.start", "status": status_code, "headers": headers})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": headers,
+            }
+        )
         await send({"type": "http.response.body", "body": body, "more_body": False})

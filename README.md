@@ -100,6 +100,31 @@ Depois do provisionamento, um administrador aplica `deploy/postgresql/runtime_gr
 
 O mesmo adaptador produz snapshots de relatório em uma transação PostgreSQL `REPEATABLE READ READ ONLY`, evitando misturar revisões concorrentes de análises, jobs, evidências e resultados. Acessos ao relatório e eventos das fronteiras API, ASGI e autenticação são gravados na trilha append-only somente com rota lógica, IDs opacos, status e códigos estáveis; URL, corpo, cabeçalhos e credenciais não são registrados. O runtime continua precisando apenas dos grants `SELECT`, `INSERT` e `UPDATE` já documentados, sem DDL.
 
+## Composição ASGI de produção
+
+`archivability.asgi:create_app` é uma factory para servidores ASGI. Ela valida toda a configuração antes de abrir o pool, carrega a metodologia uma vez e cria um repositório PostgreSQL por requisição. O lifespan abre o pool somente no startup, aguarda as conexões mínimas, registra `system.application_lifecycle` e fecha o pool no shutdown. A checagem de cada conexão rejeita papéis com `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `CREATE`, `TEMP`, `DELETE`, `TRUNCATE` ou `TRIGGER`.
+
+Variáveis obrigatórias:
+
+```text
+ARCHIVABILITY_ENVIRONMENT
+ARCHIVABILITY_DATABASE_DSN
+ARCHIVABILITY_METHODOLOGY_PATH
+ARCHIVABILITY_OIDC_ISSUER
+ARCHIVABILITY_OIDC_AUDIENCE
+ARCHIVABILITY_OIDC_JWKS_URI
+```
+
+O DSN deve declarar banco e usuário de runtime. Conexões remotas exigem `sslmode=verify-full` e a factory fixa TLS 1.2 como versão mínima; senha e certificados devem ser injetados pelo ambiente ou pelo mecanismo de segredos da plataforma, nunca versionados. `ARCHIVABILITY_DB_POOL_MIN_SIZE`, `ARCHIVABILITY_DB_POOL_MAX_SIZE`, `ARCHIVABILITY_DB_POOL_TIMEOUT_SECONDS`, `ARCHIVABILITY_DB_POOL_CLOSE_TIMEOUT_SECONDS`, `ARCHIVABILITY_MAX_REQUEST_BODY_BYTES` e `ARCHIVABILITY_MAX_BEARER_TOKEN_BYTES` permitem ajustar somente limites previamente validados.
+
+Exemplo de inicialização, assumindo um servidor ASGI já instalado pelo ambiente de implantação:
+
+```bash
+uvicorn --factory archivability.asgi:create_app
+```
+
+O limiter incluído permanece local ao processo. Use uma única réplica enquanto ele estiver ativo; múltiplas réplicas exigem um `ApiRateLimiter` distribuído injetado em `create_production_app`.
+
 ## Ciclo de vida da análise
 
 O orquestrador controla somente estados e persistência; ele não abre conexões de rede nem executa probes. Análises e tentativas são imutáveis no domínio, e cada transição produz uma nova revisão:
@@ -223,7 +248,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. Com a paridade do adaptador PostgreSQL concluída, o próximo passo recomendado é criar a composição de produção com configuração validada, pool de conexões e ciclo de vida ASGI.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. A composição de produção usa `ThreadedAsgiSyncRunner`, mantendo cada conexão do pool vinculada a uma requisição e retirando o trabalho síncrono do event loop. A implantação ainda deve restringir egress ao host JWKS. O próximo passo recomendado é substituir o limiter local por coordenação distribuída e criar o processo de worker da fila com encerramento gracioso.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
