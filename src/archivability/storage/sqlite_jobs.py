@@ -231,6 +231,110 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_http_workflow_event(
+        self,
+        *,
+        analysis_id: str,
+        attempt_id: str,
+        job_id: str | None,
+        result: str,
+        status: str,
+        failure_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = analysis_id
+        try:
+            self._validate_workflow_event(
+                result=result,
+                status=status,
+                job_id=job_id,
+                failure_code=failure_code,
+            )
+            with self._transaction():
+                attempt = self._connection.execute(
+                    """
+                    SELECT 1 FROM attempts
+                    WHERE attempt_id = ? AND analysis_id = ?
+                    """,
+                    (attempt_id, analysis_id),
+                ).fetchone()
+                if attempt is None:
+                    raise IntegrityViolation(
+                        "workflow event does not reference a valid attempt"
+                    )
+                if job_id is not None:
+                    job = self._connection.execute(
+                        """
+                        SELECT 1 FROM assessment_jobs
+                        WHERE job_id = ? AND analysis_id = ?
+                        """,
+                        (job_id, analysis_id),
+                    ).fetchone()
+                    if job is None:
+                        raise IntegrityViolation(
+                            "workflow event does not reference a valid job"
+                        )
+                self._write_audit(
+                    resource="analysis",
+                    resource_id=analysis_id,
+                    result=result,
+                    audit=audit,
+                    action="job.http_assessment_workflow",
+                    extra={
+                        "attempt_id": attempt_id,
+                        "job_id": job_id,
+                        "status": status,
+                        "failure_code": failure_code,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis",
+                resource_id,
+                audit,
+                exc,
+                action="job.http_assessment_workflow",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis",
+                resource_id,
+                audit,
+                exc,
+                action="job.http_assessment_workflow",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
+    @staticmethod
+    def _validate_workflow_event(
+        *,
+        result: str,
+        status: str,
+        job_id: str | None,
+        failure_code: str | None,
+    ) -> None:
+        if status == "assessment_queued":
+            valid = result == "success" and job_id is not None and failure_code is None
+        elif status in {"retry_available", "failed"}:
+            valid = (
+                result == "failure"
+                and job_id is None
+                and failure_code in {"PROBE_FAILED", "PERSISTENCE_FAILED"}
+            )
+        elif status == "queue_failed":
+            valid = (
+                result == "failure"
+                and job_id is None
+                and failure_code == "QUEUE_FAILED"
+            )
+        else:
+            valid = False
+        if not valid:
+            raise IntegrityViolation("HTTP workflow audit event is inconsistent")
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             """

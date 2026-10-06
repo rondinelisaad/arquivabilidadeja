@@ -145,7 +145,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `HttpAssessmentQueueService` e `HttpAssessmentWorker` fornecem uma fila SQLite local e durável para essa derivação. Cada observação possui no máximo um job; a reivindicação usa lease exclusivo e revisão otimista, falhas recebem backoff exponencial limitado e um worker pode recuperar leases expirados. O ACK acontece depois da avaliação: se houver interrupção entre as duas etapas, a recuperação executa o replay idempotente. Os eventos de enqueue, claim, retry, sucesso e falha são auditados sem URL ou mensagem de exceção, e jobs não podem ser excluídos.
 
-O próximo passo é criar um caso de uso explícito de ponta a ponta que coordene `Analysis → Attempt → Probe → AssessmentJob`, ainda sem endpoint público nem agendamento automático.
+`HttpAssessmentWorkflow` oferece o caso de uso explícito `Analysis → Attempt → Probe → AssessmentJob`. Ele valida limites antes da coleta, aceita somente o contrato `http-metadata`, converte saída incompatível do probe em falha de tentativa antes da persistência e permite retry manual apenas após uma tentativa realmente falha. Uma tentativa bem-sucedida gera exatamente um job durável e bloqueia novas coletas para a mesma análise. O evento agregado `job.http_assessment_workflow` registra o desfecho somente com IDs opacos e códigos estáveis. O workflow não é endpoint, scheduler ou daemon: a aplicação chamadora ainda precisa acioná-lo explicitamente e fornecer o probe.
+
+O próximo passo é criar um modelo de leitura seguro para consultar progresso, tentativas, resultados e proveniência de uma análise antes de expor esse fluxo em uma API Web.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

@@ -1,5 +1,12 @@
 """Core domain package for Arquivabilidade JA."""
 
+from archivability.application import (
+    HttpAssessmentWorkflow,
+    HttpWorkflowOutcome,
+    HttpWorkflowRepository,
+    ProbeLimits,
+    WorkflowError,
+)
 from archivability.evidence import (
     DerivationPersistenceResult,
     Evidence,
@@ -93,9 +100,12 @@ __all__ = [
     "HttpAssessmentQueueService",
     "HttpAssessmentRepository",
     "HttpAssessmentWorker",
+    "HttpAssessmentWorkflow",
     "HttpMetadataAssessmentService",
     "HttpMetadataDerivation",
     "HttpMetadataDerivationError",
+    "HttpWorkflowOutcome",
+    "HttpWorkflowRepository",
     "IndicatorResult",
     "IntegrityViolation",
     "JobError",
@@ -109,6 +119,7 @@ __all__ = [
     "ProbeExecutionOutcome",
     "ProbeExecutionRepository",
     "ProbeExecutionService",
+    "ProbeLimits",
     "ProbeRequest",
     "ProbeRequestAuthorizer",
     "ProbeRunResult",
@@ -121,6 +132,7 @@ __all__ = [
     "SqliteLifecycleRepository",
     "SsrfPolicy",
     "WorkerOutcome",
+    "WorkflowError",
     "apply_sqlite_migrations",
     "configure_sqlite_connection",
     "derive_indicator_result",
