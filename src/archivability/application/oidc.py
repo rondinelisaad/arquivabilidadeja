@@ -33,6 +33,7 @@ class OidcVerifierConfig:
     algorithms: tuple[str, ...] = ("RS256",)
     token_types: tuple[str, ...] = ("at+jwt",)
     session_claim: str = "sid"
+    permissions_claim: str = "scope"
     leeway_seconds: int = 30
     max_token_lifetime_seconds: int = 3600
     jwks_cache_seconds: int = 300
@@ -77,6 +78,10 @@ class OidcVerifierConfig:
             self.session_claim
         ):
             raise OidcConfigurationError("session_claim is invalid")
+        if not isinstance(self.permissions_claim, str) or not _CLAIM_NAME.fullmatch(
+            self.permissions_claim
+        ):
+            raise OidcConfigurationError("permissions_claim is invalid")
         self._bounded_int("leeway_seconds", self.leeway_seconds, minimum=0, maximum=120)
         self._bounded_int(
             "max_token_lifetime_seconds",
@@ -198,6 +203,7 @@ class OidcJwtVerifier:
             "nbf",
             "sub",
             self._config.session_claim,
+            self._config.permissions_claim,
         ]
         decoded = self._jwt.decode_complete(
             token,
@@ -236,6 +242,7 @@ class OidcJwtVerifier:
             or not 1 <= len(session) <= 256
         ):
             raise OidcVerificationError("token verification failed")
+        permissions = self._permissions(claims)
         issued_at = self._integer_claim(claims, "iat")
         not_before = self._integer_claim(claims, "nbf")
         expires_at = self._integer_claim(claims, "exp")
@@ -250,7 +257,28 @@ class OidcJwtVerifier:
             session_id=self._opaque_identifier(
                 "session", self._config.issuer, subject, session
             ),
+            permissions=permissions,
         )
+
+    def _permissions(self, claims: Mapping[str, Any]) -> frozenset[str]:
+        value = claims.get(self._config.permissions_claim)
+        if not isinstance(value, str) or not value:
+            raise OidcVerificationError("token verification failed")
+        permissions = value.split(" ")
+        if (
+            not 1 <= len(permissions) <= 64
+            or any(not permission for permission in permissions)
+            or len(set(permissions)) != len(permissions)
+        ):
+            raise OidcVerificationError("token verification failed")
+        try:
+            return ApiPrincipal(
+                user_id="permission-validation",
+                session_id="permission-validation",
+                permissions=frozenset(permissions),
+            ).permissions
+        except ValueError:
+            raise OidcVerificationError("token verification failed") from None
 
     @staticmethod
     def _integer_claim(claims: Mapping[str, Any], name: str) -> int:

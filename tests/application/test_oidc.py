@@ -95,6 +95,7 @@ class OidcJwtVerifierTests(unittest.IsolatedAsyncioTestCase):
             "aud": AUDIENCE,
             "sub": "person@example.org",
             "sid": "provider-session-123",
+            "scope": "analysis:create analysis:read",
             "iat": now,
             "nbf": now,
             "exp": now + 600,
@@ -115,6 +116,10 @@ class OidcJwtVerifierTests(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(principal.session_id, r"^oidc-session:[0-9a-f]{64}$")
         self.assertNotIn("person", principal.user_id)
         self.assertNotIn("provider-session", principal.session_id)
+        self.assertEqual(
+            frozenset({"analysis:create", "analysis:read"}),
+            principal.permissions,
+        )
         self.assertEqual([token], self.jwk_client.tokens)
 
     async def test_rejects_wrong_issuer_audience_or_temporal_claims(self) -> None:
@@ -139,6 +144,7 @@ class OidcJwtVerifierTests(unittest.IsolatedAsyncioTestCase):
                 "aud": AUDIENCE,
                 "sub": "subject-1",
                 "sid": "session-1",
+                "scope": "analysis:read",
                 "iat": int(time.time()),
                 "nbf": int(time.time()),
                 "exp": int(time.time()) + 600,
@@ -150,12 +156,16 @@ class OidcJwtVerifierTests(unittest.IsolatedAsyncioTestCase):
         invalid_tokens = (
             token_with_wrong_type,
             self.token(sid=None),
+            self.token(scope=None),
+            self.token(scope="analysis:read analysis:read"),
+            self.token(scope='analysis:read invalid"permission'),
             "not-a-jwt",
         )
 
-        for token in invalid_tokens:
-            with self.assertRaises(OidcVerificationError):
-                await self.verifier.verify(token)
+        for index, token in enumerate(invalid_tokens):
+            with self.subTest(token_index=index):
+                with self.assertRaises(OidcVerificationError):
+                    await self.verifier.verify(token)
 
     async def test_rejects_symmetric_algorithm_and_short_rsa_key(self) -> None:
         now = int(time.time())
@@ -164,6 +174,7 @@ class OidcJwtVerifierTests(unittest.IsolatedAsyncioTestCase):
             "aud": AUDIENCE,
             "sub": "subject-1",
             "sid": "session-1",
+            "scope": "analysis:read",
             "iat": now,
             "nbf": now,
             "exp": now + 600,

@@ -20,6 +20,7 @@ from archivability.storage.audit import AuditContext
 
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
+_PERMISSION_PATTERN = re.compile(r'^[\x21\x23-\x5B\x5D-\x7E]{1,128}$')
 
 
 class ApiValidationError(ValueError):
@@ -30,12 +31,18 @@ class ApiValidationError(ValueError):
 class ApiPrincipal:
     user_id: str
     session_id: str
+    permissions: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         for field in ("user_id", "session_id"):
             value = getattr(self, field)
             if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
                 raise ApiValidationError(f"{field} is invalid")
+        if not isinstance(self.permissions, frozenset) or any(
+            not isinstance(value, str) or not _PERMISSION_PATTERN.fullmatch(value)
+            for value in self.permissions
+        ):
+            raise ApiValidationError("permissions are invalid")
 
 
 @dataclass(frozen=True, slots=True)

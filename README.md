@@ -166,6 +166,7 @@ verifier = OidcJwtVerifier(
         algorithms=("ES256",),
         token_types=("at+jwt",),
         session_claim="sid",
+        permissions_claim="scope",
     )
 )
 app = BearerAuthenticationMiddleware(
@@ -174,6 +175,23 @@ app = BearerAuthenticationMiddleware(
     audit_recorder=repository,
 )
 ```
+
+O claim OAuth2 `scope` é validado como uma lista limitada de permissões e copiado para o `ApiPrincipal` imutável. `PermissionAuthorizationPolicy` exige `analysis:create` para iniciar análises e `analysis:read` para consultar relatórios. Esta é uma autorização global por capacidade; autorização por proprietário/projeto ainda deve ser adicionada antes de resultados privados, sem usar a trilha de auditoria como fonte de decisão.
+
+`InMemoryTokenBucketRateLimiter` aplica regras distintas por usuário opaco e operação. O bucket é protegido contra concorrência, recarrega com relógio monotônico, nega operações desconhecidas e limita a quantidade de chaves em memória sem expulsar buckets ativos para abrir espaço a um atacante:
+
+```python
+authorization = PermissionAuthorizationPolicy()
+rate_limiter = InMemoryTokenBucketRateLimiter(
+    {
+        "analysis.create": RateLimitRule(capacity=5, refill_seconds=60),
+        "analysis.read": RateLimitRule(capacity=60, refill_seconds=60),
+    },
+    max_buckets=10_000,
+)
+```
+
+O limiter local é adequado a desenvolvimento ou uma única instância. Uma implantação com vários processos ou réplicas deve substituí-lo por um backend distribuído que preserve a mesma interface e aplique limites adicionais por IP no proxy, especialmente antes da verificação criptográfica de tokens inválidos.
 
 Depois da verificação, o middleware insere objetos já construídos no estado ASGI. O adaptador nunca interpreta diretamente `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
 
@@ -187,7 +205,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura e restringir egress ao host JWKS. Os próximos passos são conectar políticas reais de autorização e rate limiting e, depois, persistência PostgreSQL.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. Os próximos passos são persistir propriedade/escopo de cada análise para autorização por objeto e, depois, implementar o adaptador PostgreSQL.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
