@@ -1,5 +1,15 @@
 """Explicit application use cases built from the domain services."""
 
+from archivability.application.api import (
+    AnalysisApi,
+    ApiAuditRecorder,
+    ApiAuthorizationPolicy,
+    ApiPrincipal,
+    ApiRateLimiter,
+    ApiRequestContext,
+    ApiResponse,
+    ApiValidationError,
+)
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
@@ -23,12 +33,20 @@ from archivability.application.read_model import (
 )
 
 __all__ = [
+    "AnalysisApi",
     "AnalysisProgress",
     "AnalysisReport",
     "AnalysisReportRepository",
     "AnalysisReportService",
     "AnalysisReportSnapshot",
     "AttemptReport",
+    "ApiAuditRecorder",
+    "ApiAuthorizationPolicy",
+    "ApiPrincipal",
+    "ApiRateLimiter",
+    "ApiRequestContext",
+    "ApiResponse",
+    "ApiValidationError",
     "EvidenceReport",
     "EvidenceSourceReport",
     "HttpAssessmentWorkflow",

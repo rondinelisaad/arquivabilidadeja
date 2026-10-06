@@ -476,6 +476,76 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_analysis_api_event(
+        self,
+        *,
+        request_id: str,
+        operation: str,
+        result: str,
+        status_code: int,
+        error_code: str | None,
+        analysis_id: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = request_id
+        try:
+            if operation not in {"create", "read"}:
+                raise IntegrityViolation("analysis API operation is invalid")
+            if result == "success":
+                valid = (
+                    error_code is None
+                    and analysis_id is not None
+                    and status_code == (202 if operation == "create" else 200)
+                )
+            elif result == "unauthorized":
+                valid = status_code in {401, 403} and error_code in {
+                    "AUTHENTICATION_REQUIRED",
+                    "ACCESS_DENIED",
+                }
+            elif result == "failure":
+                valid = (status_code, error_code) in {
+                    (400, "INVALID_REQUEST"),
+                    (404, "NOT_FOUND"),
+                    (429, "RATE_LIMITED"),
+                    (500, "INTERNAL_ERROR"),
+                }
+            else:
+                valid = False
+            if not valid:
+                raise IntegrityViolation("analysis API audit event is inconsistent")
+            if result == "unauthorized":
+                action = "access.denied"
+            elif error_code == "RATE_LIMITED":
+                action = "access.rate_limited"
+            else:
+                action = f"access.analysis_api_{operation}"
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_api",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action=action,
+                    extra={
+                        "operation": operation,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                        "analysis_id": analysis_id,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis_api", resource_id, audit, exc, action="access.analysis_api"
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis_api", resource_id, audit, exc, action="access.analysis_api"
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             """

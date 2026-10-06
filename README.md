@@ -149,7 +149,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `AnalysisReportService` cria um snapshot transacional de progresso, tentativas, jobs, resultados e proveniência. O contrato de saída reduz o alvo à origem (`scheme://host[:port]/`) e não inclui caminho, query string, fragmento, payload de observação, cabeçalhos ou dados derivados internos. A proveniência pública contém somente IDs, hashes, métodos, versões e timestamps. Cada leitura — inclusive análise inexistente — gera `access.analysis_report` com contagens e códigos estáveis, nunca com o conteúdo do relatório.
 
-O próximo passo é definir a fronteira da API Web sobre esse modelo de leitura, incluindo autenticação, autorização por análise, limites de requisição e respostas de erro sem detalhes internos, antes de disponibilizar endpoints públicos.
+`AnalysisApi` define a fronteira Web sem acoplamento a framework. O adaptador externo deve fornecer um `ApiPrincipal` já autenticado; políticas injetadas autorizam criação e leitura por análise e aplicam rate limiting antes da validação ou coleta. A fronteira oferece as operações equivalentes a `POST /v1/analyses` e `GET /v1/analyses/{analysis_id}`, sempre com erros estáveis, `Cache-Control: no-store`, `nosniff` e sem mensagens internas. Ausência de autenticação, negação, limite excedido, sucesso e falha são auditados sem corpo, URL analisada ou credencial. Falhas dos provedores de autorização e limite são fechadas como erro interno, sem bypass.
+
+Este núcleo não interpreta tokens nem abre um servidor HTTP. O próximo passo é implementar um adaptador ASGI concreto, escolher o mecanismo de autenticação da implantação e ligar as políticas de autorização e rate limiting a serviços reais.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
