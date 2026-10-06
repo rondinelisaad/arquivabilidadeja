@@ -121,4 +121,19 @@ orchestrator.finalize_analysis(
 
 O banco aplica concorrência otimista por revisão, limite de tentativas e auditoria das transições. URLs analisadas não são copiadas para os eventos de auditoria.
 
+## Contrato de probes e proteção SSRF
+
+O pacote `archivability.probes` define o contrato para probes futuros sem incluir cliente HTTP, resolução DNS do sistema ou qualquer implementação que gere tráfego. Antes de um probe ser chamado, `SsrfPolicy`:
+
+- aceita somente HTTP e HTTPS nas portas configuradas;
+- rejeita credenciais, fragmentos, controles, espaços e barras invertidas;
+- normaliza hostname e IDNA;
+- exige que todos os endereços retornados pelo resolver injetado sejam globais;
+- entrega ao probe os IPs já aprovados para conexão direta, evitando nova resolução;
+- revalida integralmente cada redirect e limita tempo, bytes, redirects e observações.
+
+O futuro adaptador HTTP deverá desativar redirects automáticos, conectar somente a um IP presente em `ApprovedTarget.addresses` e preservar o hostname aprovado para `Host` e SNI. Firewall e filtragem de saída continuam necessários como segunda camada.
+
+As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
+
 As decisões marcadas como hipótese ou proposta precisam ser revisadas antes do início da implementação.

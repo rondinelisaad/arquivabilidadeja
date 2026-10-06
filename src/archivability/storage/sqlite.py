@@ -716,6 +716,54 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
             after=self._analysis_audit_state(current),
         )
 
+    def record_probe_event(
+        self,
+        *,
+        analysis_id: str,
+        attempt_id: str,
+        probe_id: str,
+        result: str,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        relation = self._connection.execute(
+            "SELECT 1 FROM attempts WHERE attempt_id = ? AND analysis_id = ?",
+            (attempt_id, analysis_id),
+        ).fetchone()
+        if relation is None:
+            raise IntegrityViolation("probe event does not reference a valid attempt")
+        with self._transaction():
+            self._write_audit(
+                resource="attempt",
+                resource_id=attempt_id,
+                result=result,
+                audit=audit,
+                action="job.probe",
+                extra={
+                    "analysis_id": analysis_id,
+                    "probe_id": probe_id,
+                    "error_code": error_code,
+                },
+            )
+
+    def authorize_probe_request(
+        self, *, analysis_id: str, attempt_id: str, subject_uri: str
+    ) -> None:
+        analysis = self.get_analysis(analysis_id)
+        attempt = self.get_attempt(attempt_id)
+        if analysis is None or attempt is None:
+            raise IntegrityViolation("probe request references missing lifecycle state")
+        if analysis.state is not AnalysisState.RUNNING:
+            raise IntegrityViolation("probe request requires a running analysis")
+        if (
+            attempt.state is not AttemptState.RUNNING
+            or attempt.analysis_id != analysis_id
+            or attempt_id not in analysis.attempt_ids
+        ):
+            raise IntegrityViolation("probe request requires its registered running attempt")
+        if subject_uri != analysis.subject_uri:
+            raise IntegrityViolation("probe request subject does not match the analysis")
+
     def _insert_analysis(self, value: Analysis) -> None:
         timestamp = self._timestamp()
         self._connection.execute(
