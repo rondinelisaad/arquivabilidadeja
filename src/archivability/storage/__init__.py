@@ -20,6 +20,7 @@ from archivability.storage.sqlite import (
 )
 
 if TYPE_CHECKING:
+    from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
     from archivability.storage.sqlite_jobs import SqliteAssessmentJobRepository
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "DuplicateRecordError",
     "IntegrityViolation",
     "PersistenceError",
+    "PostgreSqlAssessmentJobRepository",
     "PostgreSqlEvidenceRepository",
     "PostgreSqlLifecycleRepository",
     "SqliteEvidenceRepository",
@@ -40,6 +42,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "PostgreSqlAssessmentJobRepository":
+        from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
+
+        return PostgreSqlAssessmentJobRepository
     if name == "SqliteAssessmentJobRepository":
         from archivability.storage.sqlite_jobs import SqliteAssessmentJobRepository
 
