@@ -29,6 +29,7 @@ from archivability import (  # noqa: E402
 )
 from archivability.evidence import (  # noqa: E402
     Evidence,
+    HttpMetadataAssessmentService,
     Observation,
     derive_indicator_result,
 )
@@ -264,6 +265,86 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual("failure", failure[0])
         self.assertEqual("UniqueViolation", failure[1]["error_type"])
+
+    def test_http_derivation_is_atomic_and_idempotent(self) -> None:
+        methodology = load_methodology(ROOT / "methodology" / "v0.1.0")
+        analysis = self.orchestrator.create_analysis(
+            subject_uri="https://example.org/private?token=not-in-audit",
+            methodology=methodology,
+            owner_user_id=self.audit.user_id,
+            audit=self.audit,
+        )
+        attempt = self.orchestrator.start_attempt(
+            analysis.analysis_id, audit=self.audit
+        )
+        observation = Observation.create(
+            observation_id=f"http-observation-{uuid4().hex}",
+            analysis_id=analysis.analysis_id,
+            attempt_id=attempt.attempt_id,
+            kind="http_metadata",
+            subject_uri=analysis.subject_uri,
+            observed_at=T0,
+            probe_id="http-metadata",
+            tool_name="integration-probe",
+            tool_version="1.0.0",
+            payload_schema_version="1.1",
+            payload={
+                "status_code": 200,
+                "headers": {"content-length": ["5"]},
+                "response_bytes_observed": 5,
+                "response_byte_limit": 1024,
+                "response_truncated": False,
+                "redirect_count": 0,
+                "final_transport_secure": True,
+            },
+        )
+        succeeded = finish_attempt(
+            attempt,
+            target=AttemptState.SUCCEEDED,
+            occurred_at=T0 + timedelta(seconds=1),
+        )
+        self.repository.complete_probe_attempt(
+            attempt, succeeded, (observation,), audit=self.audit
+        )
+        service = HttpMetadataAssessmentService(
+            methodology=methodology,
+            repository=self.repository,
+            clock=lambda: T0 + timedelta(seconds=2),
+        )
+
+        created = service.assess(observation.observation_id, audit=self.audit)
+        replayed = service.assess(observation.observation_id, audit=self.audit)
+
+        self.assertEqual("created", created.persistence.outcome)
+        self.assertEqual("replayed", replayed.persistence.outcome)
+        self.assertEqual(AnalysisState.COMPLETED, replayed.analysis.state)
+        counts = self.connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM archivability.evidence
+                 WHERE analysis_id = %s),
+                (SELECT count(*) FROM archivability.indicator_results
+                 WHERE analysis_id = %s)
+            """,
+            (analysis.analysis_id, analysis.analysis_id),
+        ).fetchone()
+        self.assertEqual((2, 2), counts)
+        events = self.connection.execute(
+            """
+            SELECT result, extra_json
+            FROM archivability.audit_events
+            WHERE resource_id = %s
+              AND action = 'job.http_metadata_assessment'
+            ORDER BY timestamp, event_id
+            """,
+            (analysis.analysis_id,),
+        ).fetchall()
+        self.assertEqual(
+            ["created", "replayed"],
+            [event[1]["outcome"] for event in events],
+        )
+        self.assertNotIn("example.org", repr(events))
+        self.assertNotIn("not-in-audit", repr(events))
 
     @staticmethod
     def _observation(attempt, observation_id: str) -> Observation:
