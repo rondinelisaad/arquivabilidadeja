@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psycopg
+from psycopg.pq import TransactionStatus
 from psycopg.types.json import Jsonb
 
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.state_machine import claim_assessment_job
+from archivability.lifecycle.models import AnalysisState
 from archivability.storage.audit import AuditContext
 from archivability.storage.errors import (
     ConcurrencyConflict,
@@ -15,6 +17,9 @@ from archivability.storage.errors import (
     PersistenceError,
 )
 from archivability.storage.postgresql_evidence import PostgreSqlEvidenceRepository
+
+if TYPE_CHECKING:
+    from archivability.application.read_model import AnalysisReportSnapshot
 
 
 _UPDATE_ACTIONS = frozenset(
@@ -288,6 +293,325 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             )
             raise
 
+    def load_analysis_report_snapshot(
+        self, analysis_id: str
+    ) -> AnalysisReportSnapshot | None:
+        if self._connection.info.transaction_status is not TransactionStatus.IDLE:
+            raise PersistenceError(
+                "nested or externally managed transactions are unsupported"
+            )
+        try:
+            with self._connection.transaction():
+                self._connection.execute(
+                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                )
+                analysis = self.get_analysis(analysis_id)
+                if analysis is None:
+                    return None
+                attempts = self.list_attempts(analysis_id)
+                job_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT job_id FROM archivability.assessment_jobs
+                        WHERE analysis_id = %s
+                        ORDER BY created_at, job_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                jobs = tuple(self.get_assessment_job(job_id) for job_id in job_ids)
+                evidence_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT evidence_id FROM archivability.evidence
+                        WHERE analysis_id = %s
+                        ORDER BY indicator_id, evidence_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                evidence = tuple(self.get_evidence(value) for value in evidence_ids)
+                indicator_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT indicator_id FROM archivability.indicator_results
+                        WHERE analysis_id = %s
+                        ORDER BY indicator_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                results = tuple(
+                    self.get_indicator_result(analysis_id, value)
+                    for value in indicator_ids
+                )
+                if any(value is None for value in (*jobs, *evidence, *results)):
+                    raise IntegrityViolation(
+                        "analysis report relation disappeared during snapshot"
+                    )
+                from archivability.application.read_model import AnalysisReportSnapshot
+
+                try:
+                    return AnalysisReportSnapshot(
+                        analysis=analysis,
+                        attempts=attempts,
+                        jobs=tuple(value for value in jobs if value is not None),
+                        indicator_results=tuple(
+                            value for value in results if value is not None
+                        ),
+                        evidence=tuple(
+                            value for value in evidence if value is not None
+                        ),
+                    )
+                except ValueError as exc:
+                    raise IntegrityViolation(
+                        "analysis report snapshot failed integrity validation"
+                    ) from exc
+        except psycopg.Error as exc:
+            raise PersistenceError("PostgreSQL report snapshot failed") from exc
+
+    def record_analysis_report_access(
+        self,
+        *,
+        analysis_id: str,
+        result: str,
+        error_code: str | None,
+        state: str | None,
+        attempt_count: int,
+        job_count: int,
+        result_count: int,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            if result not in {"success", "failure"}:
+                raise IntegrityViolation("analysis report result is invalid")
+            if result == "success" and error_code is not None:
+                raise IntegrityViolation(
+                    "successful report access cannot have an error"
+                )
+            if result == "failure" and error_code not in {
+                "ANALYSIS_NOT_FOUND",
+                "REPORT_BUILD_FAILED",
+            }:
+                raise IntegrityViolation("report failure code is invalid")
+            if state is not None and state not in {
+                item.value for item in AnalysisState
+            }:
+                raise IntegrityViolation("analysis report state is invalid")
+            counts = (attempt_count, job_count, result_count)
+            if any(not isinstance(value, int) or value < 0 for value in counts):
+                raise IntegrityViolation("analysis report counts are invalid")
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_report",
+                    resource_id=analysis_id,
+                    result=result,
+                    audit=audit,
+                    action="access.analysis_report",
+                    extra={
+                        "error_code": error_code,
+                        "state": state,
+                        "attempt_count": attempt_count,
+                        "job_count": job_count,
+                        "result_count": result_count,
+                    },
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "analysis_report", analysis_id, audit, exc, "access.analysis_report"
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "analysis_report", analysis_id, audit, exc, "access.analysis_report"
+            )
+            raise
+
+    def record_analysis_api_event(
+        self,
+        *,
+        request_id: str,
+        operation: str,
+        result: str,
+        status_code: int,
+        error_code: str | None,
+        analysis_id: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            if operation not in {"create", "read"}:
+                raise IntegrityViolation("analysis API operation is invalid")
+            if result == "success":
+                valid = (
+                    error_code is None
+                    and analysis_id is not None
+                    and status_code == (202 if operation == "create" else 200)
+                )
+            elif result == "unauthorized":
+                valid = status_code in {401, 403} and error_code in {
+                    "AUTHENTICATION_REQUIRED",
+                    "ACCESS_DENIED",
+                }
+            elif result == "failure":
+                valid = (status_code, error_code) in {
+                    (400, "INVALID_REQUEST"),
+                    (404, "NOT_FOUND"),
+                    (429, "RATE_LIMITED"),
+                    (500, "INTERNAL_ERROR"),
+                }
+            else:
+                valid = False
+            if not valid:
+                raise IntegrityViolation(
+                    "analysis API audit event is inconsistent"
+                )
+            if result == "unauthorized":
+                action = "access.denied"
+            elif error_code == "RATE_LIMITED":
+                action = "access.rate_limited"
+            else:
+                action = f"access.analysis_api_{operation}"
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_api",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action=action,
+                    extra={
+                        "operation": operation,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                        "analysis_id": analysis_id,
+                    },
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "analysis_api", request_id, audit, exc, "access.analysis_api"
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "analysis_api", request_id, audit, exc, "access.analysis_api"
+            )
+            raise
+
+    def record_analysis_http_event(
+        self,
+        *,
+        request_id: str,
+        route: str,
+        method: str,
+        result: str,
+        status_code: int,
+        error_code: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            valid_errors = {
+                (400, "INVALID_REQUEST"),
+                (400, "INVALID_JSON"),
+                (404, "NOT_FOUND"),
+                (405, "METHOD_NOT_ALLOWED"),
+                (413, "PAYLOAD_TOO_LARGE"),
+                (415, "UNSUPPORTED_MEDIA_TYPE"),
+                (500, "INTERNAL_ERROR"),
+            }
+            if (
+                route not in {
+                    "analyses_collection",
+                    "analysis_item",
+                    "unmatched",
+                }
+                or method
+                not in {
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                    "HEAD",
+                    "OPTIONS",
+                    "OTHER",
+                }
+                or result != "failure"
+                or (status_code, error_code) not in valid_errors
+            ):
+                raise IntegrityViolation(
+                    "analysis HTTP audit event is inconsistent"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_http_adapter",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="access.analysis_http_adapter",
+                    extra={
+                        "route": route,
+                        "method": method,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                    },
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "analysis_http_adapter",
+                request_id,
+                audit,
+                exc,
+                "access.analysis_http_adapter",
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "analysis_http_adapter",
+                request_id,
+                audit,
+                exc,
+                "access.analysis_http_adapter",
+            )
+            raise
+
+    def record_bearer_authentication_event(
+        self,
+        *,
+        request_id: str,
+        result: str,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            valid = (result == "success" and error_code is None) or (
+                result == "failure" and error_code == "INVALID_TOKEN"
+            )
+            if not valid:
+                raise IntegrityViolation(
+                    "bearer authentication event is inconsistent"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="authentication",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="auth.bearer_token",
+                    extra={"error_code": error_code},
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "authentication", request_id, audit, exc, "auth.bearer_token"
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "authentication", request_id, audit, exc, "auth.bearer_token"
+            )
+            raise
+
     def _get_job_for_observation(self, observation_id: str) -> AssessmentJob | None:
         row = self._connection.execute(
             f"""
@@ -471,6 +795,22 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             audit,
             error,
             action=f"job.http_assessment_queue_{operation}",
+        )
+
+    def _record_boundary_failure(
+        self,
+        resource: str,
+        resource_id: str,
+        audit: AuditContext,
+        error: Exception,
+        action: str,
+    ) -> None:
+        self._record_failure(
+            resource,
+            resource_id,
+            audit,
+            error,
+            action=action,
         )
 
     @staticmethod

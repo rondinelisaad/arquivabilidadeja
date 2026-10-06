@@ -98,6 +98,8 @@ Depois do provisionamento, um administrador aplica `deploy/postgresql/runtime_gr
 
 `PostgreSqlAssessmentJobRepository` adiciona a fila durável. O enqueue usa a identidade única da observação para replay idempotente; workers concorrentes selecionam jobs disponíveis com `FOR UPDATE SKIP LOCKED`, mantêm leases recuperáveis e concluem cada transição por revisão otimista. Retry, esgotamento e ACK são auditados com códigos estáveis, sem mensagens de exceção.
 
+O mesmo adaptador produz snapshots de relatório em uma transação PostgreSQL `REPEATABLE READ READ ONLY`, evitando misturar revisões concorrentes de análises, jobs, evidências e resultados. Acessos ao relatório e eventos das fronteiras API, ASGI e autenticação são gravados na trilha append-only somente com rota lógica, IDs opacos, status e códigos estáveis; URL, corpo, cabeçalhos e credenciais não são registrados. O runtime continua precisando apenas dos grants `SELECT`, `INSERT` e `UPDATE` já documentados, sem DDL.
+
 ## Ciclo de vida da análise
 
 O orquestrador controla somente estados e persistência; ele não abre conexões de rede nem executa probes. Análises e tentativas são imutáveis no domínio, e cada transição produz uma nova revisão:
@@ -221,7 +223,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é portar snapshots de relatório e eventos da fronteira Web para completar a paridade do adaptador PostgreSQL.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. Com a paridade do adaptador PostgreSQL concluída, o próximo passo recomendado é criar a composição de produção com configuração validada, pool de conexões e ciclo de vida ASGI.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

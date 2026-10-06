@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -18,12 +19,16 @@ import psycopg  # noqa: E402
 
 from archivability import (  # noqa: E402
     AnalysisOrchestrator,
+    AnalysisReportService,
     AttemptState,
     AuditContext,
     ConcurrencyConflict,
     HttpAssessmentQueueService,
+    HttpMetadataAssessmentService,
+    IntegrityViolation,
     Observation,
     PostgreSqlAssessmentJobRepository,
+    ReportNotFoundError,
     apply_postgresql_migrations,
     load_methodology,
 )
@@ -225,6 +230,133 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
         self.assertEqual(succeeded, stored)
         self.assertEqual(2, stored.attempt_count)
 
+    def test_report_snapshot_and_access_audit_are_sanitized(self) -> None:
+        observation = self._successful_observation()
+        queue = HttpAssessmentQueueService(
+            repository=self.repository,
+            clock=lambda: T0 + timedelta(seconds=3),
+            job_id_factory=lambda: f"job-{uuid4().hex}",
+        )
+        queued = queue.enqueue(observation.observation_id, audit=self.audit).job
+        service = AnalysisReportService(self.repository)
+
+        report = service.get_report(observation.analysis_id, audit=self.audit)
+
+        self.assertEqual("https://example.org/", report.target_origin)
+        self.assertEqual("assessment_queued", report.progress.phase)
+        self.assertEqual((queued.job_id,), tuple(item.job_id for item in report.jobs))
+        event = self.connection.execute(
+            """
+            SELECT result, extra_json
+            FROM archivability.audit_events
+            WHERE action = 'access.analysis_report' AND resource_id = %s
+            ORDER BY timestamp DESC, event_id DESC
+            LIMIT 1
+            """,
+            (observation.analysis_id,),
+        ).fetchone()
+        assert event is not None
+        self.assertEqual("success", event[0])
+        self.assertEqual(1, event[1]["job_count"])
+        serialized = json.dumps(event[1])
+        self.assertNotIn("example.org", serialized)
+        self.assertNotIn("private/path", serialized)
+        self.assertNotIn("subject_uri", serialized)
+
+        claimed = self.repository.claim_next_assessment_job(
+            worker_id="worker-report",
+            occurred_at=T0 + timedelta(seconds=4),
+            lease_expires_at=T0 + timedelta(minutes=1),
+        )
+        assert claimed is not None
+        assessor = HttpMetadataAssessmentService(
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+            repository=self.repository,
+            clock=lambda: T0 + timedelta(seconds=5),
+        )
+        assessor.assess(observation.observation_id, audit=self.audit)
+        self.repository.update_assessment_job(
+            claimed,
+            succeed_assessment_job(
+                claimed, occurred_at=T0 + timedelta(seconds=6)
+            ),
+            action="job.http_assessment_queue_succeeded",
+        )
+        completed = service.get_report(observation.analysis_id, audit=self.audit)
+        self.assertEqual("completed", completed.state)
+        self.assertEqual(2, len(completed.indicator_results))
+        self.assertEqual(2, len(completed.evidence))
+
+        with self.assertRaises(ReportNotFoundError):
+            service.get_report(f"missing-{uuid4().hex}", audit=self.audit)
+
+    def test_web_boundary_events_are_validated_and_sanitized(self) -> None:
+        suffix = uuid4().hex
+        api_request_id = f"request-api-{suffix}"
+        http_request_id = f"request-http-{suffix}"
+        auth_request_id = f"request-auth-{suffix}"
+        self.repository.record_analysis_api_event(
+            request_id=api_request_id,
+            operation="create",
+            result="success",
+            status_code=202,
+            error_code=None,
+            analysis_id="analysis-opaque-1",
+            audit=self.audit,
+        )
+        self.repository.record_analysis_http_event(
+            request_id=http_request_id,
+            route="unmatched",
+            method="GET",
+            result="failure",
+            status_code=404,
+            error_code="NOT_FOUND",
+            audit=self.audit,
+        )
+        self.repository.record_bearer_authentication_event(
+            request_id=auth_request_id,
+            result="failure",
+            error_code="INVALID_TOKEN",
+            audit=self.audit,
+        )
+
+        events = self.connection.execute(
+            """
+            SELECT action, resource_id, result, extra_json
+            FROM archivability.audit_events
+            WHERE resource_id IN (%s, %s, %s)
+            ORDER BY resource_id
+            """,
+            (api_request_id, http_request_id, auth_request_id),
+        ).fetchall()
+        self.assertEqual(3, len(events))
+        serialized = json.dumps(events, default=str)
+        self.assertNotIn("authorization", serialized.lower())
+        self.assertNotIn("https://", serialized)
+
+        invalid_request_id = f"request-invalid-{suffix}"
+        with self.assertRaises(IntegrityViolation):
+            self.repository.record_analysis_http_event(
+                request_id=invalid_request_id,
+                route="/private/path",
+                method="GET",
+                result="failure",
+                status_code=404,
+                error_code="NOT_FOUND",
+                audit=self.audit,
+            )
+        failure = self.connection.execute(
+            """
+            SELECT action, result, extra_json
+            FROM archivability.audit_events
+            WHERE resource_id = %s
+            """,
+            (invalid_request_id,),
+        ).fetchone()
+        assert failure is not None
+        self.assertEqual(("access.analysis_http_adapter", "failure"), failure[:2])
+        self.assertNotIn("private/path", json.dumps(failure[2]))
+
     def _successful_observation(self) -> Observation:
         identifier = uuid4().hex
         orchestrator = AnalysisOrchestrator(
@@ -234,7 +366,7 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             attempt_id_factory=lambda: f"attempt-{identifier}",
         )
         analysis = orchestrator.create_analysis(
-            subject_uri="https://example.org/",
+            subject_uri="https://example.org/private/path?token=not-for-audit",
             methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
         )
         attempt = orchestrator.start_attempt(analysis.analysis_id)
@@ -248,8 +380,16 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             probe_id="http-metadata",
             tool_name="integration-probe",
             tool_version="1.0.0",
-            payload_schema_version="1.0",
-            payload={"status_code": 200},
+            payload_schema_version="1.1",
+            payload={
+                "status_code": 200,
+                "headers": {"content-length": ["5"]},
+                "response_bytes_observed": 5,
+                "response_byte_limit": 1024,
+                "response_truncated": False,
+                "redirect_count": 0,
+                "final_transport_secure": True,
+            },
         )
         succeeded = finish_attempt(
             attempt,
