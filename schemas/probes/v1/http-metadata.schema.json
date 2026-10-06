@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/probes/v1/http-metadata.schema.json",
+  "title": "HTTP metadata observation payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status_code",
+    "headers",
+    "response_bytes_observed",
+    "response_truncated",
+    "redirect_count",
+    "final_transport_secure"
+  ],
+  "properties": {
+    "status_code": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "headers": {
+      "type": "object",
+      "additionalProperties": false,
+      "propertyNames": {
+        "enum": [
+          "accept-ranges",
+          "age",
+          "cache-control",
+          "content-encoding",
+          "content-language",
+          "content-length",
+          "content-type",
+          "date",
+          "etag",
+          "expires",
+          "last-modified",
+          "link",
+          "server",
+          "vary"
+        ]
+      },
+      "patternProperties": {
+        "^.*$": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      }
+    },
+    "response_bytes_observed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10485760
+    },
+    "response_truncated": {
+      "type": "boolean"
+    },
+    "redirect_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "final_transport_secure": {
+      "type": "boolean"
+    }
+  }
+}

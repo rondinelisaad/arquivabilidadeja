@@ -4,7 +4,7 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt` e os adaptadores mínimos de DNS/HTTP protegidos contra SSRF. Ainda não há API, fila nem probes concretos de avaliação; SQLite é usado somente em desenvolvimento e testes.
+O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF e o primeiro probe de metadados HTTP. Ainda não há API ou fila; SQLite é usado somente em desenvolvimento e testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
@@ -134,7 +134,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `SystemAddressResolver` consulta apenas endereços para TCP e não mantém cache. `PinnedHttpClient` ignora proxies do ambiente, desativa redirects automáticos, conecta somente a um IP presente em `ApprovedTarget.addresses`, preserva o hostname aprovado para `Host`, SNI e validação do certificado, exige TLS 1.2 ou superior e limita timeout total, cabeçalhos e corpo. Cada redirect volta à política antes de uma nova conexão, e downgrade de HTTPS para HTTP é bloqueado por padrão. Firewall e filtragem de saída continuam necessários como segunda camada.
 
-O cliente ainda não é um probe e não persiste respostas. O próximo passo é implementar o primeiro probe HTTP, convertendo somente metadados permitidos em uma `Observation` imutável; cookies, corpos e URLs de redirect não devem ir para a auditoria.
+`HttpMetadataProbe` converte somente status, cabeçalhos permitidos, contagem de redirects, transporte final e tamanho observado em uma `Observation` imutável. Corpos, cookies e URLs de redirect não são persistidos nem enviados à auditoria. A execução continua condicionada a uma análise/tentativa válida pelo `ProbeRunner`.
+
+O próximo passo é criar o serviço de execução que persiste a observação e conclui a tentativa de forma coordenada, preparando a futura integração com uma fila.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
