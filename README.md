@@ -82,6 +82,16 @@ Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distin
 
 As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
 
+O schema PostgreSQL de produção é provisionado separadamente com uma conexão ociosa, transacional e pertencente ao usuário exclusivo de migrations. O executor serializa concorrentes com advisory lock, registra versão, checksum, ator e instante de aplicação e recusa migrations já aplicadas cujo checksum tenha mudado:
+
+```python
+from archivability import apply_postgresql_migrations
+
+apply_postgresql_migrations(migration_connection)
+```
+
+Depois do provisionamento, um administrador aplica `deploy/postgresql/runtime_grants.sql` com nomes de roles e banco fornecidos como variáveis do `psql`. O script não cria usuários nem contém credenciais: ele remove privilégios implícitos, concede somente `CONNECT`/`USAGE` e o DML necessário por tabela. A role de runtime deve ser criada externamente como `NOSUPERUSER NOCREATEDB NOCREATEROLE` e usar TLS/SCRAM conforme a política do ambiente; a credencial vem do cofre ou do mecanismo de secrets, nunca do repositório.
+
 ## Ciclo de vida da análise
 
 O orquestrador controla somente estados e persistência; ele não abre conexões de rede nem executa probes. Análises e tentativas são imutáveis no domínio, e cada transição produz uma nova revisão:
@@ -205,7 +215,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é implementar o adaptador PostgreSQL com usuários separados para migrations e runtime, preservando transações, autorização por objeto e revisão otimista.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é portar as operações do repositório para PostgreSQL sobre o schema já versionado, preservando transações, autorização por objeto e revisão otimista.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

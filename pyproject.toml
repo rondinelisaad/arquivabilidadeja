@@ -21,4 +21,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-archivability = ["storage/migrations/sqlite/*.sql"]
+archivability = [
+    "storage/migrations/postgresql/*.sql",
+    "storage/migrations/sqlite/*.sql",
+]

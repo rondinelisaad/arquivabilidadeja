@@ -101,6 +101,7 @@ from archivability.storage import (
     SqliteEvidenceRepository,
     SqliteAssessmentJobRepository,
     SqliteLifecycleRepository,
+    apply_postgresql_migrations,
     apply_sqlite_migrations,
     configure_sqlite_connection,
 )
@@ -191,6 +192,7 @@ __all__ = [
     "SsrfPolicy",
     "WorkerOutcome",
     "WorkflowError",
+    "apply_postgresql_migrations",
     "apply_sqlite_migrations",
     "configure_sqlite_connection",
     "derive_indicator_result",

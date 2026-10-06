@@ -9,6 +9,7 @@ from archivability.storage.errors import (
     IntegrityViolation,
     PersistenceError,
 )
+from archivability.storage.postgresql import apply_postgresql_migrations
 from archivability.storage.sqlite import (
     SqliteEvidenceRepository,
     SqliteLifecycleRepository,
@@ -28,6 +29,7 @@ __all__ = [
     "SqliteEvidenceRepository",
     "SqliteAssessmentJobRepository",
     "SqliteLifecycleRepository",
+    "apply_postgresql_migrations",
     "apply_sqlite_migrations",
     "configure_sqlite_connection",
 ]
