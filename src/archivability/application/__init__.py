@@ -28,6 +28,12 @@ from archivability.application.http_workflow import (
     ProbeLimits,
     WorkflowError,
 )
+from archivability.application.oidc import (
+    OidcConfigurationError,
+    OidcJwtVerifier,
+    OidcVerificationError,
+    OidcVerifierConfig,
+)
 from archivability.application.read_model import (
     AnalysisProgress,
     AnalysisReport,
@@ -72,6 +78,10 @@ __all__ = [
     "IndicatorReport",
     "InlineAsgiSyncRunner",
     "JobReport",
+    "OidcConfigurationError",
+    "OidcJwtVerifier",
+    "OidcVerificationError",
+    "OidcVerifierConfig",
     "ProbeLimits",
     "ReportError",
     "ReportNotFoundError",

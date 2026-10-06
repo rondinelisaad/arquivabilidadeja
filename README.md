@@ -153,7 +153,27 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `AnalysisAsgiApp` materializa esse contrato como aplicação ASGI 3 sem dependências externas. Ele aceita somente as duas rotas previstas, limita o corpo a 4 KiB por padrão, exige JSON UTF-8, trata corpos fragmentados e emite cabeçalhos defensivos. Rejeições de transporte são auditadas com rota lógica, método, status e código estável; caminhos, query strings, cabeçalhos e corpos não entram no log.
 
-A autenticação continua deliberadamente fora do núcleo. `BearerAuthenticationMiddleware` aceita exclusivamente um cabeçalho `Authorization: Bearer`, limita seu tamanho e entrega o valor opaco a um `BearerTokenVerifier` injetado. O verificador específico da implantação deve restringir algoritmos criptográficos aprovados e validar assinatura, emissor, audiência, expiração e início de validade antes de devolver um `ApiPrincipal`. Claims não verificados nunca são interpretados pelo middleware; tokens, cabeçalhos e detalhes do provedor nunca entram na auditoria.
+A autenticação continua deliberadamente fora do núcleo. `BearerAuthenticationMiddleware` aceita exclusivamente um cabeçalho `Authorization: Bearer`, limita seu tamanho e entrega o valor opaco a um `BearerTokenVerifier` injetado. Claims não verificados nunca são interpretados pelo middleware; tokens, cabeçalhos e detalhes do provedor nunca entram na auditoria.
+
+`OidcJwtVerifier` é a implementação concreta para access tokens JWT. Sua configuração fixa emissor, audiência, endpoint JWKS, `typ`, claim de sessão e uma allowlist exclusivamente assimétrica (`PS256`, `RS256`, `ES256` ou `EdDSA`). O verificador usa PyJWT com `cryptography`, exige assinatura válida, chave com tamanho mínimo, `iss`, audiência única, `exp`, `iat`, `nbf`, `sub` e sessão, limita duração e clock skew e acessa JWKS somente por HTTPS com timeout, TLS 1.2 mínimo e cache de curta duração. `sub` e sessão são transformados em identificadores SHA-256 opacos antes de chegar à aplicação ou à auditoria.
+
+```python
+verifier = OidcJwtVerifier(
+    OidcVerifierConfig(
+        issuer="https://identity.example.org/realms/archivability",
+        audience="arquivabilidade-api",
+        jwks_uri="https://identity.example.org/realms/archivability/jwks",
+        algorithms=("ES256",),
+        token_types=("at+jwt",),
+        session_claim="sid",
+    )
+)
+app = BearerAuthenticationMiddleware(
+    asgi_app,
+    verifier=verifier,
+    audit_recorder=repository,
+)
+```
 
 Depois da verificação, o middleware insere objetos já construídos no estado ASGI. O adaptador nunca interpreta diretamente `Authorization`, `X-User-ID` ou `X-Request-ID` enviados pelo cliente:
 
@@ -167,7 +187,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. Os próximos passos são escolher o provedor OIDC e implementar seu `BearerTokenVerifier` com biblioteca JOSE madura, cache seguro de JWKS e allowlist explícita de algoritmos; depois, conectar autorização, rate limiting e persistência PostgreSQL reais.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura e restringir egress ao host JWKS. Os próximos passos são conectar políticas reais de autorização e rate limiting e, depois, persistência PostgreSQL.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
