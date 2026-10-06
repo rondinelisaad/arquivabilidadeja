@@ -1,5 +1,9 @@
 """Probe contracts and SSRF-safe network adapters."""
 
+from archivability.probes.execution import (
+    ProbeExecutionOutcome,
+    ProbeExecutionService,
+)
 from archivability.probes.http import (
     HttpFetchResult,
     HttpResponse,
@@ -19,6 +23,7 @@ from archivability.probes.ports import (
     AddressResolver,
     Probe,
     ProbeEventRecorder,
+    ProbeExecutionRepository,
     ProbeRequestAuthorizer,
 )
 from archivability.probes.runner import ProbeRunner
@@ -37,6 +42,9 @@ __all__ = [
     "Probe",
     "ProbeContext",
     "ProbeEventRecorder",
+    "ProbeExecutionOutcome",
+    "ProbeExecutionRepository",
+    "ProbeExecutionService",
     "ProbeRequest",
     "ProbeRequestAuthorizer",
     "ProbeRunResult",

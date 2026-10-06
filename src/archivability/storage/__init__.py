@@ -1,11 +1,13 @@
 """Persistence ports and local development adapters."""
 
 from archivability.storage.audit import AuditContext
-from archivability.storage.sqlite import (
+from archivability.storage.errors import (
     ConcurrencyConflict,
     DuplicateRecordError,
     IntegrityViolation,
     PersistenceError,
+)
+from archivability.storage.sqlite import (
     SqliteEvidenceRepository,
     SqliteLifecycleRepository,
     apply_sqlite_migrations,

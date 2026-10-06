@@ -13,25 +13,15 @@ from archivability.evidence.models import Evidence, EvidenceSource, Observation
 from archivability.lifecycle.models import Analysis, AnalysisState, Attempt, AttemptState
 from archivability.methodology.models import IndicatorResult, ResultState
 from archivability.storage.audit import AuditContext
+from archivability.storage.errors import (
+    ConcurrencyConflict,
+    DuplicateRecordError,
+    IntegrityViolation,
+    PersistenceError,
+)
 
 
 _MIGRATIONS = Path(__file__).parent / "migrations" / "sqlite"
-
-
-class PersistenceError(RuntimeError):
-    """Base error for persistence operations."""
-
-
-class DuplicateRecordError(PersistenceError):
-    """Raised when an immutable identity has already been stored."""
-
-
-class IntegrityViolation(PersistenceError):
-    """Raised when stored content or provenance no longer verifies."""
-
-
-class ConcurrencyConflict(PersistenceError):
-    """Raised when a stale revision attempts to change lifecycle state."""
 
 
 def configure_sqlite_connection(connection: sqlite3.Connection) -> None:
@@ -683,8 +673,7 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
         *,
         audit: AuditContext = AuditContext(),
     ) -> None:
-        if previous.attempt_id != current.attempt_id:
-            raise IntegrityViolation("attempt identity cannot change")
+        self._validate_attempt_identity(previous, current)
         result = "failure" if current.state is AttemptState.FAILED else "success"
         self._execute_write(
             lambda: self._update_attempt(previous, current),
@@ -696,6 +685,61 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
             after=self._attempt_audit_state(current),
             audit_result=result,
         )
+
+    def complete_probe_attempt(
+        self,
+        previous: Attempt,
+        current: Attempt,
+        observations: tuple[Observation, ...],
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = current.attempt_id
+        try:
+            self._validate_probe_completion(previous, current, observations)
+            with self._transaction():
+                for value in observations:
+                    self._insert_observation(value)
+                    self._write_audit(
+                        resource="observation",
+                        resource_id=value.observation_id,
+                        result="success",
+                        audit=audit,
+                        after={
+                            "analysis_id": value.analysis_id,
+                            "content_hash": value.content_hash,
+                        },
+                    )
+                self._update_attempt(previous, current)
+                self._write_audit(
+                    resource="attempt",
+                    resource_id=current.attempt_id,
+                    result="success",
+                    audit=audit,
+                    action="job.analysis_attempt",
+                    before=self._attempt_audit_state(previous),
+                    after=self._attempt_audit_state(current),
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "attempt",
+                resource_id,
+                audit,
+                exc,
+                action="job.probe_persistence",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "attempt",
+                resource_id,
+                audit,
+                exc,
+                action="job.probe_persistence",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
 
     def update_analysis(
         self,
@@ -763,6 +807,39 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
             raise IntegrityViolation("probe request requires its registered running attempt")
         if subject_uri != analysis.subject_uri:
             raise IntegrityViolation("probe request subject does not match the analysis")
+
+    @staticmethod
+    def _validate_probe_completion(
+        previous: Attempt,
+        current: Attempt,
+        observations: tuple[Observation, ...],
+    ) -> None:
+        SqliteLifecycleRepository._validate_attempt_identity(previous, current)
+        if previous.state is not AttemptState.RUNNING:
+            raise IntegrityViolation("probe completion requires a running attempt")
+        if current.state is not AttemptState.SUCCEEDED:
+            raise IntegrityViolation("probe completion requires a successful attempt")
+        if not isinstance(observations, tuple) or not observations:
+            raise IntegrityViolation("probe completion requires observations")
+        if len({item.observation_id for item in observations}) != len(observations):
+            raise IntegrityViolation("probe observations must have unique identities")
+        if any(
+            item.analysis_id != current.analysis_id
+            or item.attempt_id != current.attempt_id
+            for item in observations
+        ):
+            raise IntegrityViolation("probe observation does not match its attempt")
+
+    @staticmethod
+    def _validate_attempt_identity(previous: Attempt, current: Attempt) -> None:
+        if (
+            previous.attempt_id != current.attempt_id
+            or previous.analysis_id != current.analysis_id
+            or previous.sequence != current.sequence
+            or previous.created_at != current.created_at
+            or previous.started_at != current.started_at
+        ):
+            raise IntegrityViolation("attempt identity cannot change")
 
     def _insert_analysis(self, value: Analysis) -> None:
         timestamp = self._timestamp()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from archivability.evidence.models import Observation
+from archivability.lifecycle.models import Attempt
 from archivability.probes.models import ProbeContext
 from archivability.storage.audit import AuditContext
 
@@ -39,4 +40,25 @@ class ProbeEventRecorder(Protocol):
 class ProbeRequestAuthorizer(Protocol):
     def authorize_probe_request(
         self, *, analysis_id: str, attempt_id: str, subject_uri: str
+    ) -> None: ...
+
+
+class ProbeExecutionRepository(Protocol):
+    def get_attempt(self, attempt_id: str) -> Attempt | None: ...
+
+    def update_attempt(
+        self,
+        previous: Attempt,
+        current: Attempt,
+        *,
+        audit: AuditContext,
+    ) -> None: ...
+
+    def complete_probe_attempt(
+        self,
+        previous: Attempt,
+        current: Attempt,
+        observations: tuple[Observation, ...],
+        *,
+        audit: AuditContext,
     ) -> None: ...
