@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/evidence/v1/http-homepage-accessibility.schema.json",
+  "title": "D01 HTTP homepage accessibility evidence data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attempt_count",
+    "status_code",
+    "status_class",
+    "redirect_count",
+    "final_transport_secure"
+  ],
+  "properties": {
+    "attempt_count": {"const": 1},
+    "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+    "status_class": {"type": "integer", "minimum": 1, "maximum": 5},
+    "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+    "final_transport_secure": {"type": "boolean"}
+  }
+}

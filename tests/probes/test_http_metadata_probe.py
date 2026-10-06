@@ -126,7 +126,9 @@ class HttpMetadataProbeTests(unittest.TestCase):
         self.assertEqual("observation-http-1", observation.observation_id)
         self.assertEqual("http_metadata", observation.kind)
         self.assertEqual("http-metadata", observation.probe_id)
+        self.assertEqual("1.1", observation.payload_schema_version)
         self.assertEqual(200, observation.payload["status_code"])
+        self.assertEqual(5 * 1024 * 1024, observation.payload["response_byte_limit"])
         self.assertEqual(1, observation.payload["redirect_count"])
         self.assertTrue(observation.payload["final_transport_secure"])
         self.assertTrue(observation.truncated)
@@ -135,10 +137,16 @@ class HttpMetadataProbeTests(unittest.TestCase):
         self.assertNotIn("/final", serialized)
 
     def test_payload_schema_is_valid_json(self) -> None:
-        schema = ROOT / "schemas" / "probes" / "v1" / "http-metadata.schema.json"
-        document = json.loads(schema.read_text(encoding="utf-8"))
-        self.assertEqual("object", document["type"])
-        self.assertFalse(document["additionalProperties"])
+        directory = ROOT / "schemas" / "probes" / "v1"
+        documents = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(directory.glob("http-metadata*.schema.json"))
+        ]
+        self.assertEqual(2, len(documents))
+        self.assertTrue(all(document["type"] == "object" for document in documents))
+        self.assertTrue(
+            all(document["additionalProperties"] is False for document in documents)
+        )
 
     def test_transport_failure_is_audited_without_error_or_url(self) -> None:
         probe = HttpMetadataProbe(

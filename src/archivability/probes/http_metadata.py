@@ -55,11 +55,12 @@ class HttpMetadataProbe:
             probe_id=self.probe_id,
             tool_name=self.tool_name,
             tool_version=self.tool_version,
-            payload_schema_version="1.0",
+            payload_schema_version="1.1",
             payload={
                 "status_code": response.status_code,
                 "headers": headers,
                 "response_bytes_observed": len(response.body),
+                "response_byte_limit": request.max_response_bytes,
                 "response_truncated": response.truncated,
                 "redirect_count": result.redirect_count,
                 "final_transport_secure": result.target.scheme == "https",

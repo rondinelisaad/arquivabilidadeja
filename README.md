@@ -4,12 +4,13 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF, o primeiro probe de metadados HTTP e a execução coordenada de uma tentativa. Ainda não há API ou fila; SQLite é usado somente em desenvolvimento e testes.
+O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF, o primeiro probe de metadados HTTP, a execução coordenada de uma tentativa e a primeira derivação de indicadores HTTP. Ainda não há API ou fila; SQLite é usado somente em desenvolvimento e testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
 - [Revisão crítica e matriz de rastreabilidade do CLEAR+](docs/revisao-critica-clear-plus.md)
 - [Requisitos de segurança](docs/requisitos-seguranca.md)
+- [Métodos de derivação HTTP](docs/metodos-derivacao-http.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
 ## Validação
@@ -138,7 +139,9 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `ProbeExecutionService` conecta o runner ao ciclo de vida. Em caso de sucesso, as observações e a transição do `Attempt` para `succeeded` são persistidas na mesma transação. Falhas do probe produzem `PROBE_FAILED`; falhas de persistência produzem `PERSISTENCE_FAILED`, sempre sem copiar mensagens de exceção para o domínio ou para a auditoria. Os eventos `job.probe`, `data.create`, `job.probe_persistence` e `job.analysis_attempt` distinguem as etapas com metadados não sensíveis.
 
-O próximo passo é derivar `Evidence` a partir da observação HTTP e então calcular o primeiro subconjunto de indicadores da metodologia, ainda de forma síncrona e determinística.
+`derive_http_metadata_indicators` transforma a observação HTTP em evidências versionadas para `D01` (acessibilidade da homepage) e `R06` (completude da resposta), preservando o hash da fonte. As regras distinguem sucesso, redirect não terminado, erro HTTP, truncamento por limite e inconsistência de `Content-Length`. Os demais indicadores permanecem sem resultado até existirem as evidências específicas exigidas pela metodologia.
+
+O próximo passo é persistir `Evidence` e `IndicatorResult` como uma derivação atômica e idempotente, antes de integrar a avaliação ao encerramento da análise.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

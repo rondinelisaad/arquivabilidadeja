@@ -4,8 +4,11 @@ from archivability.evidence import (
     Evidence,
     EvidenceSource,
     EvidenceValidationError,
+    HttpMetadataDerivation,
+    HttpMetadataDerivationError,
     Observation,
     derive_indicator_result,
+    derive_http_metadata_indicators,
 )
 from archivability.lifecycle import (
     Analysis,
@@ -66,6 +69,8 @@ __all__ = [
     "Evidence",
     "EvidenceSource",
     "EvidenceValidationError",
+    "HttpMetadataDerivation",
+    "HttpMetadataDerivationError",
     "IndicatorResult",
     "IntegrityViolation",
     "LegacyClearPlusInput",
@@ -91,5 +96,6 @@ __all__ = [
     "apply_sqlite_migrations",
     "configure_sqlite_connection",
     "derive_indicator_result",
+    "derive_http_metadata_indicators",
     "load_methodology",
 ]
