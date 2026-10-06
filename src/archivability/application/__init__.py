@@ -35,7 +35,9 @@ from archivability.application.oidc import (
     OidcVerifierConfig,
 )
 from archivability.application.policies import (
+    AnalysisOwnershipReader,
     InMemoryTokenBucketRateLimiter,
+    OwnershipAuthorizationPolicy,
     PermissionAuthorizationPolicy,
     RateLimitRule,
 )
@@ -57,6 +59,7 @@ from archivability.application.read_model import (
 __all__ = [
     "AnalysisApi",
     "AnalysisAsgiApp",
+    "AnalysisOwnershipReader",
     "AnalysisProgress",
     "AnalysisReport",
     "AnalysisReportRepository",
@@ -88,6 +91,7 @@ __all__ = [
     "OidcJwtVerifier",
     "OidcVerificationError",
     "OidcVerifierConfig",
+    "OwnershipAuthorizationPolicy",
     "PermissionAuthorizationPolicy",
     "ProbeLimits",
     "ReportError",

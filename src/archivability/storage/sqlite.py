@@ -547,15 +547,65 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
     """SQLite lifecycle adapter with optimistic concurrency and audited transitions."""
 
     def add_analysis(
-        self, value: Analysis, *, audit: AuditContext = AuditContext()
+        self,
+        value: Analysis,
+        *,
+        owner_user_id: str | None = None,
+        audit: AuditContext = AuditContext(),
     ) -> None:
-        self._execute_write(
-            lambda: self._insert_analysis(value),
-            resource="analysis",
-            resource_id=value.analysis_id,
-            audit=audit,
-            after={"state": value.state.value, "revision": value.revision},
-        )
+        if owner_user_id is not None and (
+            not isinstance(owner_user_id, str)
+            or not 1 <= len(owner_user_id) <= 256
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in owner_user_id
+            )
+        ):
+            raise PersistenceError("analysis owner identifier is invalid")
+        if owner_user_id is not None and owner_user_id != audit.user_id:
+            raise PersistenceError("analysis owner must match the audited actor")
+        try:
+            with self._transaction():
+                self._insert_analysis(value)
+                if owner_user_id is not None:
+                    self._insert_analysis_owner(value.analysis_id, owner_user_id)
+                self._write_audit(
+                    resource="analysis",
+                    resource_id=value.analysis_id,
+                    result="success",
+                    audit=audit,
+                    action="data.create",
+                    after={
+                        "state": value.state.value,
+                        "revision": value.revision,
+                        "owner_bound": owner_user_id is not None,
+                    },
+                )
+                if owner_user_id is not None:
+                    self._write_audit(
+                        resource="analysis_ownership",
+                        resource_id=value.analysis_id,
+                        result="success",
+                        audit=audit,
+                        action="permission.analysis_owner_assign",
+                        after={"owner_bound": True},
+                    )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure("analysis", value.analysis_id, audit, exc)
+            self._raise_integrity(exc)
+        except sqlite3.DatabaseError as exc:
+            self._record_failure("analysis", value.analysis_id, audit, exc)
+            raise PersistenceError("database write failed") from exc
+        except PersistenceError as exc:
+            self._record_failure("analysis", value.analysis_id, audit, exc)
+            raise
+
+    def get_analysis_owner(self, analysis_id: str) -> str | None:
+        row = self._connection.execute(
+            "SELECT owner_user_id FROM analysis_ownership WHERE analysis_id = ?",
+            (analysis_id,),
+        ).fetchone()
+        return row[0] if row is not None else None
 
     def get_analysis(self, analysis_id: str) -> Analysis | None:
         row = self._connection.execute(
@@ -1075,6 +1125,15 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
                 timestamp,
                 timestamp,
             ),
+        )
+
+    def _insert_analysis_owner(self, analysis_id: str, owner_user_id: str) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO analysis_ownership (analysis_id, owner_user_id, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (analysis_id, owner_user_id, self._timestamp()),
         )
 
     def _update_analysis(self, previous: Analysis, current: Analysis) -> None:

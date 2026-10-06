@@ -7,7 +7,13 @@ from archivability.storage.audit import AuditContext
 
 
 class LifecycleRepository(Protocol):
-    def add_analysis(self, value: Analysis, *, audit: AuditContext) -> None: ...
+    def add_analysis(
+        self,
+        value: Analysis,
+        *,
+        owner_user_id: str | None = None,
+        audit: AuditContext,
+    ) -> None: ...
 
     def get_analysis(self, analysis_id: str) -> Analysis | None: ...
 

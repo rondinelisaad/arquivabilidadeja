@@ -21,6 +21,7 @@ from archivability import (  # noqa: E402
     ApiRequestContext,
     HttpAssessmentQueueService,
     HttpAssessmentWorkflow,
+    OwnershipAuthorizationPolicy,
     ProbeExecutionService,
     ProbeRunner,
     SqliteAssessmentJobRepository,
@@ -102,7 +103,7 @@ class AnalysisApiTests(unittest.TestCase):
             clock=lambda: NOW,
             job_id_factory=lambda: "job-api-1",
         )
-        workflow = HttpAssessmentWorkflow(
+        self.workflow = HttpAssessmentWorkflow(
             methodology=methodology,
             repository=self.repository,
             orchestrator=orchestrator,
@@ -113,7 +114,7 @@ class AnalysisApiTests(unittest.TestCase):
         self.authorization = Authorization()
         self.rate_limiter = RateLimiter()
         self.api = AnalysisApi(
-            workflow=workflow,
+            workflow=self.workflow,
             reports=AnalysisReportService(self.repository),
             probe=SuccessfulHttpProbe(),
             authorization=self.authorization,
@@ -225,6 +226,124 @@ class AnalysisApiTests(unittest.TestCase):
         serialized = json.dumps([created.to_dict(), report.to_dict()])
         self.assertNotIn("private", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_creation_persists_immutable_owner_and_audits_without_duplication(
+        self,
+    ) -> None:
+        created = self.api.create_analysis(
+            {"subject_uri": SUBJECT},
+            context=self.context("request-owner-create"),
+        )
+
+        analysis_id = created.body["analysis_id"]
+        owner = self.connection.execute(
+            "SELECT owner_user_id FROM analysis_ownership WHERE analysis_id = ?",
+            (analysis_id,),
+        ).fetchone()
+        event = self.connection.execute(
+            """
+            SELECT action, user_id, after_json
+            FROM audit_events
+            WHERE resource = 'analysis_ownership' AND resource_id = ?
+            """,
+            (analysis_id,),
+        ).fetchone()
+        self.assertEqual((self.principal.user_id,), owner)
+        self.assertEqual("permission.analysis_owner_assign", event[0])
+        self.assertEqual(self.principal.user_id, event[1])
+        self.assertEqual({"owner_bound": True}, json.loads(event[2]))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.connection.execute(
+                "UPDATE analysis_ownership SET owner_user_id = 'other' WHERE analysis_id = ?",
+                (analysis_id,),
+            )
+        self.connection.rollback()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.connection.execute(
+                "DELETE FROM analysis_ownership WHERE analysis_id = ?",
+                (analysis_id,),
+            )
+        self.connection.rollback()
+
+    def test_owner_policy_blocks_idor_and_allows_explicit_global_reader(self) -> None:
+        created = self.api.create_analysis(
+            {"subject_uri": SUBJECT},
+            context=self.context("request-owner-policy-create"),
+        )
+        secure_api = AnalysisApi(
+            workflow=self.workflow,
+            reports=AnalysisReportService(self.repository),
+            probe=SuccessfulHttpProbe(),
+            authorization=OwnershipAuthorizationPolicy(self.repository),
+            rate_limiter=self.rate_limiter,
+            audit_recorder=self.repository,
+        )
+        analysis_id = created.body["analysis_id"]
+        owner_context = ApiRequestContext(
+            request_id="request-owner-read",
+            ip_address="192.0.2.10",
+            principal=ApiPrincipal(
+                user_id=self.principal.user_id,
+                session_id="session-owner-read",
+                permissions=frozenset({"analysis:read"}),
+            ),
+        )
+        other_context = ApiRequestContext(
+            request_id="request-other-read",
+            ip_address="192.0.2.11",
+            principal=ApiPrincipal(
+                user_id="user-opaque-2",
+                session_id="session-other-read",
+                permissions=frozenset({"analysis:read"}),
+            ),
+        )
+        auditor_context = ApiRequestContext(
+            request_id="request-auditor-read",
+            ip_address="192.0.2.12",
+            principal=ApiPrincipal(
+                user_id="auditor-opaque-1",
+                session_id="session-auditor-read",
+                permissions=frozenset({"analysis:read:any"}),
+            ),
+        )
+
+        owned = secure_api.get_analysis(analysis_id, context=owner_context)
+        forbidden = secure_api.get_analysis(analysis_id, context=other_context)
+        hidden_missing = secure_api.get_analysis(
+            "missing-analysis", context=other_context
+        )
+        audited = secure_api.get_analysis(analysis_id, context=auditor_context)
+
+        self.assertEqual(200, owned.status_code)
+        self.assertEqual(403, forbidden.status_code)
+        self.assertEqual(forbidden.body["error"], hidden_missing.body["error"])
+        self.assertEqual(200, audited.status_code)
+
+    def test_owner_insert_failure_rolls_back_analysis(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TRIGGER reject_test_owner
+            BEFORE INSERT ON analysis_ownership BEGIN
+                SELECT RAISE(ABORT, 'test owner rejection');
+            END;
+            """
+        )
+
+        response = self.api.create_analysis(
+            {"subject_uri": SUBJECT},
+            context=self.context("request-owner-rollback"),
+        )
+
+        self.assertEqual(500, response.status_code)
+        self.assertEqual(
+            0, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0]
+        )
+        self.assertEqual(
+            0,
+            self.connection.execute(
+                "SELECT count(*) FROM analysis_ownership"
+            ).fetchone()[0],
+        )
 
     def test_invalid_and_missing_requests_use_stable_errors(self) -> None:
         invalid = self.api.create_analysis(

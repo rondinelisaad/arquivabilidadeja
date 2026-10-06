@@ -43,6 +43,7 @@ class AnalysisOrchestrator:
         subject_uri: str,
         methodology: MethodologyConfig,
         max_attempts: int = 3,
+        owner_user_id: str | None = None,
         audit: AuditContext = AuditContext(),
     ) -> Analysis:
         now = self._now()
@@ -54,7 +55,11 @@ class AnalysisOrchestrator:
             created_at=now,
             max_attempts=max_attempts,
         )
-        self._repository.add_analysis(analysis, audit=audit)
+        self._repository.add_analysis(
+            analysis,
+            owner_user_id=owner_user_id,
+            audit=audit,
+        )
         return analysis
 
     def start_attempt(

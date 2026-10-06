@@ -199,6 +199,7 @@ class AnalysisApi:
             outcome = self._workflow.start(
                 subject_uri=subject_uri,
                 probe=self._probe,
+                owner_user_id=principal.user_id,
                 audit=context.audit_context(),
             )
         except (ApiValidationError, WorkflowError, LifecycleError, ProbeValidationError):

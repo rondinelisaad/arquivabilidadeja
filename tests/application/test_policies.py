@@ -15,6 +15,7 @@ from archivability import (  # noqa: E402
     ApiPrincipal,
     ApiValidationError,
     InMemoryTokenBucketRateLimiter,
+    OwnershipAuthorizationPolicy,
     PermissionAuthorizationPolicy,
     RateLimitRule,
 )
@@ -56,6 +57,37 @@ class PermissionAuthorizationPolicyTests(unittest.TestCase):
             )
         with self.assertRaises(ApiValidationError):
             principal("user-1", "permission with spaces")
+
+
+class OwnershipAuthorizationPolicyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.owners = {"analysis-1": "owner"}
+        ownership = type(
+            "Ownership",
+            (),
+            {"get_analysis_owner": lambda _, analysis_id: self.owners.get(analysis_id)},
+        )()
+        self.policy = OwnershipAuthorizationPolicy(ownership)
+
+    def test_owner_requires_read_permission(self) -> None:
+        self.assertTrue(
+            self.policy.can_read_analysis(
+                principal("owner", "analysis:read"), "analysis-1"
+            )
+        )
+        self.assertFalse(self.policy.can_read_analysis(principal("owner"), "analysis-1"))
+
+    def test_other_user_and_unowned_analysis_are_denied(self) -> None:
+        reader = principal("other", "analysis:read")
+
+        self.assertFalse(self.policy.can_read_analysis(reader, "analysis-1"))
+        self.assertFalse(self.policy.can_read_analysis(reader, "missing"))
+
+    def test_explicit_global_read_permission_bypasses_ownership(self) -> None:
+        auditor = principal("auditor", "analysis:read:any")
+
+        self.assertTrue(self.policy.can_read_analysis(auditor, "analysis-1"))
+        self.assertTrue(self.policy.can_read_analysis(auditor, "missing"))
 
 
 class InMemoryTokenBucketRateLimiterTests(unittest.TestCase):

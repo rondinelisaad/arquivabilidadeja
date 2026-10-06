@@ -80,7 +80,7 @@ repository = SqliteEvidenceRepository(connection)
 
 Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distintos para migrations e runtime. O usuário da aplicação deve possuir somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
 
-As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`.
+As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigirão `UPDATE`, sempre protegido por revisão otimista. O runtime não necessita `DELETE` nem qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
 
 ## Ciclo de vida da análise
 
@@ -176,12 +176,12 @@ app = BearerAuthenticationMiddleware(
 )
 ```
 
-O claim OAuth2 `scope` é validado como uma lista limitada de permissões e copiado para o `ApiPrincipal` imutável. `PermissionAuthorizationPolicy` exige `analysis:create` para iniciar análises e `analysis:read` para consultar relatórios. Esta é uma autorização global por capacidade; autorização por proprietário/projeto ainda deve ser adicionada antes de resultados privados, sem usar a trilha de auditoria como fonte de decisão.
+O claim OAuth2 `scope` é validado como uma lista limitada de permissões e copiado para o `ApiPrincipal` imutável. `OwnershipAuthorizationPolicy` exige `analysis:create` para iniciar análises. A criação grava o usuário opaco como proprietário na mesma transação da análise; `analysis:read` permite consultar somente os próprios relatórios e `analysis:read:any` concede leitura administrativa explícita. A decisão consulta a tabela append-only `analysis_ownership`, nunca a trilha de auditoria. Leituras sem vínculo ou de outro proprietário falham fechadas antes de acessar o relatório, evitando IDOR e sem revelar se o ID existe. `PermissionAuthorizationPolicy` permanece disponível apenas para cenários globais sem conteúdo privado.
 
 `InMemoryTokenBucketRateLimiter` aplica regras distintas por usuário opaco e operação. O bucket é protegido contra concorrência, recarrega com relógio monotônico, nega operações desconhecidas e limita a quantidade de chaves em memória sem expulsar buckets ativos para abrir espaço a um atacante:
 
 ```python
-authorization = PermissionAuthorizationPolicy()
+authorization = OwnershipAuthorizationPolicy(repository)
 rate_limiter = InMemoryTokenBucketRateLimiter(
     {
         "analysis.create": RateLimitRule(capacity=5, refill_seconds=60),
@@ -205,7 +205,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. Os próximos passos são persistir propriedade/escopo de cada análise para autorização por objeto e, depois, implementar o adaptador PostgreSQL.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é implementar o adaptador PostgreSQL com usuários separados para migrations e runtime, preservando transações, autorização por objeto e revisão otimista.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 

@@ -154,6 +154,7 @@ class HttpAssessmentWorkflow:
         *,
         subject_uri: str,
         probe: Probe,
+        owner_user_id: str | None = None,
         analysis_max_attempts: int = 3,
         assessment_max_attempts: int = 3,
         limits: ProbeLimits = ProbeLimits(),
@@ -164,6 +165,7 @@ class HttpAssessmentWorkflow:
             subject_uri=subject_uri,
             methodology=self._methodology,
             max_attempts=analysis_max_attempts,
+            owner_user_id=owner_user_id,
             audit=audit,
         )
         return self._execute(

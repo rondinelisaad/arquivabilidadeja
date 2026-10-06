@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 from archivability.application.api import ApiPrincipal
 
@@ -38,6 +39,44 @@ class PermissionAuthorizationPolicy:
         return isinstance(principal, ApiPrincipal) and (
             self._read_permission in principal.permissions
         )
+
+
+class AnalysisOwnershipReader(Protocol):
+    def get_analysis_owner(self, analysis_id: str) -> str | None: ...
+
+
+class OwnershipAuthorizationPolicy:
+    """Authorize reads by immutable ownership or an explicit global permission."""
+
+    def __init__(
+        self,
+        ownership: AnalysisOwnershipReader,
+        *,
+        create_permission: str = "analysis:create",
+        read_permission: str = "analysis:read",
+        read_any_permission: str = "analysis:read:any",
+    ) -> None:
+        for value in (create_permission, read_permission, read_any_permission):
+            if not isinstance(value, str) or not _OPERATION_PATTERN.fullmatch(value):
+                raise ValueError("authorization permission is invalid")
+        self._ownership = ownership
+        self._create_permission = create_permission
+        self._read_permission = read_permission
+        self._read_any_permission = read_any_permission
+
+    def can_create_analysis(self, principal: ApiPrincipal) -> bool:
+        return isinstance(principal, ApiPrincipal) and (
+            self._create_permission in principal.permissions
+        )
+
+    def can_read_analysis(self, principal: ApiPrincipal, analysis_id: str) -> bool:
+        if not isinstance(principal, ApiPrincipal):
+            return False
+        if self._read_any_permission in principal.permissions:
+            return True
+        if self._read_permission not in principal.permissions:
+            return False
+        return self._ownership.get_analysis_owner(analysis_id) == principal.user_id
 
 
 @dataclass(frozen=True, slots=True)
