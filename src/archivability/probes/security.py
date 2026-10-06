@@ -20,6 +20,7 @@ class SsrfPolicy:
     allowed_ports: frozenset[int] = frozenset({80, 443})
     allowed_schemes: frozenset[str] = frozenset({"http", "https"})
     maximum_addresses: int = 16
+    allow_https_to_http_redirects: bool = False
 
     def __post_init__(self) -> None:
         if not self.allowed_ports or any(
@@ -33,6 +34,8 @@ class SsrfPolicy:
             self.maximum_addresses, int
         ) or not 1 <= self.maximum_addresses <= 64:
             raise ProbeValidationError("maximum_addresses must be between 1 and 64")
+        if not isinstance(self.allow_https_to_http_redirects, bool):
+            raise ProbeValidationError("allow_https_to_http_redirects must be boolean")
 
     def approve(self, uri: str, resolver: AddressResolver) -> ApprovedTarget:
         if not isinstance(uri, str) or not uri or len(uri) > 2048:
@@ -81,7 +84,14 @@ class SsrfPolicy:
     ) -> ApprovedTarget:
         if not isinstance(location, str) or not location:
             raise ProbeValidationError("redirect location must be a non-empty string")
-        return self.approve(urljoin(current.normalized_uri, location), resolver)
+        redirect_uri = urljoin(current.normalized_uri, location)
+        if (
+            current.scheme == "https"
+            and urlsplit(redirect_uri).scheme.lower() == "http"
+            and not self.allow_https_to_http_redirects
+        ):
+            raise ProbeValidationError("HTTPS redirects cannot downgrade to HTTP")
+        return self.approve(redirect_uri, resolver)
 
     @staticmethod
     def _canonical_hostname(hostname: str) -> str:

@@ -113,6 +113,19 @@ class SsrfPolicyTests(unittest.TestCase):
                 target, "http://169.254.169.254/latest/meta-data/", self.resolver
             )
 
+    def test_https_redirect_cannot_downgrade_to_http_by_default(self) -> None:
+        target = self.policy.approve("https://example.org/start", self.resolver)
+        with self.assertRaisesRegex(ProbeValidationError, "cannot downgrade"):
+            self.policy.approve_redirect(target, "http://example.org/plain", self.resolver)
+
+        permissive = SsrfPolicy(allow_https_to_http_redirects=True)
+        redirected = permissive.approve_redirect(
+            target,
+            "http://example.org/plain",
+            self.resolver,
+        )
+        self.assertEqual("http", redirected.scheme)
+
     def test_context_enforces_redirect_limit(self) -> None:
         request = ProbeRequest(
             analysis_id="analysis-1",

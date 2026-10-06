@@ -1,4 +1,11 @@
-"""Probe contracts and SSRF-safe target approval without network I/O."""
+"""Probe contracts and SSRF-safe network adapters."""
+
+from archivability.probes.http import (
+    HttpFetchResult,
+    HttpResponse,
+    HttpTransportError,
+    PinnedHttpClient,
+)
 
 from archivability.probes.models import (
     ApprovedTarget,
@@ -14,11 +21,16 @@ from archivability.probes.ports import (
     ProbeRequestAuthorizer,
 )
 from archivability.probes.runner import ProbeRunner
+from archivability.probes.resolver import SystemAddressResolver
 from archivability.probes.security import SsrfPolicy
 
 __all__ = [
     "AddressResolver",
     "ApprovedTarget",
+    "HttpFetchResult",
+    "HttpResponse",
+    "HttpTransportError",
+    "PinnedHttpClient",
     "Probe",
     "ProbeContext",
     "ProbeEventRecorder",
@@ -28,4 +40,5 @@ __all__ = [
     "ProbeRunner",
     "ProbeValidationError",
     "SsrfPolicy",
+    "SystemAddressResolver",
 ]

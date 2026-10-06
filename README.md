@@ -4,7 +4,7 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult` e o ciclo de vida local `Analysis → Attempt`. Ainda não há API, fila ou coleta em rede; SQLite é usado somente em desenvolvimento e testes.
+O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt` e os adaptadores mínimos de DNS/HTTP protegidos contra SSRF. Ainda não há API, fila nem probes concretos de avaliação; SQLite é usado somente em desenvolvimento e testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
@@ -123,7 +123,7 @@ O banco aplica concorrência otimista por revisão, limite de tentativas e audit
 
 ## Contrato de probes e proteção SSRF
 
-O pacote `archivability.probes` define o contrato para probes futuros sem incluir cliente HTTP, resolução DNS do sistema ou qualquer implementação que gere tráfego. Antes de um probe ser chamado, `SsrfPolicy`:
+O pacote `archivability.probes` define o contrato dos probes e fornece adaptadores mínimos de resolução DNS e HTTP. Eles não são acionados automaticamente: um probe concreto ainda precisa recebê-los explicitamente. Antes de qualquer conexão, `SsrfPolicy`:
 
 - aceita somente HTTP e HTTPS nas portas configuradas;
 - rejeita credenciais, fragmentos, controles, espaços e barras invertidas;
@@ -132,7 +132,9 @@ O pacote `archivability.probes` define o contrato para probes futuros sem inclui
 - entrega ao probe os IPs já aprovados para conexão direta, evitando nova resolução;
 - revalida integralmente cada redirect e limita tempo, bytes, redirects e observações.
 
-O futuro adaptador HTTP deverá desativar redirects automáticos, conectar somente a um IP presente em `ApprovedTarget.addresses` e preservar o hostname aprovado para `Host` e SNI. Firewall e filtragem de saída continuam necessários como segunda camada.
+`SystemAddressResolver` consulta apenas endereços para TCP e não mantém cache. `PinnedHttpClient` ignora proxies do ambiente, desativa redirects automáticos, conecta somente a um IP presente em `ApprovedTarget.addresses`, preserva o hostname aprovado para `Host`, SNI e validação do certificado, exige TLS 1.2 ou superior e limita timeout total, cabeçalhos e corpo. Cada redirect volta à política antes de uma nova conexão, e downgrade de HTTPS para HTTP é bloqueado por padrão. Firewall e filtragem de saída continuam necessários como segunda camada.
+
+O cliente ainda não é um probe e não persiste respostas. O próximo passo é implementar o primeiro probe HTTP, convertendo somente metadados permitidos em uma `Observation` imutável; cookies, corpos e URLs de redirect não devem ir para a auditoria.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
