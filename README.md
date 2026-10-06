@@ -94,6 +94,8 @@ Depois do provisionamento, um administrador aplica `deploy/postgresql/runtime_gr
 
 `PostgreSqlLifecycleRepository` implementa o primeiro recorte do adaptador de runtime: criação e transições de análises e tentativas, vínculo de proprietário e auditoria. A conexão Psycopg deve usar `autocommit=True`; cada comando de escrita abre uma transação explícita, enquanto leituras curtas não deixam transações ociosas. Todas as consultas usam o schema qualificado e parâmetros posicionais, e conflitos de revisão falham fechados.
 
+`PostgreSqlEvidenceRepository` estende esse contrato com observações, evidências, resultados e proveniência verificável. A conclusão bem-sucedida do probe grava todas as observações e a transição da tentativa na mesma transação; qualquer duplicidade, inconsistência ou falha de persistência desfaz o lote inteiro e produz somente um evento de falha sanitizado.
+
 ## Ciclo de vida da análise
 
 O orquestrador controla somente estados e persistência; ele não abre conexões de rede nem executa probes. Análises e tentativas são imutáveis no domínio, e cada transição produz uma nova revisão:
@@ -217,7 +219,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é portar evidências e conclusão atômica do probe para PostgreSQL, antes de fila e relatórios.
+O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. Uma implantação concorrente deve injetar um `AsgiSyncRunner` compatível com o pool do banco de produção. A implantação ainda deve preencher os valores do provedor OIDC por configuração segura, restringir egress ao host JWKS e substituir o limiter local quando houver múltiplas réplicas. O próximo passo recomendado é portar a derivação HTTP atômica para PostgreSQL, seguida pela fila e pelos relatórios.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
