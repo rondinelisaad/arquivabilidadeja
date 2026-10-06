@@ -1,0 +1,55 @@
+{
+  "$schema": "./schemas/dimensions.schema.json",
+  "methodology_version": "0.1.0",
+  "dimensions": [
+    {
+      "id": "discoverability",
+      "name": "Discoverability",
+      "description": "Ability of a crawler to discover relevant URLs and traversal paths.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true
+    },
+    {
+      "id": "retrievability",
+      "name": "Retrievability",
+      "description": "Ability to retrieve discovered resources correctly and consistently.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true
+    },
+    {
+      "id": "standards_formats",
+      "name": "Standards & Formats",
+      "description": "Parseability, format identification, validation and preservation risk.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true
+    },
+    {
+      "id": "dependency_cohesion",
+      "name": "Dependency / Cohesion",
+      "description": "External dependencies and their demonstrated impact on capture and replay.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true
+    },
+    {
+      "id": "metadata_context",
+      "name": "Metadata & Context",
+      "description": "Metadata useful for identification, provenance and future interpretation.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true,
+      "rename_candidate": "Metadata & Descriptive Context"
+    },
+    {
+      "id": "operational_harvestability",
+      "name": "Operational Harvestability",
+      "description": "Observed behavior during a controlled harvesting campaign.",
+      "weight": 1,
+      "weight_basis": "project_hypothesis",
+      "score_enabled": true
+    }
+  ]
+}

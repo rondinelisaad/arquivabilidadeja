@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/0.1.0/manifest.schema.json",
+  "title": "Methodology manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "methodology_id", "version", "status", "title", "released_at", "language", "compatibility_layers", "files", "provenance", "notes"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "methodology_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "status": {"enum": ["draft", "candidate", "released", "retired"]},
+    "title": {"type": "string", "minLength": 1},
+    "released_at": {"type": ["string", "null"], "format": "date-time"},
+    "language": {"type": "string"},
+    "compatibility_layers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "files": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dimensions", "indicators", "scoring", "gates"],
+      "properties": {
+        "dimensions": {"type": "string"}, "indicators": {"type": "string"},
+        "scoring": {"type": "string"}, "gates": {"type": "string"}
+      }
+    },
+    "provenance": {"type": "object", "additionalProperties": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

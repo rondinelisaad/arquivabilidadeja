@@ -1,0 +1,26 @@
+{
+  "$schema": "./schemas/manifest.schema.json",
+  "methodology_id": "arquivabilidade-ja",
+  "version": "0.1.0",
+  "status": "candidate",
+  "title": "Arquivabilidade JA methodology",
+  "released_at": null,
+  "language": "pt-BR",
+  "compatibility_layers": ["clear_plus_2014"],
+  "files": {
+    "dimensions": "dimensions.yaml",
+    "indicators": "indicators.yaml",
+    "scoring": "scoring.yaml",
+    "gates": "gates.yaml"
+  },
+  "provenance": {
+    "clear_plus_doi": "10.1007/s00799-015-0144-4",
+    "project_decisions": "../../docs/proposta-arquitetura-metodologia.md",
+    "traceability": "../../docs/revisao-critica-clear-plus.md"
+  },
+  "notes": [
+    "Candidate configuration; not a scientifically validated release.",
+    "All hard gates are inactive until explicitly approved.",
+    "New-model weights are project hypotheses, not scientific facts."
+  ]
+}

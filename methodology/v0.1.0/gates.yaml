@@ -1,0 +1,85 @@
+{
+  "$schema": "./schemas/gates.schema.json",
+  "methodology_version": "0.1.0",
+  "gates": [
+    {
+      "id": "HG01",
+      "name": "Homepage persistently unretrievable",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "harvest_dependent",
+      "minimum_confidence": 0.8,
+      "all": [
+        {"indicator": "D01", "state_in": ["fail"]},
+        {"indicator": "O01", "state_in": ["fail"]}
+      ],
+      "caution": "A single probe does not establish global unavailability."
+    },
+    {
+      "id": "HG02",
+      "name": "Complete exclusion by robots policy",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "intrinsic",
+      "minimum_confidence": 0.9,
+      "all": [{"indicator": "D03", "state_in": ["fail"]}],
+      "caution": "Effect depends on the configured harvesting policy and User-Agent."
+    },
+    {
+      "id": "HG03",
+      "name": "Mandatory authentication for all known essential content",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "intrinsic",
+      "minimum_confidence": 0.8,
+      "all": [{"indicator": "O04", "state_in": ["fail"]}],
+      "caution": "Authenticated harvesting may be possible in another collection context."
+    },
+    {
+      "id": "HG04",
+      "name": "Systematic crawler blocking",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "harvest_dependent",
+      "minimum_confidence": 0.8,
+      "all": [
+        {"indicator": "O03", "state_in": ["fail"]},
+        {"indicator": "O07", "score_lte": 20}
+      ],
+      "caution": "Distinguish stable blocking from transient rate limiting and probe-specific defenses."
+    },
+    {
+      "id": "HG05",
+      "name": "Known essential content is not discoverable",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "intrinsic",
+      "minimum_confidence": 0.9,
+      "all": [{"indicator": "D07", "state_in": ["fail"]}],
+      "caution": "Essentiality must be declared or supported by high-confidence evidence."
+    },
+    {
+      "id": "HG06",
+      "name": "Known essential resources are persistently unretrievable",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "harvest_dependent",
+      "minimum_confidence": 0.9,
+      "all": [{"indicator": "C06", "state_in": ["fail"]}],
+      "caution": "External failures can be transient or regional."
+    },
+    {
+      "id": "HG07",
+      "name": "Essential rendering cannot be reproduced",
+      "status": "candidate",
+      "effect": "blocked",
+      "classification": "harvest_dependent",
+      "minimum_confidence": 0.9,
+      "all": [
+        {"indicator": "O05", "state_in": ["fail"]},
+        {"indicator": "C05", "state_in": ["fail"]}
+      ],
+      "caution": "DOM volume alone cannot establish content essentiality."
+    }
+  ]
+}

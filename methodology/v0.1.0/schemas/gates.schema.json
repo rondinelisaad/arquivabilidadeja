@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/0.1.0/gates.schema.json",
+  "title": "Methodology hard gate candidates",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "methodology_version", "gates"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "methodology_version": {"type": "string"},
+    "gates": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "status", "effect", "classification", "minimum_confidence", "all", "caution"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^HG[0-9]{2}$"},
+          "name": {"type": "string"},
+          "status": {"enum": ["candidate", "active", "retired"]},
+          "effect": {"enum": ["blocked"]},
+          "classification": {"enum": ["intrinsic", "harvest_dependent", "observation_context"]},
+          "minimum_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "all": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["indicator"],
+              "properties": {
+                "indicator": {"type": "string", "pattern": "^[DRSCMON][0-9]{2}$"},
+                "state_in": {"type": "array", "items": {"type": "string"}},
+                "score_lte": {"type": "number", "minimum": 0, "maximum": 100}
+              },
+              "oneOf": [{"required": ["state_in"]}, {"required": ["score_lte"]}]
+            }
+          },
+          "caution": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

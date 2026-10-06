@@ -1,0 +1,51 @@
+{
+  "$schema": "./schemas/scoring.schema.json",
+  "methodology_version": "0.1.0",
+  "result_states": ["pass", "warning", "fail", "unknown", "not_applicable", "context"],
+  "status_score_map": {
+    "pass": 100,
+    "warning": 50,
+    "fail": 0
+  },
+  "excluded_from_score": ["unknown", "not_applicable", "context"],
+  "dimension_scoring": {
+    "formula": "weighted_mean_known_applicable",
+    "coverage_formula": "known_weight_over_expected_applicable_weight",
+    "minimum_coverage_for_nominal_assessment": 0.6,
+    "minimum_coverage_basis": "project_hypothesis",
+    "confidence_multiplies_score": false
+  },
+  "primary_assessment": {
+    "type": "dimension_profile_with_gates",
+    "states": ["blocked", "assessable", "partially_assessable", "indeterminate"],
+    "single_overall_score": false
+  },
+  "experimental_index": {
+    "enabled": false,
+    "formula": "weighted_geometric_mean",
+    "weights": "dimension_weights",
+    "basis": "research_hypothesis"
+  },
+  "legacy_clear_plus": {
+    "significance_weights": {"high": 4, "medium": 2, "low": 1},
+    "facet_max_weights": {"FA": 29, "FS": 24, "FC": 12, "FM": 8},
+    "flat": {
+      "name": "Legacy CLEAR+ Flat Score",
+      "formula": "mean(FA,FS,FC,FM)"
+    },
+    "weighted": {
+      "name": "Legacy CLEAR+ Weighted Score",
+      "default_denominator_policy": "fixed_max",
+      "policies": {
+        "fixed_max": {
+          "formula": "(29*FA+24*FS+12*FC+8*FM)/73",
+          "basis": "project_requirement"
+        },
+        "paper_applicable": {
+          "formula": "sum(applicable_facet_weight*facet_score)/sum(applicable_facet_weight)",
+          "basis": "clear_plus_published_example"
+        }
+      }
+    }
+  }
+}

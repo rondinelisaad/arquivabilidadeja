@@ -1,0 +1,244 @@
+{
+  "$schema": "./schemas/indicators.schema.json",
+  "methodology_version": "0.1.0",
+  "defaults": {
+    "score_rule": "status_map",
+    "weight": 1,
+    "weight_basis": "project_hypothesis",
+    "unknown_policy": "exclude_from_score_and_reduce_coverage",
+    "not_applicable_policy": "exclude_from_score_and_expected_denominator"
+  },
+  "indicators": [
+    {
+      "id": "D01", "slug": "homepage_accessible", "name": "Homepage accessible", "description": "The configured entry URL can be retrieved through validated redirects.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ FA premise"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "critical",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG01"], "measurement_method": "Repeated bounded GET with destination validation at every redirect.", "evidence_requirements": ["attempts", "status_or_error", "redirect_chain", "probe_id", "timestamps"], "limitations": "One probe cannot establish global availability."
+    },
+    {
+      "id": "D02", "slug": "robots_available_parseable", "name": "Robots file availability and parseability", "description": "robots.txt can be retrieved and interpreted according to the configured parser.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A6", "CLEAR+ A7"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Retrieve /robots.txt and parse using RFC 9309 semantics.", "evidence_requirements": ["url", "http_status", "parse_result", "parser_version"], "limitations": "Absence does not by itself prevent harvesting."
+    },
+    {
+      "id": "D03", "slug": "robots_scope_policy", "name": "Robots scope policy", "description": "Rules applicable to the configured User-Agent and harvesting scope are evaluated explicitly.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A6", "CLEAR+ M3"]}, "dimension": "discoverability", "clear_plus_facets": ["FA", "FM"], "classification": "intrinsic", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG02"], "measurement_method": "Evaluate applicable robots groups and meta robots directives against a versioned collection policy.", "evidence_requirements": ["user_agent", "scope", "matched_rules", "policy_id"], "limitations": "Robots directives are not authorization controls and their effect depends on collection policy."
+    },
+    {
+      "id": "D04", "slug": "sitemap_discovery", "name": "Sitemap discovery", "description": "Sitemaps are sought through robots directives, conventional locations and page declarations.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A3", "CLEAR+ A7"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Search declared and conventional sitemap locations and parse bounded indexes.", "evidence_requirements": ["searched_locations", "discovered_sitemaps", "declared_url_count"], "limitations": "Failure to find a sitemap in examined locations is not proof of global absence."
+    },
+    {
+      "id": "D05", "slug": "feed_discovery", "name": "Feed discovery", "description": "RSS or Atom feeds are detected through HTML declarations and bounded conventional checks.",
+      "origin": {"kind": "clear_plus", "refs": ["CLEAR+ A10"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Inspect rel=alternate declarations and parse discovered RSS/Atom resources.", "evidence_requirements": ["feed_urls", "discovery_source", "parse_result"], "limitations": "Many valid websites do not publish feeds."
+    },
+    {
+      "id": "D06", "slug": "initial_html_link_yield", "name": "Initial HTML link yield", "description": "Unique valid URLs discoverable in the raw HTML are counted by type and scope.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A1"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Parse raw HTML and normalize discovered URL references without executing JavaScript.", "evidence_requirements": ["raw_html_hash", "url_counts_by_type", "invalid_references"], "limitations": "Low link yield can be legitimate for some entry pages."
+    },
+    {
+      "id": "D07", "slug": "rendered_url_gain", "name": "Rendered URL gain", "description": "Additional URLs exposed after browser rendering are compared with raw HTML discovery.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A2"]}, "dimension": "discoverability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG05"], "measurement_method": "Compare normalized raw-HTML URLs with rendered DOM and network-request URLs.", "evidence_requirements": ["raw_url_set_hash", "rendered_url_set_hash", "additional_urls", "browser_profile"], "limitations": "Results depend on browser state, interactions and observation window."
+    },
+    {
+      "id": "D08", "slug": "crawl_frontier_coverage", "name": "Crawl frontier coverage", "description": "The bounded crawl records discovered, visited and discarded URLs with reasons.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "discoverability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Track frontier transitions within configured depth, URL, byte and time budgets.", "evidence_requirements": ["scope", "budgets", "frontier_counts", "discard_reasons"], "limitations": "Without a known universe this is operational coverage, not total-site coverage."
+    },
+
+    {
+      "id": "R01", "slug": "retrieval_success_rate", "name": "Retrieval success rate", "description": "Resources in scope are grouped by successful retrieval, HTTP outcome and transport failure.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A1", "CLEAR+ A8"]}, "dimension": "retrievability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG01", "HG06"], "measurement_method": "Aggregate bounded retrieval attempts by resource class and outcome.", "evidence_requirements": ["sample_size", "success_count", "outcome_distribution", "scope"], "limitations": "The sample and observation window affect the rate."
+    },
+    {
+      "id": "R02", "slug": "redirect_integrity", "name": "Redirect integrity", "description": "Redirect chains terminate safely without loops, invalid locations or scope ambiguity.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "retrievability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Follow a bounded chain while revalidating DNS and connected destination at every hop.", "evidence_requirements": ["redirect_chain", "termination_reason", "validated_destinations"], "limitations": "Chains can vary by geography, cookies and User-Agent."
+    },
+    {
+      "id": "R03", "slug": "broken_internal_links", "name": "Broken internal links", "description": "Internal links are checked and failures are separated by HTTP, network and tool causes.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A1"]}, "dimension": "retrievability", "clear_plus_facets": ["FA"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Retrieve a declared sample or full bounded set of normalized internal links.", "evidence_requirements": ["denominator", "broken_count", "failure_classes", "sample_strategy"], "limitations": "HEAD can differ from GET and some links are intentionally ephemeral."
+    },
+    {
+      "id": "R04", "slug": "http_status_distribution", "name": "HTTP status distribution", "description": "HTTP outcomes are preserved by status class, resource class and attempt.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A1", "CLEAR+ A8"]}, "dimension": "retrievability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Aggregate final and intermediate status codes without collapsing redirects into success.", "evidence_requirements": ["status_distribution", "resource_classes", "attempt_count"], "limitations": "A single status does not characterize the website."
+    },
+    {
+      "id": "R05", "slug": "content_type_consistency", "name": "Content type consistency", "description": "Declared Content-Type is compared with safe signature detection, extension and parser outcome.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S10", "CLEAR+ M1"]}, "dimension": "retrievability", "clear_plus_facets": ["FS", "FM"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Compare allowlisted headers with bounded signature and parser evidence.", "evidence_requirements": ["declared_type", "detected_type", "detection_confidence", "parser_result"], "limitations": "Content sniffing is heuristic and must be bounded."
+    },
+    {
+      "id": "R06", "slug": "response_completeness", "name": "Response completeness", "description": "The collector distinguishes complete responses from truncation, stream errors and budget termination.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "retrievability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG06"], "measurement_method": "Record stream completion, declared length, observed bytes and collector limits.", "evidence_requirements": ["bytes_observed", "content_length", "termination_reason", "limits"], "limitations": "Absence of Content-Length is valid and not a failure."
+    },
+    {
+      "id": "R07", "slug": "conditional_retrieval_support", "name": "Conditional retrieval support", "description": "ETag and Last-Modified support is recorded and may be tested conservatively.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A9", "CLEAR+ S6", "CLEAR+ M2"]}, "dimension": "retrievability", "clear_plus_facets": ["FA", "FS", "FM"], "classification": "intrinsic", "default_severity": "info",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Record validators and optionally issue one conditional request.", "evidence_requirements": ["etag", "last_modified", "conditional_outcome"], "limitations": "Validators are optional and may be weak."
+    },
+    {
+      "id": "R08", "slug": "canonical_target_consistency", "name": "Canonical target consistency", "description": "Final URL, canonical declaration and configured scope are compared.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "retrievability", "clear_plus_facets": [], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Compare normalized input, final and rel=canonical URLs.", "evidence_requirements": ["input_url", "final_url", "canonical_url", "scope_classification"], "limitations": "Canonical is an editorial hint, not an access rule."
+    },
+
+    {
+      "id": "S01", "slug": "html_parseability", "name": "HTML parseability", "description": "HTML validity evidence is separated from tolerant parsing and observed impact.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S1"]}, "dimension": "standards_formats", "clear_plus_facets": ["FS"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Parse with a versioned tolerant parser and record structural errors and DOM outcome.", "evidence_requirements": ["parser_version", "parse_errors", "dom_created", "validator_result"], "limitations": "Validator error count alone does not measure archival impact."
+    },
+    {
+      "id": "S02", "slug": "css_parseability", "name": "CSS parseability", "description": "Stylesheets are parsed and errors are linked to observed rendering impact where possible.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S7"]}, "dimension": "standards_formats", "clear_plus_facets": ["FS"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Parse retrieved stylesheets and imports with a versioned parser.", "evidence_requirements": ["stylesheet_count", "parser_version", "parse_errors", "coverage"], "limitations": "Browsers recover from many CSS errors."
+    },
+    {
+      "id": "S03", "slug": "xml_feed_sitemap_validity", "name": "XML feed and sitemap validity", "description": "XML resources are parsed safely and checked for usable structure.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S4"]}, "dimension": "standards_formats", "clear_plus_facets": ["FS"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Parse with DTD and external entities disabled and record usable URL extraction.", "evidence_requirements": ["resource_type", "parse_result", "urls_extracted", "parser_version"], "limitations": "Strict schemas can reject valid extensions."
+    },
+    {
+      "id": "S04", "slug": "format_inventory", "name": "Format inventory", "description": "Formats are identified independently of validation or preservation risk.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A5", "CLEAR+ S2", "CLEAR+ S3", "CLEAR+ S8", "CLEAR+ S9"]}, "dimension": "standards_formats", "clear_plus_facets": ["FA", "FS"], "classification": "intrinsic", "default_severity": "info",
+      "score": {"enabled": false, "weight": 0, "rule": "context_only"}, "blocking_candidates": [], "measurement_method": "Identify formats using declared MIME, extension and bounded signatures.", "evidence_requirements": ["format_counts", "byte_counts", "identification_confidence"], "limitations": "Inventory is descriptive and does not establish risk."
+    },
+    {
+      "id": "S05", "slug": "format_validation", "name": "Format validation", "description": "Supported formats are validated with coverage and validator version recorded.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S3", "CLEAR+ S8", "CLEAR+ S9"]}, "dimension": "standards_formats", "clear_plus_facets": ["FS"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Run format-specific validators only for supported resource types.", "evidence_requirements": ["validator", "validator_version", "validated_count", "coverage", "failures"], "limitations": "Validator availability and quality differ by format."
+    },
+    {
+      "id": "S06", "slug": "preservation_format_risk", "name": "Preservation format risk", "description": "Risk is read from a versioned registry rather than inferred from format age or novelty.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A5", "CLEAR+ S2"]}, "dimension": "standards_formats", "clear_plus_facets": ["FA", "FS"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Join identified formats to a versioned registry of disclosure, tooling and dependency evidence.", "evidence_requirements": ["registry_version", "format_entries", "risk_factors"], "limitations": "The registry and its weights require governance and empirical review."
+    },
+    {
+      "id": "S07", "slug": "character_encoding_consistency", "name": "Character encoding consistency", "description": "Byte evidence, BOM, HTTP declarations and document declarations are compared.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "standards_formats", "clear_plus_facets": [], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Compare declared and detected character encodings with confidence.", "evidence_requirements": ["http_charset", "document_charset", "bom", "detected_charset", "confidence"], "limitations": "Encoding detection can be probabilistic."
+    },
+
+    {
+      "id": "C01", "slug": "external_resource_share", "name": "External resource share", "description": "External requests and bytes are measured by resource type without automatic penalty for remoteness.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ C1", "CLEAR+ C2", "CLEAR+ C3", "CLEAR+ C4", "CLEAR+ C5", "CLEAR+ C6"]}, "dimension": "dependency_cohesion", "clear_plus_facets": ["FC"], "classification": "harvest_dependent", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Classify raw and browser requests by origin, registrable domain and resource type.", "evidence_requirements": ["request_counts", "byte_counts", "scope_classifier_version"], "limitations": "A delegated CDN may appear external and externality alone is not failure."
+    },
+    {
+      "id": "C02", "slug": "external_domain_diversity", "name": "External domain diversity", "description": "Distinct external origins and registrable domains are counted and classified.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ C1", "CLEAR+ C2", "CLEAR+ C3", "CLEAR+ C4", "CLEAR+ C5", "CLEAR+ C6"]}, "dimension": "dependency_cohesion", "clear_plus_facets": ["FC"], "classification": "harvest_dependent", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Count dependency authorities using a versioned Public Suffix List.", "evidence_requirements": ["origins", "registrable_domains", "psl_version"], "limitations": "Domain count is not equivalent to risk."
+    },
+    {
+      "id": "C03", "slug": "dependency_concentration", "name": "Dependency concentration", "description": "Potential single points of failure among known essential dependencies are measured.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "dependency_cohesion", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG06"], "measurement_method": "Aggregate essential resource share by third-party authority.", "evidence_requirements": ["essentiality_source", "dependency_shares", "confidence"], "limitations": "Essentiality is often unknown and must not be inferred from volume alone."
+    },
+    {
+      "id": "C04", "slug": "third_party_active_content", "name": "Third-party active content", "description": "External scripts, styles, frames, fonts and workers are represented in the dependency graph.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ C2", "CLEAR+ C3", "CLEAR+ C4", "CLEAR+ C5", "CLEAR+ C6"]}, "dimension": "dependency_cohesion", "clear_plus_facets": ["FC"], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Classify active dependency edges from HTML, DOM and browser requests.", "evidence_requirements": ["dependency_edges", "resource_types", "discovery_sources"], "limitations": "Third-party content is not necessarily unavailable or harmful."
+    },
+    {
+      "id": "C05", "slug": "external_api_dependency", "name": "External API dependency", "description": "XHR, fetch or GraphQL responses are correlated with relevant rendered content.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "dependency_cohesion", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG07"], "measurement_method": "Observe API requests and bounded DOM changes during a versioned interaction script.", "evidence_requirements": ["api_requests", "dom_delta", "interaction_profile", "correlation_confidence"], "limitations": "Correlation does not prove causation and is window-dependent."
+    },
+    {
+      "id": "C06", "slug": "essential_dependency_availability", "name": "Essential dependency availability", "description": "Known essential dependencies are checked across bounded repeated attempts.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "dependency_cohesion", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG06", "HG07"], "measurement_method": "Repeat bounded retrieval for declared or high-confidence essential dependencies.", "evidence_requirements": ["essentiality_source", "attempts", "outcomes", "probe_id"], "limitations": "Failures may be transient or regional."
+    },
+
+    {
+      "id": "M01", "slug": "descriptive_metadata_presence", "name": "Descriptive metadata presence", "description": "Title, description, language and structured metadata are inventoried by page.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ M4", "CLEAR+ M5", "CLEAR+ M6"]}, "dimension": "metadata_context", "clear_plus_facets": ["FM"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Extract versioned allowlists of HTML and structured metadata fields.", "evidence_requirements": ["fields_found", "page_count", "coverage"], "limitations": "Presence does not establish correctness or quality."
+    },
+    {
+      "id": "M02", "slug": "metadata_consistency", "name": "Metadata consistency", "description": "Identity and language claims are compared across HTTP, HTML and structured data.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ S10", "CLEAR+ M1"]}, "dimension": "metadata_context", "clear_plus_facets": ["FS", "FM"], "classification": "intrinsic", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Compare normalized metadata claims and record contradictions.", "evidence_requirements": ["claims", "contradictions", "normalization_version"], "limitations": "Legitimate multilingual and multi-identity variations exist."
+    },
+    {
+      "id": "M03", "slug": "temporal_metadata", "name": "Temporal metadata", "description": "HTTP and editorial dates are recorded with their source and semantics.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A9", "CLEAR+ S6", "CLEAR+ M2"]}, "dimension": "metadata_context", "clear_plus_facets": ["FA", "FS", "FM"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Extract parseable temporal claims and label source and meaning.", "evidence_requirements": ["temporal_claims", "sources", "parse_failures"], "limitations": "Dates can represent publication, modification, generation or caching."
+    },
+    {
+      "id": "M04", "slug": "rights_license_metadata", "name": "Rights and license metadata", "description": "Explicit rights and license signals are recorded without making legal conclusions.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "metadata_context", "clear_plus_facets": [], "classification": "intrinsic", "default_severity": "info",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Detect explicit machine-readable and page-level rights signals.", "evidence_requirements": ["signals", "targets", "discovery_sources"], "limitations": "Absence does not imply prohibition and legal interpretation is out of scope."
+    },
+    {
+      "id": "M05", "slug": "provenance_context", "name": "Provenance context", "description": "Organization, authorship and persistent identifiers useful to future interpretation are detected.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ M4", "CLEAR+ M5"]}, "dimension": "metadata_context", "clear_plus_facets": ["FM"], "classification": "intrinsic", "default_severity": "low",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Extract provenance claims from versioned vocabularies and contextual pages.", "evidence_requirements": ["claims", "vocabularies", "confidence"], "limitations": "Heuristics vary substantially by domain."
+    },
+
+    {
+      "id": "O01", "slug": "persistent_timeout_rate", "name": "Persistent timeout rate", "description": "Repeated timeouts are separated by connection phase and from isolated latency.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A4"]}, "dimension": "operational_harvestability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG01", "HG06"], "measurement_method": "Perform spaced bounded attempts and classify timeout phase.", "evidence_requirements": ["attempt_count", "timeout_count", "timeout_phases", "probe_id"], "limitations": "A short window and one probe cannot establish global persistence."
+    },
+    {
+      "id": "O02", "slug": "rate_limiting_behavior", "name": "Rate limiting behavior", "description": "429 responses, Retry-After and conservative cadence-related degradation are recorded.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "operational_harvestability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG04"], "measurement_method": "Observe normal crawl traffic only; never increase load solely to provoke throttling.", "evidence_requirements": ["request_cadence", "status_sequence", "retry_after", "recovery_observation"], "limitations": "The test must not create harmful load."
+    },
+    {
+      "id": "O03", "slug": "crawler_access_outcome", "name": "Crawler access outcome", "description": "A declared crawler profile is compared with an authorized baseline without disguise.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ FA premise"]}, "dimension": "operational_harvestability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "critical",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG04"], "measurement_method": "Compare versioned User-Agent profiles only when enabled by policy.", "evidence_requirements": ["profiles", "status_outcomes", "response_hashes", "policy_id"], "limitations": "Differences can depend on WAF, region, cookies and timing."
+    },
+    {
+      "id": "O04", "slug": "authentication_challenge", "name": "Authentication challenge", "description": "Authentication requirements for known essential content are identified.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "operational_harvestability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG03"], "measurement_method": "Detect 401 responses, login redirects and session barriers without submitting credentials.", "evidence_requirements": ["challenge_type", "affected_scope", "essentiality_source"], "limitations": "A login page does not prove that all relevant content is restricted."
+    },
+    {
+      "id": "O05", "slug": "javascript_dependency", "name": "JavaScript dependency", "description": "Material differences between raw HTML and rendered content are measured without penalizing JavaScript itself.",
+      "origin": {"kind": "adaptation", "refs": ["CLEAR+ A2"]}, "dimension": "operational_harvestability", "clear_plus_facets": ["FA"], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG07"], "measurement_method": "Compare content, links and requests before and after a bounded browser render.", "evidence_requirements": ["raw_snapshot_hash", "rendered_snapshot_hash", "dom_delta", "network_delta"], "limitations": "Results depend on browser profile, time and interactions."
+    },
+    {
+      "id": "O06", "slug": "dynamic_interaction_complexity", "name": "Dynamic interaction complexity", "description": "Lazy loading, scrolling, Shadow DOM, frames, WebSockets and service workers are inventoried.",
+      "origin": {"kind": "new", "refs": ["CLEAR+ future work: interaction and scrolling"]}, "dimension": "operational_harvestability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "medium",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": [], "measurement_method": "Run a versioned bounded interaction profile and record detected mechanisms.", "evidence_requirements": ["interaction_profile", "mechanisms", "events", "limits"], "limitations": "Detection does not prove that content was lost."
+    },
+    {
+      "id": "O07", "slug": "campaign_success_rate", "name": "Campaign success rate", "description": "Overall controlled-harvest success is aggregated by attempt and resource class.",
+      "origin": {"kind": "new", "refs": []}, "dimension": "operational_harvestability", "clear_plus_facets": [], "classification": "harvest_dependent", "default_severity": "high",
+      "score": {"enabled": true, "weight": 1, "rule": "status_map"}, "blocking_candidates": ["HG01", "HG04", "HG06"], "measurement_method": "Aggregate bounded crawl outcomes while preserving scope and budget termination.", "evidence_requirements": ["success_rate", "resource_classes", "scope", "budgets", "termination_reason"], "limitations": "Success depends on scope, budgets, probe and observation window."
+    },
+
+    {
+      "id": "N01", "slug": "latency_breakdown", "name": "Latency breakdown", "description": "DNS, TCP, TLS, TTFB and total time are contextual measurements.",
+      "origin": {"kind": "correction", "refs": ["CLEAR+ A4"]}, "dimension": null, "report_section": "network_context", "clear_plus_facets": [], "classification": "observation_context", "default_severity": "info",
+      "score": {"enabled": false, "weight": 0, "rule": "context_only"}, "blocking_candidates": [], "measurement_method": "Collect phase timings when available and record a reason for unavailable phases.", "evidence_requirements": ["timings", "null_reasons", "connection_reuse", "probe_id"], "limitations": "Connection reuse and client APIs can hide individual phases."
+    },
+    {
+      "id": "N02", "slug": "latency_distribution", "name": "Latency distribution", "description": "Median, minimum, maximum, standard deviation and sufficiently sampled p95 are reported.",
+      "origin": {"kind": "new", "refs": []}, "dimension": null, "report_section": "network_context", "clear_plus_facets": [], "classification": "observation_context", "default_severity": "info",
+      "score": {"enabled": false, "weight": 0, "rule": "context_only"}, "blocking_candidates": [], "measurement_method": "Calculate statistics for homogeneous URL, probe, profile and cache groups.", "evidence_requirements": ["sample_size", "statistics", "grouping_key"], "limitations": "Small samples are unstable; p95 requires at least 20 observations in this candidate methodology."
+    },
+    {
+      "id": "N03", "slug": "probe_variance", "name": "Probe variance", "description": "Comparable probes are contrasted for status, DNS and latency differences.",
+      "origin": {"kind": "new", "refs": []}, "dimension": null, "report_section": "network_context", "clear_plus_facets": [], "classification": "observation_context", "default_severity": "info",
+      "score": {"enabled": false, "weight": 0, "rule": "context_only"}, "blocking_candidates": [], "measurement_method": "Compare only configuration-compatible probe groups.", "evidence_requirements": ["probe_fingerprints", "status_comparison", "dns_comparison", "latency_comparison"], "limitations": "Differences suggest but do not prove geoblocking, CDN or routing causes."
+    },
+    {
+      "id": "N04", "slug": "dns_observation", "name": "DNS observation", "description": "A, AAAA and CNAME observations are preserved with resolver and probe context.",
+      "origin": {"kind": "new", "refs": []}, "dimension": null, "report_section": "network_context", "clear_plus_facets": [], "classification": "observation_context", "default_severity": "info",
+      "score": {"enabled": false, "weight": 0, "rule": "context_only"}, "blocking_candidates": [], "measurement_method": "Record bounded DNS answers and TTL when available before every validated connection.", "evidence_requirements": ["answers", "resolver", "ttl", "probe_id", "timestamp"], "limitations": "DNS is location- and time-dependent."
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/0.1.0/scoring.schema.json",
+  "title": "Methodology scoring configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "methodology_version", "result_states", "status_score_map", "excluded_from_score", "dimension_scoring", "primary_assessment", "experimental_index", "legacy_clear_plus"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "methodology_version": {"type": "string"},
+    "result_states": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "status_score_map": {"type": "object", "required": ["pass", "warning", "fail"], "additionalProperties": {"type": "number", "minimum": 0, "maximum": 100}},
+    "excluded_from_score": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "dimension_scoring": {"type": "object", "required": ["formula", "coverage_formula", "minimum_coverage_for_nominal_assessment", "minimum_coverage_basis", "confidence_multiplies_score"]},
+    "primary_assessment": {"type": "object", "required": ["type", "states", "single_overall_score"]},
+    "experimental_index": {"type": "object", "required": ["enabled", "formula", "weights", "basis"]},
+    "legacy_clear_plus": {"type": "object", "required": ["significance_weights", "facet_max_weights", "flat", "weighted"]}
+  }
+}

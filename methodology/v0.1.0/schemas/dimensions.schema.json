@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/0.1.0/dimensions.schema.json",
+  "title": "Methodology dimensions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "methodology_version", "dimensions"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "methodology_version": {"type": "string"},
+    "dimensions": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "description", "weight", "weight_basis", "score_enabled"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]+$"},
+          "name": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "weight": {"type": "number", "minimum": 0},
+          "weight_basis": {"type": "string"},
+          "score_enabled": {"type": "boolean"},
+          "rename_candidate": {"type": "string"}
+        }
+      }
+    }
+  }
+}
