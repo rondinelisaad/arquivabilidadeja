@@ -7,6 +7,7 @@ import psycopg
 from psycopg.pq import TransactionStatus
 from psycopg.types.json import Jsonb
 
+from archivability.jobs.metrics import QueueMetricsSnapshot
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.state_machine import claim_assessment_job
 from archivability.lifecycle.models import AnalysisState
@@ -649,6 +650,90 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 audit,
                 exc,
                 "system.application_lifecycle",
+            )
+            raise
+
+    def get_queue_metrics(
+        self,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> QueueMetricsSnapshot:
+        try:
+            with self._transaction():
+                row = self._connection.execute(
+                    """
+                    SELECT
+                        count(*) FILTER (WHERE state = 'pending'),
+                        count(*) FILTER (WHERE state = 'running'),
+                        count(*) FILTER (WHERE state = 'succeeded'),
+                        count(*) FILTER (WHERE state = 'failed'),
+                        count(*) FILTER (
+                            WHERE state = 'pending'
+                              AND available_at <= CURRENT_TIMESTAMP
+                        ),
+                        count(*) FILTER (
+                            WHERE state = 'running'
+                              AND lease_expires_at <= CURRENT_TIMESTAMP
+                        ),
+                        GREATEST(
+                            0,
+                            COALESCE(
+                                EXTRACT(EPOCH FROM (
+                                    CURRENT_TIMESTAMP
+                                    - min(created_at) FILTER (WHERE state = 'pending')
+                                )),
+                                0
+                            )
+                        )
+                    FROM archivability.assessment_jobs
+                    """
+                ).fetchone()
+                if row is None:
+                    raise IntegrityViolation("queue metrics query returned no row")
+                try:
+                    snapshot = QueueMetricsSnapshot(
+                        pending=int(row[0]),
+                        running=int(row[1]),
+                        succeeded=int(row[2]),
+                        failed=int(row[3]),
+                        available=int(row[4]),
+                        expired_leases=int(row[5]),
+                        oldest_pending_seconds=float(row[6]),
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise IntegrityViolation(
+                        "stored queue metrics failed validation"
+                    ) from exc
+                self._write_audit(
+                    resource="assessment_queue_metrics",
+                    resource_id="queue",
+                    result="success",
+                    audit=audit,
+                    action="access.assessment_queue_metrics",
+                    extra={
+                        "pending": snapshot.pending,
+                        "running": snapshot.running,
+                        "available": snapshot.available,
+                        "expired_leases": snapshot.expired_leases,
+                    },
+                )
+                return snapshot
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "assessment_queue_metrics",
+                "queue",
+                audit,
+                exc,
+                "access.assessment_queue_metrics",
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "assessment_queue_metrics",
+                "queue",
+                audit,
+                exc,
+                "access.assessment_queue_metrics",
             )
             raise
 

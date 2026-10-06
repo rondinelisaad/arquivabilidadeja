@@ -16,8 +16,12 @@ dependencies = [
     "psycopg-pool>=3.3.3,<4",
 ]
 
+[project.optional-dependencies]
+server = ["uvicorn>=0.54,<0.55"]
+
 [project.scripts]
 archivability-worker = "archivability.worker:main"
+archivability-worker-health = "archivability.worker:health_main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

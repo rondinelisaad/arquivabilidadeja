@@ -185,6 +185,32 @@ class AssessmentQueueWorkerProcess:
 ConnectionFactory = Callable[..., psycopg.Connection[Any]]
 
 
+def check_worker_readiness(
+    settings: WorkerSettings,
+    *,
+    connection_factory: ConnectionFactory = psycopg.connect,
+) -> bool:
+    if not isinstance(settings, WorkerSettings):
+        raise RuntimeConfigurationError("settings must be WorkerSettings")
+    connection: psycopg.Connection[Any] | None = None
+    try:
+        connection = _connect_worker_database(settings, connection_factory)
+        validate_runtime_database_role(connection)
+        row = connection.execute(
+            """
+            SELECT to_regclass(
+                'archivability.rate_limit_buckets'
+            ) IS NOT NULL
+            """
+        ).fetchone()
+        return row == (True,)
+    except (psycopg.Error, RuntimeConfigurationError):
+        return False
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def run_production_worker(
     settings: WorkerSettings,
     stop_event: threading.Event,
@@ -194,13 +220,7 @@ def run_production_worker(
     if not isinstance(settings, WorkerSettings):
         raise RuntimeConfigurationError("settings must be WorkerSettings")
     methodology = load_methodology(settings.methodology_path)
-    connection = connection_factory(
-        settings.database_dsn,
-        autocommit=True,
-        connect_timeout=settings.connect_timeout_seconds,
-        ssl_min_protocol_version="TLSv1.2",
-        application_name=f"arquivabilidade-ja-worker-{settings.environment}",
-    )
+    connection = _connect_worker_database(settings, connection_factory)
     try:
         validate_runtime_database_role(connection)
         repository = PostgreSqlAssessmentJobRepository(connection)
@@ -225,6 +245,19 @@ def run_production_worker(
         connection.close()
 
 
+def _connect_worker_database(
+    settings: WorkerSettings,
+    connection_factory: ConnectionFactory,
+) -> psycopg.Connection[Any]:
+    return connection_factory(
+        settings.database_dsn,
+        autocommit=True,
+        connect_timeout=settings.connect_timeout_seconds,
+        ssl_min_protocol_version="TLSv1.2",
+        application_name=f"arquivabilidade-ja-worker-{settings.environment}",
+    )
+
+
 def main() -> int:
     stop_event = threading.Event()
 
@@ -245,3 +278,11 @@ def main() -> int:
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
+
+
+def health_main() -> int:
+    try:
+        settings = WorkerSettings.from_environment()
+        return 0 if check_worker_readiness(settings) else 1
+    except Exception:
+        return 1

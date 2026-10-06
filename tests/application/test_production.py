@@ -21,6 +21,7 @@ from psycopg.pq import TransactionStatus  # noqa: E402
 from archivability import (  # noqa: E402
     OidcVerifierConfig,
     PooledAsgiApplication,
+    ProductionAsgiApplication,
     ProductionSettings,
     RuntimeConfigurationError,
     apply_postgresql_migrations,
@@ -229,6 +230,41 @@ class PooledAsgiApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(500, sent[0]["status"])
         self.assertEqual(0, self.pool.borrowed)
 
+    async def test_liveness_is_independent_from_database_readiness(self) -> None:
+        application = ProductionAsgiApplication(
+            self.app,
+            verifier=object(),
+            audit_recorder=object(),  # type: ignore[arg-type]
+            max_token_bytes=1024,
+        )
+
+        async def receive() -> Mapping[str, Any]:
+            return {"type": "http.request", "body": b""}
+
+        async def send_live(event: Mapping[str, Any]) -> None:
+            live.append(event)
+
+        live: list[Mapping[str, Any]] = []
+        await application(
+            {"type": "http", "method": "GET", "path": "/health/live"},
+            receive,
+            send_live,
+        )
+
+        async def send_ready(event: Mapping[str, Any]) -> None:
+            ready.append(event)
+
+        ready: list[Mapping[str, Any]] = []
+        await application(
+            {"type": "http", "method": "GET", "path": "/health/ready"},
+            receive,
+            send_ready,
+        )
+
+        self.assertEqual(200, live[0]["status"])
+        self.assertEqual(503, ready[0]["status"])
+        self.assertEqual(0, self.pool.borrowed)
+
 
 POSTGRES_DSN = os.environ.get("ARCHIVABILITY_TEST_POSTGRES_DSN")
 POSTGRES_RUNTIME_DSN = os.environ.get("ARCHIVABILITY_TEST_POSTGRES_RUNTIME_DSN")
@@ -279,10 +315,34 @@ class ProductionPostgreSqlIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "lifespan.startup.complete", lifespan_events[0]["type"]
         )
 
-        response_events: list[Mapping[str, Any]] = []
-
         async def receive() -> Mapping[str, Any]:
             return {"type": "http.request", "body": b""}
+
+        for path, content in (
+            ("/health/live", b'"status":"ok"'),
+            ("/health/ready", b'"status":"ok"'),
+            ("/internal/metrics", b"archivability_queue_jobs"),
+        ):
+            operational_events: list[Mapping[str, Any]] = []
+
+            async def operational_send(event: Mapping[str, Any]) -> None:
+                operational_events.append(event)
+
+            await app(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": path,
+                    "headers": [],
+                    "client": ("192.0.2.41", 12345),
+                },
+                receive,
+                operational_send,
+            )
+            self.assertEqual(200, operational_events[0]["status"])
+            self.assertIn(content, operational_events[1]["body"])
+
+        response_events: list[Mapping[str, Any]] = []
 
         async def send(event: Mapping[str, Any]) -> None:
             response_events.append(event)
@@ -350,8 +410,20 @@ class ProductionPostgreSqlIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 """,
                 (f"request-invalid-{id(self)}",),
             ).fetchone()
+            metrics_access = connection.execute(
+                """
+                SELECT result, ip_address::text
+                FROM archivability.audit_events
+                WHERE action = 'access.assessment_queue_metrics'
+                  AND ip_address = %s::inet
+                ORDER BY timestamp DESC, event_id DESC
+                LIMIT 1
+                """,
+                ("192.0.2.41",),
+            ).fetchone()
         self.assertEqual({"started", "stopped"}, {row[0] for row in lifecycle})
         self.assertEqual(("failure", "INVALID_TOKEN"), authentication)
+        self.assertEqual(("success", "192.0.2.41/32"), metrics_access)
 
 
 if __name__ == "__main__":

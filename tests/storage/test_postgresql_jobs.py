@@ -290,6 +290,27 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
         with self.assertRaises(ReportNotFoundError):
             service.get_report(f"missing-{uuid4().hex}", audit=self.audit)
 
+    def test_queue_metrics_are_aggregated_and_access_is_audited(self) -> None:
+        snapshot = self.repository.get_queue_metrics(audit=self.audit)
+
+        self.assertGreaterEqual(snapshot.pending, 0)
+        self.assertGreaterEqual(snapshot.oldest_pending_seconds, 0)
+        event = self.connection.execute(
+            """
+            SELECT result, resource_id, extra_json
+            FROM archivability.audit_events
+            WHERE action = 'access.assessment_queue_metrics'
+              AND user_id = %s
+            ORDER BY timestamp DESC, event_id DESC
+            LIMIT 1
+            """,
+            (self.audit.user_id,),
+        ).fetchone()
+        assert event is not None
+        self.assertEqual(("success", "queue"), event[:2])
+        self.assertEqual(snapshot.pending, event[2]["pending"])
+        self.assertNotIn("analysis_id", event[2])
+
     def test_web_boundary_events_are_validated_and_sanitized(self) -> None:
         suffix = uuid4().hex
         api_request_id = f"request-api-{suffix}"

@@ -19,6 +19,7 @@ from archivability import (  # noqa: E402
     AssessmentQueueWorkerProcess,
     RuntimeConfigurationError,
     WorkerSettings,
+    check_worker_readiness,
     run_production_worker,
 )
 
@@ -125,6 +126,17 @@ POSTGRES_RUNTIME_DSN = os.environ.get("ARCHIVABILITY_TEST_POSTGRES_RUNTIME_DSN")
     "PostgreSQL migration and restricted runtime DSNs are not configured",
 )
 class WorkerPostgreSqlIntegrationTests(unittest.TestCase):
+    def test_readiness_validates_schema_and_restricted_role(self) -> None:
+        assert POSTGRES_RUNTIME_DSN is not None
+        settings = WorkerSettings(
+            environment="integration",
+            database_dsn=POSTGRES_RUNTIME_DSN,
+            methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+            worker_id=f"worker-health-{uuid4()}",
+        )
+
+        self.assertTrue(check_worker_readiness(settings))
+
     def test_stopped_worker_records_lifecycle_with_restricted_role(self) -> None:
         assert POSTGRES_DSN is not None
         assert POSTGRES_RUNTIME_DSN is not None

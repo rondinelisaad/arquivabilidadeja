@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import ipaddress
 import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
@@ -27,6 +28,11 @@ from archivability.application.policies import (
     RateLimitRule,
 )
 from archivability.application.read_model import AnalysisReportService
+from archivability.jobs.metrics import (
+    QueueMetricsService,
+    QueueMetricsSnapshot,
+    render_prometheus_metrics,
+)
 from archivability.jobs.service import HttpAssessmentQueueService
 from archivability.lifecycle.service import AnalysisOrchestrator
 from archivability.methodology.loader import load_methodology
@@ -265,6 +271,49 @@ class PooledAsgiApplication:
         self._started = False
         self._lifecycle_lock = asyncio.Lock()
 
+    async def check_readiness(self) -> bool:
+        if not self._started:
+            return False
+        connection: psycopg.Connection[Any] | None = None
+        try:
+            connection = await asyncio.to_thread(
+                self._pool.getconn, timeout=float(self._pool_timeout_seconds)
+            )
+            row = await asyncio.to_thread(
+                lambda: connection.execute(
+                    """
+                    SELECT to_regclass(
+                        'archivability.rate_limit_buckets'
+                    ) IS NOT NULL
+                    """
+                ).fetchone()
+            )
+            return row == (True,)
+        except Exception:
+            return False
+        finally:
+            if connection is not None:
+                try:
+                    await asyncio.to_thread(self._return_connection, connection)
+                except Exception:
+                    pass
+
+    async def queue_metrics(self, *, audit: AuditContext) -> QueueMetricsSnapshot:
+        if not self._started:
+            raise RuntimeError("application is not ready")
+        connection = await asyncio.to_thread(
+            self._pool.getconn, timeout=float(self._pool_timeout_seconds)
+        )
+        try:
+            return await asyncio.to_thread(
+                QueueMetricsService(
+                    PostgreSqlAssessmentJobRepository(connection)
+                ).snapshot,
+                audit=audit,
+            )
+        finally:
+            await asyncio.to_thread(self._return_connection, connection)
+
     async def __call__(
         self,
         scope: Mapping[str, Any],
@@ -455,7 +504,7 @@ class _PooledAuthenticationAuditRecorder:
 
 
 class ProductionAsgiApplication:
-    """Authenticate before dispatching the request to the PostgreSQL scope."""
+    """Expose minimal operations and authenticate every business request."""
 
     def __init__(
         self,
@@ -465,7 +514,8 @@ class ProductionAsgiApplication:
         audit_recorder: AuthenticationAuditRecorder,
         max_token_bytes: int,
     ) -> None:
-        self._application = BearerAuthenticationMiddleware(
+        self._core = core
+        self._authenticated_application = BearerAuthenticationMiddleware(
             core,
             verifier=verifier,
             audit_recorder=audit_recorder,
@@ -478,7 +528,98 @@ class ProductionAsgiApplication:
         receive: Callable[[], Awaitable[Mapping[str, Any]]],
         send: Callable[[Mapping[str, Any]], Awaitable[None]],
     ) -> None:
-        await self._application(scope, receive, send)
+        if scope.get("type") == "http":
+            path = scope.get("path")
+            if path == "/health/live":
+                await self._health(scope, send, ready=False)
+                return
+            if path == "/health/ready":
+                await self._health(scope, send, ready=True)
+                return
+            if path == "/internal/metrics":
+                await self._metrics(scope, send)
+                return
+        await self._authenticated_application(scope, receive, send)
+
+    async def _health(
+        self,
+        scope: Mapping[str, Any],
+        send: Callable[[Mapping[str, Any]], Awaitable[None]],
+        *,
+        ready: bool,
+    ) -> None:
+        if scope.get("method") not in {"GET", "HEAD"}:
+            await self._send_operational_response(send, 405, b"method not allowed\n")
+            return
+        healthy = await self._core.check_readiness() if ready else True
+        body = b'{"status":"ok"}\n' if healthy else b'{"status":"unavailable"}\n'
+        await self._send_operational_response(
+            send,
+            200 if healthy else 503,
+            body,
+            content_type=b"application/json; charset=utf-8",
+            head=scope.get("method") == "HEAD",
+        )
+
+    async def _metrics(
+        self,
+        scope: Mapping[str, Any],
+        send: Callable[[Mapping[str, Any]], Awaitable[None]],
+    ) -> None:
+        if scope.get("method") not in {"GET", "HEAD"}:
+            await self._send_operational_response(send, 405, b"method not allowed\n")
+            return
+        try:
+            snapshot = await self._core.queue_metrics(
+                audit=self._operational_audit_context(scope)
+            )
+            body = render_prometheus_metrics(snapshot)
+            status = 200
+        except Exception:
+            body = b"# metrics unavailable\n"
+            status = 503
+        await self._send_operational_response(
+            send,
+            status,
+            body,
+            content_type=b"text/plain; version=0.0.4; charset=utf-8",
+            head=scope.get("method") == "HEAD",
+        )
+
+    @staticmethod
+    def _operational_audit_context(scope: Mapping[str, Any]) -> AuditContext:
+        client = scope.get("client")
+        if not isinstance(client, (tuple, list)) or not client:
+            return AuditContext()
+        try:
+            address = str(ipaddress.ip_address(client[0]))
+        except (TypeError, ValueError):
+            return AuditContext()
+        return AuditContext(ip_address=address)
+
+    @staticmethod
+    async def _send_operational_response(
+        send: Callable[[Mapping[str, Any]], Awaitable[None]],
+        status: int,
+        body: bytes,
+        *,
+        content_type: bytes = b"text/plain; charset=utf-8",
+        head: bool = False,
+    ) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"cache-control", b"no-store"),
+                    (b"content-type", content_type),
+                    (b"content-security-policy", b"default-src 'none'"),
+                    (b"referrer-policy", b"no-referrer"),
+                    (b"x-content-type-options", b"nosniff"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"" if head else body})
 
 
 def _return_pool_connection(

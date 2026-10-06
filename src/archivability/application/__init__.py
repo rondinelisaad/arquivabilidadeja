@@ -67,6 +67,7 @@ from archivability.application.read_model import (
 from archivability.application.worker import (
     AssessmentQueueWorkerProcess,
     WorkerSettings,
+    check_worker_readiness,
     run_production_worker,
 )
 
@@ -119,6 +120,7 @@ __all__ = [
     "ThreadedAsgiSyncRunner",
     "WorkerSettings",
     "WorkflowError",
+    "check_worker_readiness",
     "create_production_app",
     "run_production_worker",
     "validate_runtime_database_role",
