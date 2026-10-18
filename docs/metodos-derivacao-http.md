@@ -1,6 +1,8 @@
-# Métodos de derivação HTTP 1.1.0
+# Métodos de derivação HTTP e crawl
 
 Este documento descreve as regras executáveis que transformam uma `Observation` de metadados HTTP em `Evidence` e `IndicatorResult`. O schema `1.1` permanece compatível com os métodos 1.0.0 de `D01` e `R06`; o schema `1.2` usa métodos 1.1.0 e acrescenta agregados de descoberta, formato e timing. As regras são determinísticas para a mesma metodologia e observação.
+
+Quando o mesmo attempt também contém uma observação `bounded_crawl` 1.0, o assessor valida a proveniência comum, os limites e a consistência dos agregados antes de derivar os métodos de crawl 1.0.0. A persistência de todas as evidências, resultados e transição terminal da análise ocorre na mesma transação.
 
 ## D01 — Homepage accessible
 
@@ -44,6 +46,16 @@ A ausência de `Content-Length` é válida e não reduz o resultado. O limite de
 | `S04` | inventário contextual da homepage por MIME declarado |
 | `N01` | tempo total da requisição; DNS/TCP/TLS/TTFB permanecem nulos |
 
+## Indicadores da observação `bounded_crawl` 1.0
+
+| Indicador | Método | Regra de estado |
+|---|---|---|
+| `D03` | `bounded-robots-scope-policy@1.0.0` | `fail` quando a regra aplicável proíbe a URL inicial; `warning` quando permite a semente, mas exclui parte da fronteira; `pass` quando a política parseada permite todo o escopo observado; `not_applicable` para robots ausente (`4xx`); `unknown` quando robots está inalcançável ou inválido |
+| `D08` | `bounded-crawl-frontier-coverage@1.0.0` | `pass` quando a fronteira termina completamente; `warning` quando termina por orçamento de URLs, bytes ou tempo |
+| `R03` | `bounded-internal-link-retrieval@1.0.0` | `not_applicable` sem URL interna efetivamente verificada; `pass` sem quebra; `warning` quando parte da amostra quebra; `fail` quando toda a amostra interna verificada quebra |
+
+As evidências preservam apenas escopo, budgets, contagens, classes de falha, decisão sanitizada de robots e motivos de descarte. URLs descobertas, padrões de regras e mensagens de exceção não são persistidos.
+
 ## Indicadores não derivados nesta camada
 
-`D03`, `R01`, `R03`, `R07`, `R08`, `S02` e os demais indicadores exigem política aplicável de robots, crawl, recursos adicionais, detecção por assinatura, requisição condicional, validação especializada, browser ou repetição temporal. Eles permanecem sem resultado; ausência de evidência não é convertida em aprovação ou reprovação.
+`R01`, `R07`, `R08`, `S02` e os demais indicadores exigem recursos adicionais, detecção por assinatura, requisição condicional, validação especializada, browser ou repetição temporal. Eles permanecem sem resultado; ausência de evidência não é convertida em aprovação ou reprovação.

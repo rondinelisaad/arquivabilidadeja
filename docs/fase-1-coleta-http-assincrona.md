@@ -47,4 +47,4 @@ Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R
 
 ## Continuidade
 
-A Fase 3 acrescentou ao job durável a fronteira por origem, profundidade e quantidade máximas, orçamento global de tempo/bytes, classificação de descartes, links quebrados, grafo agregado e política aplicável de robots. A derivação dos indicadores de crawl é o incremento seguinte. Browser/JavaScript permanece fora dessa fase.
+A Fase 3 acrescentou ao job durável a fronteira por origem, profundidade e quantidade máximas, orçamento global de tempo/bytes, classificação de descartes, links quebrados, grafo agregado e política aplicável de robots. `D03`, `D08` e `R03` já são derivados da observação agregada; fixtures adicionais com servidor controlado são o incremento seguinte. Browser/JavaScript permanece fora dessa fase.

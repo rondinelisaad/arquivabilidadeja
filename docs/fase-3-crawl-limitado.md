@@ -1,6 +1,6 @@
 # Fase 3 — crawl limitado
 
-Status: incrementos 1, 2 e 3 concluídos em 2026-10-18.
+Status: incrementos 1, 2, 3 e 4 concluídos em 2026-10-18.
 
 ## Resultado atual
 
@@ -18,6 +18,8 @@ O resumo contém contagens de referências, URLs internas únicas, visitas, suce
 
 O mesmo job durável de coleta persiste atomicamente a observação HTTP 1.2 e uma segunda observação `bounded_crawl` 1.0. Uma interrupção após essa transação reutiliza a observação HTTP existente e segue para a derivação sem repetir a rede. A nova observação possui schema JSON próprio e contém apenas limites, decisão agregada de robots e resumo do crawl.
 
+O assessor localiza a observação de crawl pelo attempt, exige proveniência idêntica à observação HTTP e valida estritamente limites, contagens e decisões antes de derivar `D03`, `D08` e `R03`. As novas evidências usam métodos 1.0.0 e são gravadas atomicamente com os resultados HTTP e a conclusão da análise. Análises antigas sem observação de crawl permanecem compatíveis.
+
 ## Política de robots
 
 `RobotsRules` interpreta grupos e regras conforme a RFC 9309 sob a política versionada `rfc9309-respect-1` e o parser `rfc9309-1`. O product token padrão é `arquivabilidade-ja`, contido no User-Agent HTTP já declarado pelo cliente.
@@ -32,8 +34,7 @@ O worker limita a homepage ao orçamento por resposta do crawl, usa no máximo 5
 
 Os próximos incrementos são:
 
-1. derivação de `D03`, `D08` e indicadores relacionados a partir da observação agregada;
-2. fixtures adicionais com servidor local controlado para limites, redirects, robots e recuperação de job;
-3. exposição do resumo de crawl no relatório público da análise.
+1. fixtures adicionais com servidor local controlado para limites, redirects, robots e recuperação de job;
+2. exposição do resumo de crawl no relatório público da análise.
 
 Browser e JavaScript permanecem na Fase 4.
