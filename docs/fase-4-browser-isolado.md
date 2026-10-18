@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incremento 1 concluído em 2026-10-18.
+Status: incrementos 1 e 2 concluídos em 2026-10-18.
 
 ## Contrato inicial
 
@@ -12,11 +12,16 @@ O pacote `archivability.browser` define a fronteira entre o processo principal e
 
 `BrowserRenderAggregate` não aceita DOM, corpos, mensagens de console nem URLs. Ele contém apenas hashes SHA-256 de integridade, contagens de URLs e requests, escopo interno/externo, requests de API, falhas, bloqueios, bytes, tamanho do DOM, tempo e motivo de término. `BrowserRenderResult.validate_against` exige identidade correspondente, timestamps coerentes, isolamento seguro e respeito aos budgets.
 
+## Execução, persistência e auditoria
+
+`BrowserExecutionService` autoriza o vínculo com uma tentativa HTTP concluída, exige resultado compatível com a requisição, cria uma observação imutável `browser_render` 1.0 e persiste somente o contrato agregado. Uma repetição do mesmo trabalho reutiliza a observação existente sem executar novamente o renderer; mudanças de budgets ou perfil falham fechadas.
+
+SQLite e PostgreSQL localizam no máximo uma observação de browser por tentativa e validam o estado do ciclo de vida antes da execução. A ação auditável `job.browser_render` registra início, sucesso, reuso ou falha com código estável. Os eventos incluem apenas IDs opacos, budgets, perfil, política de isolamento e contagens; não incluem URL, DOM, hashes do conteúdo, mensagens do console ou corpos de resposta.
+
 ## Próximos incrementos
 
-1. serviço de execução que converte o resultado validado em observação imutável e registra auditoria sanitizada;
-2. fila durável e worker de browser separados do worker HTTP;
-3. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
-4. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
-5. exposição sanitizada no relatório público.
+1. fila durável e worker de browser separados do worker HTTP;
+2. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
+3. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
+4. exposição sanitizada no relatório público.
 

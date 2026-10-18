@@ -291,6 +291,8 @@ Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com ident
 
 O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. A fronteira e a decisão versionada de robots da Fase 3 estão integradas ao cliente HTTP e à fila durável; `D03`, `D08` e `R03` são derivados da observação agregada. Fixtures HTTP locais exercitam o transporte real, robots, redirects e quotas sem afrouxar a política SSRF. O relatório público expõe `crawl_runs` validado e sanitizado, sem URLs ou payloads coletados. A Fase 3 está concluída; o próximo incremento inicia o contrato do browser isolado da Fase 4.
 
+A Fase 4 já possui contratos determinísticos de perfil, budgets, isolamento e resultado agregado, além de um serviço idempotente que persiste observações `browser_render` e registra auditoria sanitizada. Nenhum Chromium ou novo egress é ativado por esses contratos; a próxima etapa é a fila durável do browser.
+
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
 As decisões marcadas como hipótese ou proposta precisam ser revisadas antes do início da implementação.
