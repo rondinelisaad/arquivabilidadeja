@@ -7,11 +7,13 @@ import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 from urllib.parse import urlsplit
 
-from archivability.probes.models import ApprovedTarget, ProbeContext, ProbeValidationError
-
+from archivability.probes.models import (
+    ApprovedTarget,
+    ProbeContext,
+    ProbeValidationError,
+)
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _SAFE_RESPONSE_HEADERS = frozenset(
@@ -72,10 +74,17 @@ class HttpFetchResult:
     target: ApprovedTarget
     response: HttpResponse
     redirect_count: int
+    elapsed_milliseconds: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.redirect_count, int) or self.redirect_count < 0:
             raise HttpTransportError("redirect_count must be a non-negative integer")
+        if (
+            isinstance(self.elapsed_milliseconds, bool)
+            or not isinstance(self.elapsed_milliseconds, (int, float))
+            or not 0 <= self.elapsed_milliseconds <= 120_000
+        ):
+            raise HttpTransportError("HTTP elapsed time is invalid")
 
 
 SocketFactory = Callable[..., socket.socket]
@@ -111,6 +120,7 @@ class PinnedHttpClient:
     def fetch(self, context: ProbeContext) -> HttpFetchResult:
         if not isinstance(context, ProbeContext):
             raise ProbeValidationError("HTTP fetch requires an approved probe context")
+        started_at = self._clock()
         current = context
         deadline = self._clock() + context.request.timeout_seconds
         while True:
@@ -120,6 +130,9 @@ class PinnedHttpClient:
                     target=current.target,
                     response=exchange.response,
                     redirect_count=current.redirect_count,
+                    elapsed_milliseconds=max(
+                        0.0, (self._clock() - started_at) * 1000
+                    ),
                 )
             current = current.redirect(exchange.redirect_location)
 

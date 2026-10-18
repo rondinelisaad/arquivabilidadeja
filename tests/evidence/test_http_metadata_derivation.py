@@ -6,7 +6,6 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -22,7 +21,6 @@ from archivability.methodology import (  # noqa: E402
     ScoringEngine,
     load_methodology,
 )
-
 
 NOW = datetime(2026, 10, 7, 1, 0, tzinfo=timezone.utc)
 METHODOLOGY_PATH = ROOT / "methodology" / "v0.1.0"
@@ -59,6 +57,56 @@ def http_observation(
             "final_transport_secure": True,
         },
         truncated=truncated,
+    )
+
+
+def discovery_observation() -> Observation:
+    base = http_observation()
+    payload = dict(base.payload)
+    payload.update(
+        {
+            "elapsed_milliseconds": 42.5,
+            "content_type": "text/html",
+            "format_family": "html",
+            "html": {
+                "parseable": True,
+                "link_count": 3,
+                "internal_link_count": 2,
+                "external_link_count": 1,
+                "feed_link_count": 1,
+                "canonical_present": True,
+                "truncated": False,
+            },
+            "robots": {
+                "outcome": "available",
+                "status_code": 200,
+                "parseable": True,
+                "item_count": 4,
+                "truncated": False,
+                "elapsed_milliseconds": 10.0,
+            },
+            "sitemap": {
+                "outcome": "available",
+                "status_code": 200,
+                "parseable": True,
+                "item_count": 8,
+                "truncated": False,
+                "elapsed_milliseconds": 11.0,
+            },
+        }
+    )
+    return Observation.create(
+        observation_id=base.observation_id,
+        analysis_id=base.analysis_id,
+        attempt_id=base.attempt_id,
+        kind=base.kind,
+        subject_uri=base.subject_uri,
+        observed_at=base.observed_at,
+        probe_id=base.probe_id,
+        tool_name=base.tool_name,
+        tool_version="0.2.0",
+        payload_schema_version="1.2",
+        payload=payload,
     )
 
 
@@ -109,6 +157,23 @@ class HttpMetadataDerivationTests(unittest.TestCase):
                     http_observation(status_code=status_code),
                 )
                 self.assertEqual(expected, result.indicator_results[0].state)
+
+    def test_discovery_contract_derives_http_phase_indicators(self) -> None:
+        derived = derive_http_metadata_indicators(
+            self.methodology, discovery_observation()
+        )
+
+        self.assertEqual(
+            ["D01", "R06", "D02", "D04", "D05", "D06", "R02", "R04", "R05", "S01", "S03", "S04", "N01"],
+            [item.indicator_id for item in derived.indicator_results],
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.PASS, by_id["D02"].state)
+        self.assertEqual(ResultState.PASS, by_id["D04"].state)
+        self.assertEqual(ResultState.CONTEXT, by_id["S04"].state)
+        self.assertEqual(ResultState.CONTEXT, by_id["N01"].state)
+        serialized = json.dumps([item.to_dict() for item in derived.evidence])
+        self.assertNotIn("discovered_urls", serialized)
 
     def test_truncation_and_invalid_lengths_are_warnings(self) -> None:
         cases = (

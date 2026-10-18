@@ -7,7 +7,6 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -29,7 +28,6 @@ from archivability.storage import (  # noqa: E402
     SqliteLifecycleRepository,
     apply_sqlite_migrations,
 )
-
 
 NOW = datetime(2026, 10, 6, 21, 0, tzinfo=timezone.utc)
 METHODOLOGY = ROOT / "methodology" / "v0.1.0"
@@ -71,6 +69,31 @@ class FakeHttpFetcher:
                 truncated=True,
             ),
             redirect_count=1,
+        )
+
+
+class RoutingHttpFetcher:
+    def fetch(self, context):
+        path = context.target.normalized_uri.split("example.org", 1)[-1]
+        if path == "/robots.txt":
+            body = b"User-agent: *\nDisallow:\nSitemap: https://example.org/sitemap.xml\n"
+            content_type = "text/plain"
+        elif path == "/sitemap.xml":
+            body = b"<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'><url><loc>https://example.org/a</loc></url></urlset>"
+            content_type = "application/xml"
+        else:
+            body = b"<html><head><link rel='alternate' type='application/rss+xml' href='/feed.xml'></head><body><a href='/a'>A</a><img src='https://cdn.example.net/a.png'></body></html>"
+            content_type = "text/html; charset=utf-8"
+        return HttpFetchResult(
+            target=context.target,
+            response=HttpResponse(
+                status_code=200,
+                reason="OK",
+                headers=(("content-type", content_type),),
+                body=body,
+            ),
+            redirect_count=0,
+            elapsed_milliseconds=12.5,
         )
 
 
@@ -121,16 +144,20 @@ class HttpMetadataProbeTests(unittest.TestCase):
 
         result = self.runner.run(self.request, probe)
 
-        self.assertEqual(1, len(fetcher.contexts))
+        self.assertEqual(3, len(fetcher.contexts))
         observation = result.observations[0]
         self.assertEqual("observation-http-1", observation.observation_id)
         self.assertEqual("http_metadata", observation.kind)
         self.assertEqual("http-metadata", observation.probe_id)
-        self.assertEqual("1.1", observation.payload_schema_version)
+        self.assertEqual("1.2", observation.payload_schema_version)
         self.assertEqual(200, observation.payload["status_code"])
         self.assertEqual(5 * 1024 * 1024, observation.payload["response_byte_limit"])
         self.assertEqual(1, observation.payload["redirect_count"])
         self.assertTrue(observation.payload["final_transport_secure"])
+        self.assertEqual("text/html", observation.payload["content_type"])
+        self.assertEqual("html", observation.payload["format_family"])
+        self.assertIn("robots", observation.payload)
+        self.assertIn("sitemap", observation.payload)
         self.assertTrue(observation.truncated)
         serialized = json.dumps(observation.to_dict())
         self.assertNotIn("body-must-not-be-persisted", serialized)
@@ -142,11 +169,31 @@ class HttpMetadataProbeTests(unittest.TestCase):
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted(directory.glob("http-metadata*.schema.json"))
         ]
-        self.assertEqual(2, len(documents))
+        self.assertEqual(3, len(documents))
         self.assertTrue(all(document["type"] == "object" for document in documents))
         self.assertTrue(
             all(document["additionalProperties"] is False for document in documents)
         )
+
+    def test_collects_bounded_discovery_aggregates_without_urls(self) -> None:
+        observation = self.runner.run(
+            self.request,
+            HttpMetadataProbe(
+                RoutingHttpFetcher(),
+                clock=lambda: NOW,
+                observation_id_factory=lambda: "observation-discovery-1",
+            ),
+        ).observations[0]
+
+        self.assertEqual(3, observation.payload["html"]["link_count"])
+        self.assertEqual(1, observation.payload["html"]["feed_link_count"])
+        self.assertTrue(observation.payload["robots"]["parseable"])
+        self.assertEqual(3, observation.payload["robots"]["item_count"])
+        self.assertTrue(observation.payload["sitemap"]["parseable"])
+        self.assertEqual(1, observation.payload["sitemap"]["item_count"])
+        serialized = json.dumps(observation.to_dict()["payload"])
+        self.assertNotIn("cdn.example.net", serialized)
+        self.assertNotIn("/feed.xml", serialized)
 
     def test_transport_failure_is_audited_without_error_or_url(self) -> None:
         probe = HttpMetadataProbe(
