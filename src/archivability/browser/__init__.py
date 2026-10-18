@@ -1,5 +1,9 @@
 """Contracts for deterministic rendering in an isolated browser worker."""
 
+from archivability.browser.execution import (
+    BrowserExecutionOutcome,
+    BrowserExecutionService,
+)
 from archivability.browser.models import (
     BrowserBudgets,
     BrowserContractError,
@@ -9,11 +13,14 @@ from archivability.browser.models import (
     BrowserRenderRequest,
     BrowserRenderResult,
 )
-from archivability.browser.ports import BrowserRenderer
+from archivability.browser.ports import BrowserExecutionRepository, BrowserRenderer
 
 __all__ = [
     "BrowserBudgets",
     "BrowserContractError",
+    "BrowserExecutionOutcome",
+    "BrowserExecutionRepository",
+    "BrowserExecutionService",
     "BrowserIsolationAttestation",
     "BrowserProfile",
     "BrowserRenderAggregate",

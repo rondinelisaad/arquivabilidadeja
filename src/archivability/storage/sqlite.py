@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 from uuid import uuid4
 
+from archivability.browser.audit import browser_render_event_extra
+from archivability.browser.models import (
+    BrowserContractError,
+    BrowserRenderRequest,
+    BrowserRenderResult,
+)
 from archivability.crawler.frontier import CrawlLimits, CrawlSummary
 from archivability.evidence.models import Evidence, EvidenceSource, Observation
 from archivability.lifecycle.models import (
@@ -252,6 +258,22 @@ class SqliteEvidenceRepository:
         ).fetchall()
         if len(rows) > 1:
             raise IntegrityViolation("attempt has multiple bounded crawl observations")
+        return self.get_observation(rows[0][0]) if rows else None
+
+    def get_browser_render_observation(self, attempt_id: str) -> Observation | None:
+        rows = self._connection.execute(
+            """
+            SELECT observation_id
+            FROM observations
+            WHERE json_extract(document_json, '$.attempt_id') = ?
+              AND json_extract(document_json, '$.kind') = 'browser_render'
+            ORDER BY observation_id
+            LIMIT 2
+            """,
+            (attempt_id,),
+        ).fetchall()
+        if len(rows) > 1:
+            raise IntegrityViolation("attempt has multiple browser render observations")
         return self.get_observation(rows[0][0]) if rows else None
 
     def get_evidence(self, evidence_id: str) -> Evidence | None:
@@ -1010,6 +1032,38 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
                 extra=extra,
             )
 
+    def record_browser_render_event(
+        self,
+        *,
+        request: BrowserRenderRequest,
+        status: str,
+        observation_id: str | None,
+        result: BrowserRenderResult | None,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            extra = browser_render_event_extra(
+                request, status, observation_id, result, error_code
+            )
+        except BrowserContractError as exc:
+            raise IntegrityViolation("browser render audit event is invalid") from exc
+        relation = self._connection.execute(
+            "SELECT 1 FROM attempts WHERE attempt_id = ? AND analysis_id = ?",
+            (request.attempt_id, request.analysis_id),
+        ).fetchone()
+        if relation is None:
+            raise IntegrityViolation("browser event does not reference a valid attempt")
+        with self._transaction():
+            self._write_audit(
+                resource="browser_render",
+                resource_id=request.attempt_id,
+                result="failure" if status == "failed" else "success",
+                audit=audit,
+                action="job.browser_render",
+                extra=extra,
+            )
+
     @staticmethod
     def _validate_crawl_event(
         status: str,
@@ -1050,6 +1104,24 @@ class SqliteLifecycleRepository(SqliteEvidenceRepository):
             raise IntegrityViolation("probe request requires its registered running attempt")
         if subject_uri != analysis.subject_uri:
             raise IntegrityViolation("probe request subject does not match the analysis")
+
+    def authorize_browser_render_request(
+        self, *, analysis_id: str, attempt_id: str, subject_uri: str
+    ) -> None:
+        analysis = self.get_analysis(analysis_id)
+        attempt = self.get_attempt(attempt_id)
+        if analysis is None or attempt is None:
+            raise IntegrityViolation("browser request references missing lifecycle state")
+        if analysis.state is not AnalysisState.RUNNING:
+            raise IntegrityViolation("browser request requires a running analysis")
+        if (
+            attempt.state is not AttemptState.SUCCEEDED
+            or attempt.analysis_id != analysis_id
+            or attempt_id not in analysis.attempt_ids
+        ):
+            raise IntegrityViolation("browser request requires a successful HTTP attempt")
+        if subject_uri != analysis.subject_uri:
+            raise IntegrityViolation("browser request subject does not match the analysis")
 
     def _validate_http_assessment(
         self,

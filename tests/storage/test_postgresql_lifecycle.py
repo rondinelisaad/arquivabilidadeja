@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -18,9 +17,14 @@ import psycopg  # noqa: E402
 from archivability import (  # noqa: E402
     AnalysisOrchestrator,
     AnalysisState,
-    AuditedBoundedCrawl,
     AttemptState,
     AuditContext,
+    AuditedBoundedCrawl,
+    BrowserExecutionService,
+    BrowserIsolationAttestation,
+    BrowserRenderAggregate,
+    BrowserRenderRequest,
+    BrowserRenderResult,
     ConcurrencyConflict,
     CrawlLimits,
     PersistenceError,
@@ -38,12 +42,20 @@ from archivability.evidence import (  # noqa: E402
 from archivability.lifecycle.state_machine import finish_attempt  # noqa: E402
 from archivability.methodology import ResultState  # noqa: E402
 
-
 POSTGRES_DSN = os.environ.get("ARCHIVABILITY_TEST_POSTGRES_DSN")
 POSTGRES_RUNTIME_DSN = os.environ.get(
     "ARCHIVABILITY_TEST_POSTGRES_RUNTIME_DSN", POSTGRES_DSN
 )
 T0 = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)
+
+
+class StaticBrowserRenderer:
+    def __init__(self, result: BrowserRenderResult) -> None:
+        self.result = result
+
+    def render(self, request: BrowserRenderRequest) -> BrowserRenderResult:
+        del request
+        return self.result
 
 
 @unittest.skipUnless(POSTGRES_DSN, "PostgreSQL integration DSN is not configured")
@@ -93,7 +105,7 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         attempt = self.orchestrator.start_attempt(
             analysis.analysis_id, audit=self.audit
         )
-        failed = self.orchestrator.finish_attempt(
+        self.orchestrator.finish_attempt(
             analysis.analysis_id,
             attempt.attempt_id,
             target=AttemptState.FAILED,
@@ -189,6 +201,88 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         self.assertIn("succeeded", serialized)
         self.assertNotIn("example.org", serialized)
         self.assertNotIn("not-in-crawl-audit", serialized)
+
+    def test_runtime_role_persists_and_audits_browser_render(self) -> None:
+        subject = "https://example.org/private?token=not-in-browser-audit"
+        analysis = self.orchestrator.create_analysis(
+            subject_uri=subject,
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+            audit=self.audit,
+        )
+        attempt = self.orchestrator.start_attempt(
+            analysis.analysis_id, audit=self.audit
+        )
+        self.orchestrator.finish_attempt(
+            analysis.analysis_id,
+            attempt.attempt_id,
+            target=AttemptState.SUCCEEDED,
+            audit=self.audit,
+        )
+        request = BrowserRenderRequest(
+            analysis_id=analysis.analysis_id,
+            attempt_id=attempt.attempt_id,
+            subject_uri=subject,
+            requested_at=T0,
+        )
+        result = BrowserRenderResult(
+            analysis_id=analysis.analysis_id,
+            attempt_id=attempt.attempt_id,
+            engine_name="chromium",
+            engine_version="140.0.1",
+            started_at=T0,
+            finished_at=T0 + timedelta(seconds=1),
+            isolation=BrowserIsolationAttestation(
+                policy_id="browser-container-1",
+                sandbox_enabled=True,
+                running_as_root=False,
+                read_only_root_filesystem=True,
+                ephemeral_profile=True,
+                host_mounts_present=False,
+                secrets_available=False,
+                docker_socket_available=False,
+            ),
+            aggregate=BrowserRenderAggregate(
+                raw_dom_hash="a" * 64,
+                rendered_dom_hash="b" * 64,
+                raw_url_set_hash="c" * 64,
+                rendered_url_set_hash="d" * 64,
+                raw_url_count=1,
+                rendered_url_count=2,
+                additional_url_count=1,
+                request_count=2,
+                internal_request_count=1,
+                external_request_count=1,
+                api_request_count=1,
+                failed_request_count=0,
+                blocked_request_count=0,
+                transfer_bytes=100,
+                rendered_dom_bytes=200,
+                console_event_count=0,
+                elapsed_milliseconds=1000,
+                termination_reason="complete",
+            ),
+        )
+        service = BrowserExecutionService(
+            renderer=StaticBrowserRenderer(result),
+            repository=self.repository,
+            observation_id_factory=lambda: f"browser-{uuid4().hex}",
+        )
+
+        outcome = service.execute(request, audit=self.audit)
+        stored = self.repository.get_browser_render_observation(attempt.attempt_id)
+
+        self.assertEqual(outcome.observation, stored)
+        events = self.connection.execute(
+            """
+            SELECT extra_json FROM archivability.audit_events
+            WHERE action = 'job.browser_render' AND resource_id = %s
+            ORDER BY timestamp, event_id
+            """,
+            (attempt.attempt_id,),
+        ).fetchall()
+        self.assertEqual(["started", "succeeded"], [item[0]["status"] for item in events])
+        self.assertNotIn("example.org", repr(events))
+        self.assertNotIn("not-in-browser-audit", repr(events))
 
     def test_probe_completion_and_evidence_chain_round_trip(self) -> None:
         methodology = load_methodology(ROOT / "methodology" / "v0.1.0")
