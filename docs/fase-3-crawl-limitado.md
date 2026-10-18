@@ -1,6 +1,6 @@
 # Fase 3 — crawl limitado
 
-Status: incrementos 1, 2, 3, 4 e 5 concluídos em 2026-10-18.
+Status: concluída em 2026-10-18.
 
 ## Resultado atual
 
@@ -38,8 +38,12 @@ Uma fixture HTTP local, determinística e exclusiva dos testes exercita o client
 
 Os testes cobrem política de robots antes da abertura do socket, redirects de mesma origem, bloqueio de redirect externo antes de uma segunda conexão, links quebrados, orçamento total de bytes e identificação pelo User-Agent declarado. Eles também detectaram e fixaram a leitura de respostas `Connection: close`, preservando a referência do socket enquanto o corpo é consumido. A recuperação durável após interrupção entre coleta e enqueue da derivação continua coberta pela suíte do worker, que comprova o reuso das observações persistidas sem nova coleta.
 
-O próximo incremento é:
+## Relatório público
 
-1. exposição do resumo de crawl no relatório público da análise.
+O contrato público inclui `crawl_runs`, ordenado pelos attempts da análise. Cada item contém somente IDs opacos, timestamps, hash de integridade, proveniência da ferramenta, limites numéricos, decisão sanitizada de robots e contagens agregadas do crawl. URL, caminho, query, corpo, headers e payload bruto não são expostos.
+
+A montagem valida schema, categorias, faixas e consistência das contagens antes da serialização. Campos inesperados ou dados incoerentes falham fechados com `REPORT_BUILD_FAILED`. O evento `access.analysis_report` registra apenas estado e contagens — incluindo `crawl_count` — sem copiar o relatório ou o alvo.
+
+Com fronteira, quotas, política de robots, persistência, derivação, fixtures reais e exposição pública sanitizada implementadas, o critério de saída da Fase 3 está atendido. O próximo incremento inicia a Fase 4 com o contrato do browser isolado.
 
 Browser e JavaScript permanecem na Fase 4.
