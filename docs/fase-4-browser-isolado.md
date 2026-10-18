@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1, 2, 3a, 3b e 3c concluídos em 2026-10-18.
+Status: incrementos 1, 2, 3a, 3b, 3c, 4 e 5 implementados em 2026-10-18.
 
 ## Contrato inicial
 
@@ -26,10 +26,17 @@ SQLite e PostgreSQL persistem a fila com revisão otimista, constraint de unicid
 
 `BrowserWorker` consome essa fila separadamente, monta a requisição somente com a análise/tentativa autorizada e entrega o agregado ao `BrowserExecutionService`. Depois de um render válido, ele enfileira a observação HTTP original para a derivação existente; se o enqueue falhar, a repetição reutiliza a observação de browser já persistida. Falhas usam códigos estáveis e backoff exponencial limitado. Ao esgotar tentativas de browser, o worker ainda enfileira a avaliação HTTP como resultado degradado, preservando o erro terminal do browser sem deixar a análise permanentemente em execução.
 
+## Sidecar Chromium e ativação
+
+`LoopbackBrowserRenderer` aceita somente um endpoint HTTP explícito em loopback, limita request/response e valida o JSON integral antes de criar o resultado. O sidecar Node/Playwright fixa versão e integridade das dependências e da imagem-base, escuta apenas em `127.0.0.1`, processa um render por vez e não registra request, URL, DOM ou erro bruto.
+
+Cada navegação e subrequest revalida esquema, credenciais, DNS e todos os endereços resolvidos, bloqueando redes privadas, loopback, link-local, documentação, multicast e especiais. A NetworkPolicy do pod fornece a segunda barreira contra rebinding. O resultado guarda somente hashes, contagens e medidas truncadas nos budgets.
+
+O container só responde saudável quando confirma sandbox habilitado, UID não-root, raiz read-only, perfil efêmero e ausência de secrets, mounts de host e socket Docker. No Kubernetes ele não recebe `envFrom`, Secret ou token de ServiceAccount e usa volume temporário próprio. O worker de produção passa a drenar, em ordem, coleta HTTP, browser e avaliação; a coleta só pula o browser nos testes legados que injetam explicitamente a fila HTTP.
+
 ## Próximos incrementos
 
-1. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
-2. integração do worker de browser no pipeline de produção;
-3. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
-4. exposição sanitizada no relatório público.
+1. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
+2. exposição sanitizada no relatório público;
+3. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
 

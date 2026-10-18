@@ -78,7 +78,49 @@ spec:
           volumeMounts:
             - name: temporary
               mountPath: /tmp
+        - name: browser
+          image: ghcr.io/rondinelisaad/arquivabilidade-ja-browser:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: browser-http
+              containerPort: 9223
+          readinessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - "fetch('http://127.0.0.1:9223/health').then(r=>process.exit(r.status===204?0:1)).catch(()=>process.exit(1))"
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - "fetch('http://127.0.0.1:9223/health').then(r=>process.exit(r.status===204?0:1)).catch(()=>process.exit(1))"
+            periodSeconds: 30
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: browser-temporary
+              mountPath: /tmp
       volumes:
         - name: temporary
           emptyDir:
             sizeLimit: 64Mi
+        - name: browser-temporary
+          emptyDir:
+            sizeLimit: 256Mi
