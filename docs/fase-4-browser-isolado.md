@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1, 2 e 3a concluídos em 2026-10-18.
+Status: incrementos 1, 2, 3a e 3b concluídos em 2026-10-18.
 
 ## Contrato inicial
 
@@ -20,11 +20,13 @@ SQLite e PostgreSQL localizam no máximo uma observação de browser por tentati
 
 ## Contrato da fila
 
-`BrowserJob` e `BrowserQueueService` definem enqueue idempotente na fronteira do repositório, perfil e budgets imutáveis, leases, recuperação de lease expirado, retries limitados e estados terminais. Apenas uma tentativa HTTP registrada e bem-sucedida de uma análise em execução pode originar o job. A persistência desse contrato será adicionada em migration separada para permitir revisão explícita dos grants de runtime antes de ativar o worker.
+`BrowserJob` e `BrowserQueueService` definem enqueue idempotente por tentativa HTTP, perfil e budgets imutáveis, leases, recuperação de lease expirado, retries limitados e estados terminais. Apenas uma tentativa HTTP registrada e bem-sucedida de uma análise em execução pode originar o job.
+
+SQLite e PostgreSQL persistem a fila com revisão otimista, constraint de unicidade sobre a tentativa, índice de claim e bloqueio de exclusão. O runtime PostgreSQL recebe somente `SELECT`, `INSERT` e `UPDATE` sobre `browser_jobs`; o validador de inicialização exige esses grants e continua recusando DDL, `TRUNCATE`, `TRIGGER` e `DELETE`. Enqueue, claim, retry, sucesso e falha usam eventos `job.browser_queue_*` sanitizados.
 
 ## Próximos incrementos
 
-1. persistência da fila e worker de browser separados do worker HTTP;
+1. worker de browser separado do worker HTTP;
 2. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
 3. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
 4. exposição sanitizada no relatório público.
