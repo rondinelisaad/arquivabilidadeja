@@ -7,7 +7,6 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -33,7 +32,6 @@ from tests.application.test_http_workflow import (  # noqa: E402
     StaticResolver,
     SuccessfulHttpProbe,
 )
-
 
 NOW = datetime(2026, 10, 7, 6, 0, tzinfo=timezone.utc)
 SUBJECT = "https://example.org/private?token=must-not-be-logged"
@@ -80,7 +78,7 @@ class AnalysisApiTests(unittest.TestCase):
             clock=lambda: NOW,
             event_id_factory=lambda: next(event_ids),
         )
-        methodology = load_methodology(METHODOLOGY_PATH)
+        self.methodology = load_methodology(METHODOLOGY_PATH)
         orchestrator = AnalysisOrchestrator(
             self.repository,
             clock=lambda: NOW,
@@ -104,7 +102,7 @@ class AnalysisApiTests(unittest.TestCase):
             job_id_factory=lambda: "job-api-1",
         )
         self.workflow = HttpAssessmentWorkflow(
-            methodology=methodology,
+            methodology=self.methodology,
             repository=self.repository,
             orchestrator=orchestrator,
             probe_execution=execution,
@@ -115,7 +113,7 @@ class AnalysisApiTests(unittest.TestCase):
         self.rate_limiter = RateLimiter()
         self.api = AnalysisApi(
             workflow=self.workflow,
-            reports=AnalysisReportService(self.repository),
+            reports=AnalysisReportService(self.repository, self.methodology),
             probe=SuccessfulHttpProbe(),
             authorization=self.authorization,
             rate_limiter=self.rate_limiter,
@@ -272,7 +270,7 @@ class AnalysisApiTests(unittest.TestCase):
         )
         secure_api = AnalysisApi(
             workflow=self.workflow,
-            reports=AnalysisReportService(self.repository),
+            reports=AnalysisReportService(self.repository, self.methodology),
             probe=SuccessfulHttpProbe(),
             authorization=OwnershipAuthorizationPolicy(self.repository),
             rate_limiter=self.rate_limiter,

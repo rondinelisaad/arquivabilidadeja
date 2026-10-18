@@ -779,7 +779,7 @@ def create_production_app(
         )
         api = AnalysisApi(
             workflow=workflow,
-            reports=AnalysisReportService(persistence),
+            reports=AnalysisReportService(persistence, methodology),
             probe=probe,
             authorization=OwnershipAuthorizationPolicy(persistence),
             rate_limiter=request_rate_limiter,

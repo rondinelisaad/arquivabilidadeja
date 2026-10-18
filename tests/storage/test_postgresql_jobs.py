@@ -60,6 +60,7 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
         assert POSTGRES_RUNTIME_DSN is not None
         self.connection = psycopg.connect(POSTGRES_RUNTIME_DSN, autocommit=True)
         self.repository = self._repository(self.connection)
+        self.methodology = load_methodology(ROOT / "methodology" / "v0.1.0")
         self.audit = AuditContext(user_id=f"worker-user-{uuid4().hex}")
 
     def tearDown(self) -> None:
@@ -356,7 +357,7 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             job_id_factory=lambda: f"job-{uuid4().hex}",
         )
         queued = queue.enqueue(observation.observation_id, audit=self.audit).job
-        service = AnalysisReportService(self.repository)
+        service = AnalysisReportService(self.repository, self.methodology)
 
         report = service.get_report(observation.analysis_id, audit=self.audit)
 

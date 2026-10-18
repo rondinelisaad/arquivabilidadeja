@@ -26,7 +26,12 @@ from archivability.lifecycle.models import (
     Attempt,
     AttemptState,
 )
-from archivability.methodology.models import IndicatorResult
+from archivability.methodology.models import (
+    AssessmentResult,
+    IndicatorResult,
+    MethodologyConfig,
+)
+from archivability.methodology.scoring import ScoringEngine
 from archivability.storage.audit import AuditContext
 
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
@@ -386,6 +391,7 @@ class BrowserRunReport:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisReport:
+    report_schema_version: str
     analysis_id: str
     target_origin: str
     methodology_id: str
@@ -399,11 +405,14 @@ class AnalysisReport:
     jobs: tuple[JobReport, ...]
     crawl_runs: tuple[CrawlRunReport, ...]
     browser_runs: tuple[BrowserRunReport, ...]
+    assessment: AssessmentResult | None
     indicator_results: tuple[IndicatorReport, ...]
     evidence: tuple[EvidenceReport, ...]
+    limitations: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "report_schema_version": self.report_schema_version,
             "analysis_id": self.analysis_id,
             "target_origin": self.target_origin,
             "methodology_id": self.methodology_id,
@@ -417,16 +426,26 @@ class AnalysisReport:
             "jobs": [item.to_dict() for item in self.jobs],
             "crawl_runs": [item.to_dict() for item in self.crawl_runs],
             "browser_runs": [item.to_dict() for item in self.browser_runs],
+            "assessment": (
+                self.assessment.to_dict() if self.assessment is not None else None
+            ),
             "indicator_results": [item.to_dict() for item in self.indicator_results],
             "evidence": [item.to_dict() for item in self.evidence],
+            "limitations": list(self.limitations),
         }
 
 
 class AnalysisReportService:
     """Builds an audited report without exposing collected payloads or target paths."""
 
-    def __init__(self, repository: AnalysisReportRepository) -> None:
+    def __init__(
+        self,
+        repository: AnalysisReportRepository,
+        methodology: MethodologyConfig,
+    ) -> None:
         self._repository = repository
+        self._methodology = methodology
+        self._scoring = ScoringEngine(methodology)
 
     def get_report(
         self,
@@ -480,9 +499,13 @@ class AnalysisReportService:
         )
         return report
 
-    @staticmethod
-    def _build(snapshot: AnalysisReportSnapshot) -> AnalysisReport:
+    def _build(self, snapshot: AnalysisReportSnapshot) -> AnalysisReport:
         analysis = snapshot.analysis
+        if (
+            analysis.methodology_id != self._methodology.id
+            or analysis.methodology_version != self._methodology.version
+        ):
+            raise ReportError("analysis methodology does not match report methodology")
         attempts = tuple(
             AttemptReport(
                 attempt_id=item.attempt_id,
@@ -550,7 +573,17 @@ class AnalysisReportService:
             BrowserRunReport.from_observation(item)
             for item in snapshot.browser_observations
         )
+        assessment = None
+        if analysis.state in {
+            AnalysisState.COMPLETED,
+            AnalysisState.PARTIALLY_COMPLETED,
+        }:
+            assessment = self._scoring.evaluate(
+                snapshot.indicator_results,
+                applicable_indicator_ids=tuple(self._methodology.indicators),
+            )
         return AnalysisReport(
+            report_schema_version="1.0",
             analysis_id=analysis.analysis_id,
             target_origin=_safe_origin(analysis.subject_uri),
             methodology_id=analysis.methodology_id,
@@ -570,8 +603,17 @@ class AnalysisReportService:
             jobs=jobs,
             crawl_runs=crawl_runs,
             browser_runs=browser_runs,
+            assessment=assessment,
             indicator_results=results,
             evidence=evidence,
+            limitations=(
+                "Scores and thresholds are a versioned project hypothesis, not a "
+                "scientifically validated equivalence to CLEAR+.",
+                "Candidate gates remain inactive until explicitly approved in a "
+                "methodology release.",
+                "The legacy CLEAR+ comparison is unavailable until a validated "
+                "mapping from current evidence to the original facets is approved.",
+            ),
         )
 
     @staticmethod

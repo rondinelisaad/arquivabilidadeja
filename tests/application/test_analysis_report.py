@@ -130,7 +130,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
             probe=SuccessfulHttpProbe(),
             audit=self.audit,
         )
-        self.service = AnalysisReportService(self.repository)
+        self.service = AnalysisReportService(self.repository, self.methodology)
 
     def _run_collection(self) -> None:
         HttpCollectionWorker(
@@ -266,6 +266,8 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual((), report.attempts)
         self.assertEqual("collection", report.jobs[0].stage)
         self.assertEqual("pending", report.jobs[0].state)
+        self.assertEqual("1.0", document["report_schema_version"])
+        self.assertIsNone(report.assessment)
         self.assertEqual([], document["indicator_results"])
         serialized = json.dumps(document)
         self.assertNotIn("private/path", serialized)
@@ -298,6 +300,16 @@ class AnalysisReportServiceTests(unittest.TestCase):
         )
         self.assertEqual(6, len(report.evidence))
         self.assertTrue(all(item.sources for item in report.evidence))
+        self.assertIsNotNone(report.assessment)
+        assert report.assessment is not None
+        self.assertEqual("partially_assessable", report.assessment.overall_state.value)
+        self.assertIn("discoverability", report.assessment.dimensions)
+        self.assertLess(report.assessment.dimensions["discoverability"].coverage, 1)
+        self.assertTrue(
+            all(item.state.value == "inactive" for item in report.assessment.gates.values())
+        )
+        self.assertIsNone(report.assessment.legacy_clear_plus)
+        self.assertEqual(3, len(report.limitations))
         serialized = json.dumps(document)
         self.assertNotIn("headers", serialized)
         self.assertNotIn('"payload":', serialized)
