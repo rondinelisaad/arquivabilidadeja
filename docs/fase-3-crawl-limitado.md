@@ -1,6 +1,6 @@
 # Fase 3 — crawl limitado
 
-Status: incrementos 1, 2, 3 e 4 concluídos em 2026-10-18.
+Status: incrementos 1, 2, 3, 4 e 5 concluídos em 2026-10-18.
 
 ## Resultado atual
 
@@ -32,9 +32,14 @@ Uma resposta HTTP `4xx` torna o arquivo indisponível e a política permite a co
 
 O worker limita a homepage ao orçamento por resposta do crawl, usa no máximo 512 KiB para `robots.txt`, reaplica a política SSRF antes de cada URL e restringe redirects do crawl à origem inicial. URLs proibidas por robots não abrem conexão; falhas usam classes estáveis e não persistem mensagens de exceção. A URL submetida continua sendo observada como semente da análise, e a decisão de robots sobre ela é registrada separadamente da expansão recursiva.
 
-Os próximos incrementos são:
+## Fixtures de integração
 
-1. fixtures adicionais com servidor local controlado para limites, redirects, robots e recuperação de job;
-2. exposição do resumo de crawl no relatório público da análise.
+Uma fixture HTTP local, determinística e exclusiva dos testes exercita o cliente real sem flexibilizar a política SSRF de produção. O resolver entrega um endereço público aprovado e uma fábrica de sockets injetada mapeia somente esse destino e a porta efêmera esperada para `127.0.0.1`.
+
+Os testes cobrem política de robots antes da abertura do socket, redirects de mesma origem, bloqueio de redirect externo antes de uma segunda conexão, links quebrados, orçamento total de bytes e identificação pelo User-Agent declarado. Eles também detectaram e fixaram a leitura de respostas `Connection: close`, preservando a referência do socket enquanto o corpo é consumido. A recuperação durável após interrupção entre coleta e enqueue da derivação continua coberta pela suíte do worker, que comprova o reuso das observações persistidas sem nova coleta.
+
+O próximo incremento é:
+
+1. exposição do resumo de crawl no relatório público da análise.
 
 Browser e JavaScript permanecem na Fase 4.
