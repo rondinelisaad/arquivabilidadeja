@@ -47,4 +47,4 @@ Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R
 
 ## Continuidade
 
-A Fase 3 começou pelo núcleo determinístico do crawl limitado: fronteira por origem, profundidade e quantidade máximas, orçamento global de tempo/bytes, classificação de descartes, links quebrados e grafo agregado. A política aplicável de robots e a integração com o cliente HTTP do worker são os incrementos seguintes. Browser/JavaScript permanece fora dessa fase.
+A Fase 3 começou pelo núcleo determinístico do crawl limitado: fronteira por origem, profundidade e quantidade máximas, orçamento global de tempo/bytes, classificação de descartes, links quebrados e grafo agregado. A política aplicável de robots também está implementada; a integração desses componentes com o cliente HTTP do worker é o incremento seguinte. Browser/JavaScript permanece fora dessa fase.
