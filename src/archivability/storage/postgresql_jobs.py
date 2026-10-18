@@ -1165,6 +1165,58 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             )
             raise
 
+    def record_web_ui_event(
+        self,
+        *,
+        request_id: str,
+        route: str,
+        result: str,
+        status_code: int,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            valid = (
+                route in {"home", "analysis"}
+                and (
+                    (
+                        result == "success"
+                        and status_code == 200
+                        and error_code is None
+                    )
+                    or (
+                        result == "failure"
+                        and status_code == 405
+                        and error_code == "METHOD_NOT_ALLOWED"
+                    )
+                )
+            )
+            if not valid:
+                raise IntegrityViolation("web UI audit event is inconsistent")
+            with self._transaction():
+                self._write_audit(
+                    resource="web_ui",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="access.web_ui",
+                    extra={
+                        "route": route,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                    },
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "web_ui", request_id, audit, exc, "access.web_ui"
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "web_ui", request_id, audit, exc, "access.web_ui"
+            )
+            raise
+
     def record_bearer_authentication_event(
         self,
         *,

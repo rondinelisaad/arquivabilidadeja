@@ -1167,6 +1167,61 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_web_ui_event(
+        self,
+        *,
+        request_id: str,
+        route: str,
+        result: str,
+        status_code: int,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = request_id
+        try:
+            valid = (
+                route in {"home", "analysis"}
+                and (
+                    (
+                        result == "success"
+                        and status_code == 200
+                        and error_code is None
+                    )
+                    or (
+                        result == "failure"
+                        and status_code == 405
+                        and error_code == "METHOD_NOT_ALLOWED"
+                    )
+                )
+            )
+            if not valid:
+                raise IntegrityViolation("web UI audit event is inconsistent")
+            with self._transaction():
+                self._write_audit(
+                    resource="web_ui",
+                    resource_id=request_id,
+                    result=result,
+                    audit=audit,
+                    action="access.web_ui",
+                    extra={
+                        "route": route,
+                        "status_code": status_code,
+                        "error_code": error_code,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "web_ui", resource_id, audit, exc, action="access.web_ui"
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "web_ui", resource_id, audit, exc, action="access.web_ui"
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def record_bearer_authentication_event(
         self,
         *,

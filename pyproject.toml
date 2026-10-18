@@ -33,4 +33,8 @@ where = ["src"]
 archivability = [
     "storage/migrations/postgresql/*.sql",
     "storage/migrations/sqlite/*.sql",
+    "web/*.html",
+    "web/*.css",
+    "web/*.js",
+    "web/*.svg",
 ]

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Avaliação transparente e reproduzível da arquivabilidade de websites.">
+    <title>Arquivabilidade Já</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Arquivabilidade Já — início">
+        <span class="brand-mark" aria-hidden="true">AJ</span>
+        <span>Arquivabilidade Já</span>
+      </a>
+      <span class="method-badge">Metodologia 0.1.0</span>
+    </header>
+
+    <main id="conteudo">
+      <section id="home-view" class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Diagnóstico aberto para preservação da Web</p>
+          <h1 id="hero-title">Seu site está pronto para ser arquivado?</h1>
+          <p class="lede">Informe uma URL. Nós observamos acesso, descoberta, crawl e renderização sem armazenar o conteúdo das páginas.</p>
+          <form id="analysis-form" class="analysis-form" novalidate>
+            <label for="subject-uri">Endereço do website</label>
+            <div class="url-row">
+              <input id="subject-uri" name="subject_uri" type="url" inputmode="url" autocomplete="url" maxlength="2048" placeholder="https://exemplo.org" required>
+              <button type="submit">Avaliar agora</button>
+            </div>
+            <p id="form-help" class="form-help">Use uma URL pública com <strong>http://</strong> ou <strong>https://</strong>.</p>
+            <p id="form-status" class="status-message" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+        <aside class="process-card" aria-label="Etapas da avaliação">
+          <p class="process-title">Uma leitura em quatro movimentos</p>
+          <ol>
+            <li><span>01</span> Metadados HTTP</li>
+            <li><span>02</span> Crawl limitado</li>
+            <li><span>03</span> Browser isolado</li>
+            <li><span>04</span> Evidências e score</li>
+          </ol>
+          <p class="privacy-note">Sem screenshots, DOM bruto, cookies ou corpos de resposta no relatório.</p>
+        </aside>
+      </section>
+
+      <section id="history-section" class="section-shell" aria-labelledby="history-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Seu acervo de avaliações</p>
+            <h2 id="history-title">Histórico recente</h2>
+          </div>
+          <button id="refresh-history" class="quiet-button" type="button">Atualizar</button>
+        </div>
+        <div id="history-list" class="history-grid" aria-live="polite"></div>
+      </section>
+
+      <section id="report-view" class="report-view" hidden aria-labelledby="report-title">
+        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><span>Avaliação</span></nav>
+        <div class="report-header">
+          <div>
+            <p id="report-origin" class="eyebrow"></p>
+            <h1 id="report-title">Avaliação em andamento</h1>
+            <p id="report-updated" class="muted"></p>
+          </div>
+          <div class="report-actions">
+            <a id="export-link" class="quiet-button" href="#">Baixar JSON</a>
+            <button id="compare-button" class="quiet-button" type="button">Comparar anterior</button>
+          </div>
+        </div>
+
+        <section class="progress-panel" aria-labelledby="progress-title">
+          <div class="section-heading compact">
+            <h2 id="progress-title">Progresso</h2>
+            <span id="progress-label" class="state-chip">Preparando</span>
+          </div>
+          <div class="stage-track" aria-hidden="true"><span id="stage-progress"></span></div>
+          <ol id="stage-list" class="stage-list"></ol>
+        </section>
+
+        <section id="assessment-section" class="section-shell" hidden aria-labelledby="assessment-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Perfil dimensional</p><h2 id="assessment-title">Resultado da avaliação</h2></div>
+            <span id="overall-state" class="state-chip"></span>
+          </div>
+          <div id="dimension-grid" class="dimension-grid"></div>
+        </section>
+
+        <section id="findings-section" class="section-shell" hidden aria-labelledby="findings-title">
+          <div class="section-heading"><div><p class="eyebrow">Evidências derivadas</p><h2 id="findings-title">Indicadores</h2></div></div>
+          <div id="indicator-list" class="indicator-list"></div>
+        </section>
+
+        <section id="comparison-section" class="section-shell" hidden aria-labelledby="comparison-title">
+          <div class="section-heading"><div><p class="eyebrow">Leitura longitudinal</p><h2 id="comparison-title">Comparação com a execução anterior</h2></div></div>
+          <div id="comparison-content"></div>
+        </section>
+
+        <aside id="limitations" class="limitations" hidden><h2>Como interpretar</h2><ul></ul></aside>
+        <p id="report-status" class="status-message" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <footer><p>Software livre para diagnósticos transparentes. Resultados indicam evidências observadas, não garantias de preservação.</p></footer>
+  </body>
+</html>

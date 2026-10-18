@@ -9,7 +9,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -352,6 +351,22 @@ class ProductionPostgreSqlIntegrationTests(unittest.IsolatedAsyncioTestCase):
             {
                 "type": "http",
                 "method": "GET",
+                "path": "/",
+                "headers": [],
+                "client": ("192.0.2.40", 12345),
+                "state": {"archivability.request_id": f"request-web-{id(self)}"},
+            },
+            receive,
+            send,
+        )
+        self.assertEqual(200, response_events[0]["status"])
+        self.assertIn(b"Arquivabilidade J", response_events[1]["body"])
+
+        response_events.clear()
+        await app(
+            {
+                "type": "http",
+                "method": "GET",
                 "path": "/v1/analyses/missing-analysis",
                 "headers": [],
                 "client": ("192.0.2.40", 12345),
@@ -422,9 +437,19 @@ class ProductionPostgreSqlIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 """,
                 ("192.0.2.41",),
             ).fetchone()
+            web_access = connection.execute(
+                """
+                SELECT result, extra_json->>'route'
+                FROM archivability.audit_events
+                WHERE action = 'access.web_ui'
+                  AND resource_id = %s
+                """,
+                (f"request-web-{id(self)}",),
+            ).fetchone()
         self.assertEqual({"started", "stopped"}, {row[0] for row in lifecycle})
         self.assertEqual(("failure", "INVALID_TOKEN"), authentication)
         self.assertEqual(("success", "192.0.2.41/32"), metrics_access)
+        self.assertEqual(("success", "home"), web_access)
 
 
 if __name__ == "__main__":

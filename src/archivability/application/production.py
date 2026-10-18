@@ -28,6 +28,7 @@ from archivability.application.policies import (
     RateLimitRule,
 )
 from archivability.application.read_model import AnalysisReportService
+from archivability.application.web import WebAsgiApp
 from archivability.jobs.collection import HttpCollectionQueueService
 from archivability.jobs.metrics import (
     QueueMetricsService,
@@ -791,7 +792,7 @@ def create_production_app(
             max_body_bytes=settings.max_request_body_bytes,
             sync_runner=ThreadedAsgiSyncRunner(),
         )
-        return http_app
+        return WebAsgiApp(http_app, audit_recorder=persistence)
 
     def lifecycle_recorder(
         connection: psycopg.Connection[Any], status: str

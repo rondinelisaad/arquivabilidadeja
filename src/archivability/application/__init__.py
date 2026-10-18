@@ -68,6 +68,7 @@ from archivability.application.read_model import (
     ReportError,
     ReportNotFoundError,
 )
+from archivability.application.web import WebAsgiApp, WebAuditRecorder
 from archivability.application.worker import (
     AssessmentQueueWorkerProcess,
     WorkerSettings,
@@ -126,6 +127,8 @@ __all__ = [
     "ReportNotFoundError",
     "RuntimeConfigurationError",
     "ThreadedAsgiSyncRunner",
+    "WebAsgiApp",
+    "WebAuditRecorder",
     "WorkerSettings",
     "WorkflowError",
     "check_worker_readiness",
