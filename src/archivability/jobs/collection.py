@@ -312,6 +312,17 @@ class AssessmentEnqueuer(Protocol):
     def enqueue(self, observation_id: str, *, max_attempts: int, audit: AuditContext): ...
 
 
+class BrowserEnqueuer(Protocol):
+    def enqueue(
+        self,
+        analysis_id: str,
+        attempt_id: str,
+        *,
+        assessment_max_attempts: int,
+        audit: AuditContext,
+    ): ...
+
+
 class HttpCollectionWorker:
     def __init__(
         self,
@@ -321,19 +332,23 @@ class HttpCollectionWorker:
         orchestrator: AnalysisOrchestrator,
         execution: ProbeExecutionService,
         probe: Probe,
-        assessment_queue: AssessmentEnqueuer,
+        assessment_queue: AssessmentEnqueuer | None = None,
+        browser_queue: BrowserEnqueuer | None = None,
         clock: Clock = lambda: datetime.now(timezone.utc),
         lease_duration: timedelta = timedelta(minutes=5),
         retry_base_delay: timedelta = timedelta(seconds=30),
     ) -> None:
         if not isinstance(worker_id, str) or not _WORKER_ID.fullmatch(worker_id):
             raise JobError("collection worker ID is invalid")
+        if (assessment_queue is None) == (browser_queue is None):
+            raise JobError("collection worker requires exactly one downstream queue")
         self._worker_id = worker_id
         self._repository = repository
         self._orchestrator = orchestrator
         self._execution = execution
         self._probe = probe
         self._assessment_queue = assessment_queue
+        self._browser_queue = browser_queue
         self._clock = clock
         self._lease_duration = lease_duration
         self._retry_base_delay = retry_base_delay
@@ -356,11 +371,7 @@ class HttpCollectionWorker:
                 job.analysis_id
             )
             if persisted is not None:
-                self._assessment_queue.enqueue(
-                    persisted.observation_id,
-                    max_attempts=job.assessment_max_attempts,
-                    audit=audit,
-                )
+                self._enqueue_next(job, persisted, audit)
                 return self._succeed(job, audit)
 
             # An expired collection lease can leave its lifecycle attempt running.
@@ -391,11 +402,7 @@ class HttpCollectionWorker:
             )
             if not outcome.succeeded:
                 return self._fail(job, audit, outcome.failure_code or "COLLECTION_FAILED")
-            self._assessment_queue.enqueue(
-                outcome.observations[0].observation_id,
-                max_attempts=job.assessment_max_attempts,
-                audit=audit,
-            )
+            self._enqueue_next(job, outcome.observations[0], audit)
         except Exception:
             return self._fail(job, audit, "COLLECTION_FAILED")
         return self._succeed(job, audit)
@@ -444,6 +451,27 @@ class HttpCollectionWorker:
                     audit=audit,
                 )
         return CollectionWorkerOutcome("failed" if terminal else "retry_scheduled", updated)
+
+    def _enqueue_next(
+        self,
+        job: CollectionJob,
+        observation: Observation,
+        audit: AuditContext,
+    ) -> None:
+        if self._browser_queue is not None:
+            self._browser_queue.enqueue(
+                job.analysis_id,
+                observation.attempt_id,
+                assessment_max_attempts=job.assessment_max_attempts,
+                audit=audit,
+            )
+            return
+        assert self._assessment_queue is not None
+        self._assessment_queue.enqueue(
+            observation.observation_id,
+            max_attempts=job.assessment_max_attempts,
+            audit=audit,
+        )
 
     def _now(self) -> datetime:
         value = self._clock()

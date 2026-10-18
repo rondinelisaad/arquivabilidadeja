@@ -79,6 +79,14 @@ class WorkerSettingsTests(unittest.TestCase):
                 worker_id="worker-1",
                 poll_interval_milliseconds=1,
             )
+        with self.assertRaisesRegex(RuntimeConfigurationError, "loopback"):
+            WorkerSettings(
+                environment="test",
+                database_dsn=("host=/private/tmp dbname=archive user=archive_runtime"),
+                methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+                worker_id="worker-1",
+                browser_renderer_endpoint="http://browser.example/render",
+            )
 
 
 class AssessmentQueueWorkerProcessTests(unittest.TestCase):

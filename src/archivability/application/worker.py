@@ -19,7 +19,11 @@ from archivability.application.production import (
     RuntimeConfigurationError,
     validate_runtime_database_role,
 )
+from archivability.browser.client import LoopbackBrowserRenderer
+from archivability.browser.execution import BrowserExecutionService
+from archivability.browser.models import BrowserContractError
 from archivability.evidence.assessment import HttpMetadataAssessmentService
+from archivability.jobs.browser import BrowserQueueService, BrowserWorker
 from archivability.jobs.collection import HttpCollectionWorker
 from archivability.jobs.service import (
     HttpAssessmentQueueService,
@@ -55,17 +59,21 @@ class QueueWorker(Protocol):
 
 
 class PipelineQueueWorker:
-    """Drain collection before derivation while keeping both stages durable."""
+    """Drain durable pipeline stages in order."""
 
-    def __init__(self, collection: Any, assessment: HttpAssessmentWorker) -> None:
-        self._collection = collection
-        self._assessment = assessment
+    def __init__(self, *workers: QueueWorker) -> None:
+        if not workers:
+            raise RuntimeConfigurationError("pipeline requires at least one worker")
+        self._workers = workers
 
     def run_once(self, *, audit: AuditContext = AuditContext()) -> Any:
-        collected = self._collection.run_once(audit=audit)
-        if collected.status != "idle":
-            return collected
-        return self._assessment.run_once(audit=audit)
+        outcome = None
+        for worker in self._workers:
+            outcome = worker.run_once(audit=audit)
+            if outcome.status != "idle":
+                return outcome
+        assert outcome is not None
+        return outcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +86,7 @@ class WorkerSettings:
     lease_seconds: int = 300
     retry_base_seconds: int = 30
     connect_timeout_seconds: int = 5
+    browser_renderer_endpoint: str = "http://127.0.0.1:9223/render"
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, str) or not re.fullmatch(
@@ -110,6 +119,12 @@ class WorkerSettings:
         ProductionSettings._bounded_int(
             "connect_timeout_seconds", self.connect_timeout_seconds, 1, 30
         )
+        try:
+            LoopbackBrowserRenderer(self.browser_renderer_endpoint)
+        except BrowserContractError as exc:
+            raise RuntimeConfigurationError(
+                "browser renderer endpoint must be loopback-only"
+            ) from exc
 
     @classmethod
     def from_environment(
@@ -139,6 +154,10 @@ class WorkerSettings:
             ),
             connect_timeout_seconds=ProductionSettings._optional_int(
                 values, "ARCHIVABILITY_DB_CONNECT_TIMEOUT_SECONDS", 5
+            ),
+            browser_renderer_endpoint=values.get(
+                "ARCHIVABILITY_BROWSER_RENDERER_ENDPOINT",
+                "http://127.0.0.1:9223/render",
             ),
         )
 
@@ -225,6 +244,7 @@ def check_worker_readiness(
             SELECT
                 to_regclass('archivability.rate_limit_buckets') IS NOT NULL
                 AND to_regclass('archivability.collection_jobs') IS NOT NULL
+                AND to_regclass('archivability.browser_jobs') IS NOT NULL
             """
         ).fetchone()
         return row == (True,)
@@ -275,13 +295,28 @@ def run_production_worker(
                 crawl_event_recorder=repository,
                 crawl_audit=AuditContext(user_id=settings.worker_id),
             ),
+            browser_queue=BrowserQueueService(repository),
+            lease_duration=timedelta(seconds=settings.lease_seconds),
+            retry_base_delay=timedelta(seconds=settings.retry_base_seconds),
+        )
+        browser_worker = BrowserWorker(
+            worker_id=settings.worker_id,
+            repository=repository,
+            execution=BrowserExecutionService(
+                renderer=LoopbackBrowserRenderer(settings.browser_renderer_endpoint),
+                repository=repository,
+            ),
             assessment_queue=HttpAssessmentQueueService(repository=repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
             retry_base_delay=timedelta(seconds=settings.retry_base_seconds),
         )
         process = AssessmentQueueWorkerProcess(
             worker_id=settings.worker_id,
-            worker=PipelineQueueWorker(collection_worker, assessment_worker),
+            worker=PipelineQueueWorker(
+                collection_worker,
+                browser_worker,
+                assessment_worker,
+            ),
             lifecycle_recorder=repository,
             poll_interval_seconds=settings.poll_interval_milliseconds / 1000,
         )

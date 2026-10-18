@@ -10,6 +10,7 @@ from archivability import (
     AnalysisOrchestrator,
     AnalysisState,
     AuditContext,
+    BrowserQueueService,
     HttpAssessmentQueueService,
     HttpAssessmentWorker,
     HttpAssessmentWorkflow,
@@ -122,7 +123,26 @@ class CollectionQueueTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.connection.close()
 
-    def _worker(self, probe, *, clock=lambda: NOW, assessment_queue=None) -> HttpCollectionWorker:
+    def _worker(
+        self,
+        probe,
+        *,
+        clock=lambda: NOW,
+        assessment_queue=None,
+        browser_queue=None,
+    ) -> HttpCollectionWorker:
+        downstream = (
+            {"browser_queue": browser_queue}
+            if browser_queue is not None
+            else {
+                "assessment_queue": assessment_queue
+                or HttpAssessmentQueueService(
+                    repository=self.repository,
+                    clock=clock,
+                    job_id_factory=lambda: "assessment-1",
+                )
+            }
+        )
         return HttpCollectionWorker(
             worker_id="collector-1",
             repository=self.repository,
@@ -138,15 +158,36 @@ class CollectionQueueTests(unittest.TestCase):
                 clock=clock,
             ),
             probe=probe,
-            assessment_queue=assessment_queue
-            or HttpAssessmentQueueService(
-                    repository=self.repository,
-                    clock=clock,
-                    job_id_factory=lambda: "assessment-1",
-                ),
             clock=clock,
             lease_duration=timedelta(minutes=1),
             retry_base_delay=timedelta(seconds=1),
+            **downstream,
+        )
+
+    def test_collection_can_handoff_to_durable_browser_queue(self) -> None:
+        self.workflow.start(subject_uri=SUBJECT)
+        browser_queue = BrowserQueueService(
+            self.repository,
+            clock=lambda: NOW,
+            job_id_factory=lambda: "browser-after-collection",
+        )
+
+        collected = self._worker(
+            SuccessfulProbe(),
+            browser_queue=browser_queue,
+        ).run_once()
+
+        self.assertEqual("succeeded", collected.status)
+        self.assertEqual(
+            ("pending", "attempt-1"),
+            self.connection.execute(
+                "SELECT state, attempt_id FROM browser_jobs WHERE analysis_id = ?",
+                ("analysis-1",),
+            ).fetchone(),
+        )
+        self.assertEqual(
+            0,
+            self.connection.execute("SELECT count(*) FROM assessment_jobs").fetchone()[0],
         )
 
     def test_submission_collection_and_derivation_are_separate_durable_steps(self) -> None:
