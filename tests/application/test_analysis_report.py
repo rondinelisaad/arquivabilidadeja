@@ -4,7 +4,8 @@ import json
 import sqlite3
 import sys
 import unittest
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -128,6 +129,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.workflow_outcome = workflow.start(
             subject_uri=SUBJECT,
             probe=SuccessfulHttpProbe(),
+            owner_user_id="user-opaque-1",
             audit=self.audit,
         )
         self.service = AnalysisReportService(self.repository, self.methodology)
@@ -142,6 +144,21 @@ class AnalysisReportServiceTests(unittest.TestCase):
             assessment_queue=self.queue,
             clock=lambda: NOW,
         ).run_once(audit=self.audit)
+
+    def _complete_analysis(self):
+        self._run_collection()
+        assessor = HttpMetadataAssessmentService(
+            methodology=self.methodology,
+            repository=self.repository,
+            clock=lambda: NOW,
+        )
+        HttpAssessmentWorker(
+            worker_id="report-worker-1",
+            repository=self.repository,
+            assessor=assessor,
+            clock=lambda: NOW,
+        ).run_once(audit=self.audit)
+        return self.service.get_report("analysis-report-1", audit=self.audit)
 
     def _save_crawl_observation(self, *, include_unexpected: bool = False) -> Observation:
         attempt = self.repository.list_attempts("analysis-report-1")[0]
@@ -274,22 +291,30 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertNotIn("must-not-be-logged", serialized)
         self.assertNotIn("subject_uri", serialized)
 
-    def test_completed_report_contains_results_and_hash_only_provenance(self) -> None:
-        self._run_collection()
-        assessor = HttpMetadataAssessmentService(
-            methodology=self.methodology,
-            repository=self.repository,
-            clock=lambda: NOW,
-        )
-        worker = HttpAssessmentWorker(
-            worker_id="report-worker-1",
-            repository=self.repository,
-            assessor=assessor,
-            clock=lambda: NOW,
-        )
-        worker.run_once(audit=self.audit)
+    def test_history_lists_only_owned_sanitized_summaries(self) -> None:
+        history = self.service.list_history("user-opaque-1", audit=self.audit)
+        other = self.service.list_history("another-user", audit=self.audit)
 
-        report = self.service.get_report("analysis-report-1", audit=self.audit)
+        self.assertEqual(1, len(history))
+        self.assertEqual("analysis-report-1", history[0].analysis_id)
+        self.assertEqual("https://example.org/", history[0].target_origin)
+        self.assertIsNone(history[0].overall_state)
+        self.assertEqual((), other)
+        serialized = json.dumps([item.to_dict() for item in history])
+        self.assertNotIn("private/path", serialized)
+        self.assertNotIn("must-not-be-logged", serialized)
+        event = self.connection.execute(
+            """
+            SELECT action, extra_json FROM audit_events
+            WHERE action = 'access.analysis_history'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual("access.analysis_history", event[0])
+        self.assertEqual(0, json.loads(event[1])["item_count"])
+
+    def test_completed_report_contains_results_and_hash_only_provenance(self) -> None:
+        report = self._complete_analysis()
         document = report.to_dict()
 
         self.assertEqual("completed", report.state)
@@ -310,11 +335,78 @@ class AnalysisReportServiceTests(unittest.TestCase):
         )
         self.assertIsNone(report.assessment.legacy_clear_plus)
         self.assertEqual(3, len(report.limitations))
+        comparison = self.service._compare(report, report)
+        self.assertEqual("no_observed_change", comparison.classification)
+        self.assertEqual((), comparison.indicator_changes)
         serialized = json.dumps(document)
         self.assertNotIn("headers", serialized)
         self.assertNotIn('"payload":', serialized)
         self.assertNotIn("private/path", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_comparison_requires_compatible_earlier_baseline(self) -> None:
+        self._complete_analysis()
+
+        with self.assertRaises(ReportNotFoundError):
+            self.service.compare_with_previous(
+                "analysis-report-1", "user-opaque-1", audit=self.audit
+            )
+
+        event = self.connection.execute(
+            """
+            SELECT action, result, extra_json FROM audit_events
+            WHERE action = 'access.analysis_comparison'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual(("access.analysis_comparison", "failure"), event[:2])
+        self.assertEqual("COMPARISON_NOT_FOUND", json.loads(event[2])["error_code"])
+
+    def test_comparison_uses_latest_compatible_owned_baseline(self) -> None:
+        self._complete_analysis()
+        current = self.repository.load_analysis_report_snapshot("analysis-report-1")
+        assert current is not None
+        baseline = replace(
+            current,
+            analysis=replace(
+                current.analysis,
+                created_at=NOW - timedelta(days=1),
+                updated_at=NOW - timedelta(days=1),
+                started_at=NOW - timedelta(days=1),
+                finished_at=NOW - timedelta(days=1),
+            ),
+        )
+        underlying = self.repository
+
+        class ComparisonRepository:
+            def list_owned_analysis_ids(self, owner_user_id, *, limit):
+                del owner_user_id, limit
+                return ("analysis-report-1", "baseline-key")
+
+            def load_analysis_report_snapshot(self, analysis_id):
+                return baseline if analysis_id == "baseline-key" else current
+
+            def record_analysis_history_access(self, **event):
+                return underlying.record_analysis_history_access(**event)
+
+        comparison = AnalysisReportService(
+            ComparisonRepository(),  # type: ignore[arg-type]
+            self.methodology,
+        ).compare_with_previous(
+            "analysis-report-1", "user-opaque-1", audit=self.audit
+        )
+
+        self.assertEqual("no_observed_change", comparison.classification)
+        self.assertEqual((), comparison.indicator_changes)
+        event = self.connection.execute(
+            """
+            SELECT result, extra_json FROM audit_events
+            WHERE action = 'access.analysis_comparison'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual("success", event[0])
+        self.assertEqual(2, json.loads(event[1])["item_count"])
 
     def test_report_exposes_browser_queue_stage(self) -> None:
         self._run_collection()

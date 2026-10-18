@@ -122,6 +122,7 @@ class AnalysisApiTests(unittest.TestCase):
         self.principal = ApiPrincipal(
             user_id="user-opaque-1",
             session_id="session-opaque-1",
+            permissions=frozenset({"analysis:read"}),
         )
 
     def tearDown(self) -> None:
@@ -219,6 +220,7 @@ class AnalysisApiTests(unittest.TestCase):
             created.body["analysis_id"],
             context=self.context("request-export-1"),
         )
+        history = self.api.list_analyses(context=self.context("request-history-1"))
 
         self.assertEqual(202, created.status_code)
         self.assertEqual("collection_queued", created.body["status"])
@@ -229,6 +231,11 @@ class AnalysisApiTests(unittest.TestCase):
         self.assertEqual("https://example.org/", report.body["target_origin"])
         self.assertEqual("no-store", report.headers["Cache-Control"])
         self.assertEqual(report.body, exported.body)
+        self.assertEqual(200, history.status_code)
+        self.assertEqual(1, len(history.body["items"]))
+        self.assertEqual(
+            "analysis-api-1", history.body["items"][0]["analysis_id"]
+        )
         self.assertEqual(
             'attachment; filename="analysis-analysis-api-1.json"',
             exported.headers["Content-Disposition"],
@@ -242,7 +249,12 @@ class AnalysisApiTests(unittest.TestCase):
         self.assertEqual("access.analysis_api_export", event[0])
         self.assertEqual("export", json.loads(event[1])["operation"])
         serialized = json.dumps(
-            [created.to_dict(), report.to_dict(), exported.to_dict()]
+            [
+                created.to_dict(),
+                report.to_dict(),
+                exported.to_dict(),
+                history.to_dict(),
+            ]
         )
         self.assertNotIn("private", serialized)
         self.assertNotIn("must-not-be-logged", serialized)

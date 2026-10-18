@@ -18,6 +18,7 @@ from archivability.storage.audit import AuditContext
 
 _ANALYSIS_PATH = re.compile(r"^/v1/analyses/([^/]+)$")
 _ANALYSIS_EXPORT_PATH = re.compile(r"^/v1/analyses/([^/]+)/export\.json$")
+_ANALYSIS_COMPARISON_PATH = re.compile(r"^/v1/analyses/([^/]+)/comparison$")
 _COLLECTION_PATH = "/v1/analyses"
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
@@ -104,16 +105,23 @@ class AnalysisAsgiApp:
 
         try:
             if route == "analyses_collection":
-                if method != "POST":
-                    raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
-                if context.principal is None:
+                if method == "GET":
                     response = await self._sync_runner.run(
-                        lambda: self._api.create_analysis({}, context=context)
+                        lambda: self._api.list_analyses(context=context)
                     )
+                elif method == "POST":
+                    if context.principal is None:
+                        response = await self._sync_runner.run(
+                            lambda: self._api.create_analysis({}, context=context)
+                        )
+                    else:
+                        payload = await self._read_json_object(scope, receive)
+                        response = await self._sync_runner.run(
+                            lambda: self._api.create_analysis(payload, context=context)
+                        )
                 else:
-                    payload = await self._read_json_object(scope, receive)
-                    response = await self._sync_runner.run(
-                        lambda: self._api.create_analysis(payload, context=context)
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
                     )
             elif route == "analysis_item":
                 if method != "GET":
@@ -128,6 +136,13 @@ class AnalysisAsgiApp:
                 assert analysis_id is not None
                 response = await self._sync_runner.run(
                     lambda: self._api.export_analysis(analysis_id, context=context)
+                )
+            elif route == "analysis_comparison":
+                if method != "GET":
+                    raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
+                assert analysis_id is not None
+                response = await self._sync_runner.run(
+                    lambda: self._api.compare_analysis(analysis_id, context=context)
                 )
             else:
                 raise _RequestFailure(404, "NOT_FOUND", "Resource was not found.")
@@ -200,6 +215,9 @@ class AnalysisAsgiApp:
         export_match = _ANALYSIS_EXPORT_PATH.fullmatch(path)
         if export_match is not None:
             return "analysis_export", export_match.group(1)
+        comparison_match = _ANALYSIS_COMPARISON_PATH.fullmatch(path)
+        if comparison_match is not None:
+            return "analysis_comparison", comparison_match.group(1)
         match = _ANALYSIS_PATH.fullmatch(path)
         if match is not None:
             return "analysis_item", match.group(1)
@@ -324,7 +342,9 @@ class AnalysisAsgiApp:
             message = "Unable to process the request."
         headers = dict(_SECURITY_HEADERS)
         if status_code == 405:
-            headers["Allow"] = "POST" if route == "analyses_collection" else "GET"
+            headers["Allow"] = (
+                "GET, POST" if route == "analyses_collection" else "GET"
+            )
         return ApiResponse(
             status_code=status_code,
             body={

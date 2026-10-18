@@ -221,6 +221,25 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             outcome.collection.job,
             self.repository.get_collection_job(outcome.collection.job.job_id),
         )
+        history = AnalysisReportService(
+            self.repository, self.methodology
+        ).list_history(user_id, audit=audit)
+        self.assertEqual((outcome.analysis.analysis_id,), tuple(
+            item.analysis_id for item in history
+        ))
+        event = self.connection.execute(
+            """
+            SELECT action, extra_json
+            FROM archivability.audit_events
+            WHERE action = 'access.analysis_history' AND user_id = %s
+            ORDER BY timestamp DESC, event_id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        assert event is not None
+        self.assertEqual("access.analysis_history", event[0])
+        self.assertEqual(1, event[1]["item_count"])
 
     def test_expired_lease_is_reclaimed_by_another_worker(self) -> None:
         observation = self._successful_observation()

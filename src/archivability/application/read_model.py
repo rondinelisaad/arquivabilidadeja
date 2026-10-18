@@ -122,6 +122,25 @@ class AnalysisReportRepository(Protocol):
         audit: AuditContext,
     ) -> None: ...
 
+    def list_owned_analysis_ids(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int,
+    ) -> tuple[str, ...]: ...
+
+    def record_analysis_history_access(
+        self,
+        *,
+        operation: str,
+        analysis_id: str | None,
+        result: str,
+        error_code: str | None,
+        item_count: int,
+        change_count: int,
+        audit: AuditContext,
+    ) -> None: ...
+
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
@@ -435,6 +454,95 @@ class AnalysisReport:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class AnalysisHistoryEntry:
+    analysis_id: str
+    target_origin: str
+    methodology_id: str
+    methodology_version: str
+    state: str
+    created_at: datetime
+    finished_at: datetime | None
+    overall_state: str | None
+    dimensions: Mapping[str, Mapping[str, Any]]
+
+    @classmethod
+    def from_report(cls, report: AnalysisReport) -> AnalysisHistoryEntry:
+        assessment = report.assessment
+        dimensions = (
+            {
+                key: _freeze_report_json(value.to_dict())
+                for key, value in assessment.dimensions.items()
+            }
+            if assessment is not None
+            else {}
+        )
+        return cls(
+            analysis_id=report.analysis_id,
+            target_origin=report.target_origin,
+            methodology_id=report.methodology_id,
+            methodology_version=report.methodology_version,
+            state=report.state,
+            created_at=report.created_at,
+            finished_at=report.finished_at,
+            overall_state=(assessment.overall_state.value if assessment else None),
+            dimensions=_freeze_report_json(dimensions),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "analysis_id": self.analysis_id,
+            "target_origin": self.target_origin,
+            "methodology_id": self.methodology_id,
+            "methodology_version": self.methodology_version,
+            "state": self.state,
+            "created_at": _iso(self.created_at),
+            "finished_at": _iso(self.finished_at),
+            "overall_state": self.overall_state,
+            "dimensions": {
+                key: dict(value) for key, value in self.dimensions.items()
+            },
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class IndicatorChange:
+    indicator_id: str
+    baseline_state: str
+    current_state: str
+    baseline_score: float | None
+    current_score: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "indicator_id": self.indicator_id,
+            "baseline_state": self.baseline_state,
+            "current_state": self.current_state,
+            "baseline_score": self.baseline_score,
+            "current_score": self.current_score,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisComparison:
+    comparison_schema_version: str
+    baseline: AnalysisHistoryEntry
+    current: AnalysisHistoryEntry
+    classification: str
+    indicator_changes: tuple[IndicatorChange, ...]
+    limitations: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "comparison_schema_version": self.comparison_schema_version,
+            "baseline": self.baseline.to_dict(),
+            "current": self.current.to_dict(),
+            "classification": self.classification,
+            "indicator_changes": [item.to_dict() for item in self.indicator_changes],
+            "limitations": list(self.limitations),
+        }
+
+
 class AnalysisReportService:
     """Builds an audited report without exposing collected payloads or target paths."""
 
@@ -498,6 +606,131 @@ class AnalysisReportService:
             audit=audit,
         )
         return report
+
+    def list_history(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int = 20,
+        audit: AuditContext = AuditContext(),
+    ) -> tuple[AnalysisHistoryEntry, ...]:
+        self._validate_owner_and_limit(owner_user_id, limit)
+        try:
+            entries: list[AnalysisHistoryEntry] = []
+            for analysis_id in self._repository.list_owned_analysis_ids(
+                owner_user_id, limit=limit
+            ):
+                snapshot = self._repository.load_analysis_report_snapshot(analysis_id)
+                if snapshot is None:
+                    raise ReportError("history snapshot disappeared")
+                entries.append(AnalysisHistoryEntry.from_report(self._build(snapshot)))
+            history = tuple(entries)
+        except Exception:
+            self._repository.record_analysis_history_access(
+                operation="history",
+                analysis_id=None,
+                result="failure",
+                error_code="HISTORY_BUILD_FAILED",
+                item_count=0,
+                change_count=0,
+                audit=audit,
+            )
+            raise
+        self._repository.record_analysis_history_access(
+            operation="history",
+            analysis_id=None,
+            result="success",
+            error_code=None,
+            item_count=len(history),
+            change_count=0,
+            audit=audit,
+        )
+        return history
+
+    def compare_with_previous(
+        self,
+        analysis_id: str,
+        owner_user_id: str,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> AnalysisComparison:
+        self._validate_analysis_id(analysis_id)
+        self._validate_owner_and_limit(owner_user_id, 1)
+        try:
+            owned_ids = self._repository.list_owned_analysis_ids(
+                owner_user_id, limit=1000
+            )
+            if analysis_id not in owned_ids:
+                raise ReportNotFoundError("analysis comparison was not found")
+            current_snapshot = self._repository.load_analysis_report_snapshot(analysis_id)
+            if current_snapshot is None:
+                raise ReportNotFoundError("analysis comparison was not found")
+            if current_snapshot.analysis.state not in {
+                AnalysisState.COMPLETED,
+                AnalysisState.PARTIALLY_COMPLETED,
+            }:
+                raise ReportError("comparison requires a terminal assessment")
+            baseline_snapshot = None
+            for candidate_id in owned_ids:
+                if candidate_id == analysis_id:
+                    continue
+                candidate = self._repository.load_analysis_report_snapshot(candidate_id)
+                if candidate is None:
+                    raise ReportError("comparison snapshot disappeared")
+                if (
+                    candidate.analysis.subject_uri
+                    == current_snapshot.analysis.subject_uri
+                    and candidate.analysis.methodology_id
+                    == current_snapshot.analysis.methodology_id
+                    and candidate.analysis.methodology_version
+                    == current_snapshot.analysis.methodology_version
+                    and candidate.analysis.state
+                    in {
+                        AnalysisState.COMPLETED,
+                        AnalysisState.PARTIALLY_COMPLETED,
+                    }
+                    and candidate.analysis.created_at
+                    < current_snapshot.analysis.created_at
+                ):
+                    baseline_snapshot = candidate
+                    break
+            if baseline_snapshot is None:
+                raise ReportNotFoundError("compatible baseline was not found")
+            comparison = self._compare(
+                self._build(baseline_snapshot), self._build(current_snapshot)
+            )
+        except ReportNotFoundError:
+            self._repository.record_analysis_history_access(
+                operation="comparison",
+                analysis_id=analysis_id,
+                result="failure",
+                error_code="COMPARISON_NOT_FOUND",
+                item_count=0,
+                change_count=0,
+                audit=audit,
+            )
+            raise
+        except Exception:
+            self._repository.record_analysis_history_access(
+                operation="comparison",
+                analysis_id=analysis_id,
+                result="failure",
+                error_code="COMPARISON_BUILD_FAILED",
+                item_count=0,
+                change_count=0,
+                audit=audit,
+            )
+            raise
+        self._repository.record_analysis_history_access(
+            operation="comparison",
+            analysis_id=analysis_id,
+            result="success",
+            error_code=None,
+            item_count=2,
+            change_count=len(comparison.indicator_changes),
+            audit=audit,
+        )
+        return comparison
 
     def _build(self, snapshot: AnalysisReportSnapshot) -> AnalysisReport:
         analysis = snapshot.analysis
@@ -617,6 +850,44 @@ class AnalysisReportService:
         )
 
     @staticmethod
+    def _compare(
+        baseline: AnalysisReport,
+        current: AnalysisReport,
+    ) -> AnalysisComparison:
+        baseline_results = {
+            item.indicator_id: item for item in baseline.indicator_results
+        }
+        current_results = {item.indicator_id: item for item in current.indicator_results}
+        changes = tuple(
+            IndicatorChange(
+                indicator_id=indicator_id,
+                baseline_state=baseline_results[indicator_id].state,
+                current_state=current_results[indicator_id].state,
+                baseline_score=baseline_results[indicator_id].score,
+                current_score=current_results[indicator_id].score,
+            )
+            for indicator_id in sorted(baseline_results.keys() & current_results.keys())
+            if (
+                baseline_results[indicator_id].state
+                != current_results[indicator_id].state
+                or baseline_results[indicator_id].score
+                != current_results[indicator_id].score
+            )
+        )
+        return AnalysisComparison(
+            comparison_schema_version="1.0",
+            baseline=AnalysisHistoryEntry.from_report(baseline),
+            current=AnalysisHistoryEntry.from_report(current),
+            classification="observed_change" if changes else "no_observed_change",
+            indicator_changes=changes,
+            limitations=(
+                "The comparison is descriptive and does not establish causality.",
+                "Only analyses with identical target, methodology and version are compared.",
+                "A single changed run is not classified as a structural website change.",
+            ),
+        )
+
+    @staticmethod
     def _validate_analysis_id(value: str) -> None:
         if (
             not isinstance(value, str)
@@ -625,6 +896,18 @@ class AnalysisReportService:
             or _CONTROL_CHARACTER_PATTERN.search(value)
         ):
             raise ReportError("analysis_id is invalid")
+
+    @staticmethod
+    def _validate_owner_and_limit(owner_user_id: str, limit: int) -> None:
+        if (
+            not isinstance(owner_user_id, str)
+            or not owner_user_id
+            or len(owner_user_id) > 256
+            or _CONTROL_CHARACTER_PATTERN.search(owner_user_id)
+        ):
+            raise ReportError("history owner identifier is invalid")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+            raise ReportError("history limit is invalid")
 
 
 def _safe_origin(subject_uri: str) -> str:

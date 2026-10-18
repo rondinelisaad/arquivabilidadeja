@@ -921,6 +921,110 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def list_owned_analysis_ids(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int,
+    ) -> tuple[str, ...]:
+        if (
+            not isinstance(owner_user_id, str)
+            or not owner_user_id
+            or len(owner_user_id) > 256
+            or not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 1000
+        ):
+            raise IntegrityViolation("analysis history query is invalid")
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT analyses.analysis_id
+                FROM analyses
+                JOIN analysis_ownership
+                  ON analysis_ownership.analysis_id = analyses.analysis_id
+                WHERE analysis_ownership.owner_user_id = ?
+                ORDER BY analyses.updated_at DESC, analyses.analysis_id DESC
+                LIMIT ?
+                """,
+                (owner_user_id, limit),
+            ).fetchall()
+            return tuple(row[0] for row in rows)
+        except sqlite3.DatabaseError as exc:
+            raise PersistenceError("database read failed") from exc
+
+    def record_analysis_history_access(
+        self,
+        *,
+        operation: str,
+        analysis_id: str | None,
+        result: str,
+        error_code: str | None,
+        item_count: int,
+        change_count: int,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = analysis_id or "history"
+        try:
+            valid_error = {
+                "history": "HISTORY_BUILD_FAILED",
+                "comparison": "COMPARISON_BUILD_FAILED",
+            }.get(operation)
+            valid_failure_codes = {valid_error}
+            if operation == "comparison":
+                valid_failure_codes.add("COMPARISON_NOT_FOUND")
+            valid = (
+                operation in {"history", "comparison"}
+                and isinstance(item_count, int)
+                and not isinstance(item_count, bool)
+                and item_count >= 0
+                and isinstance(change_count, int)
+                and not isinstance(change_count, bool)
+                and change_count >= 0
+                and (
+                    (result == "success" and error_code is None)
+                    or (result == "failure" and error_code in valid_failure_codes)
+                )
+                and (operation == "history") == (analysis_id is None)
+            )
+            if not valid:
+                raise IntegrityViolation("analysis history audit event is inconsistent")
+            with self._transaction():
+                self._write_audit(
+                    resource="analysis_history",
+                    resource_id=resource_id,
+                    result=result,
+                    audit=audit,
+                    action=f"access.analysis_{operation}",
+                    extra={
+                        "operation": operation,
+                        "analysis_id": analysis_id,
+                        "error_code": error_code,
+                        "item_count": item_count,
+                        "change_count": change_count,
+                    },
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "analysis_history",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_history",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "analysis_history",
+                resource_id,
+                audit,
+                exc,
+                action="access.analysis_history",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def record_analysis_api_event(
         self,
         *,
@@ -934,12 +1038,12 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
     ) -> None:
         resource_id = request_id
         try:
-            if operation not in {"create", "read", "export"}:
+            if operation not in {"create", "read", "export", "history", "compare"}:
                 raise IntegrityViolation("analysis API operation is invalid")
             if result == "success":
                 valid = (
                     error_code is None
-                    and analysis_id is not None
+                    and (analysis_id is not None or operation == "history")
                     and status_code == (202 if operation == "create" else 200)
                 )
             elif result == "unauthorized":
@@ -1019,6 +1123,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     "analyses_collection",
                     "analysis_item",
                     "analysis_export",
+                    "analysis_comparison",
                     "unmatched",
                 }
                 or method

@@ -3,6 +3,8 @@
 from archivability.application import (
     AnalysisApi,
     AnalysisAsgiApp,
+    AnalysisComparison,
+    AnalysisHistoryEntry,
     AnalysisOwnershipReader,
     AnalysisReport,
     AnalysisReportRepository,
@@ -176,6 +178,8 @@ __all__ = [
     "Analysis",
     "AnalysisApi",
     "AnalysisAsgiApp",
+    "AnalysisComparison",
+    "AnalysisHistoryEntry",
     "AnalysisOrchestrator",
     "AnalysisOwnershipReader",
     "AnalysisReport",

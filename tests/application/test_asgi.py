@@ -68,6 +68,27 @@ class CapturingApi:
             },
         )
 
+    def list_analyses(self, *, context: ApiRequestContext) -> ApiResponse:
+        self.calls.append(("history", None, context))
+        return ApiResponse(
+            status_code=200,
+            body={"history_schema_version": "1.0", "items": []},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def compare_analysis(
+        self, analysis_id: str, *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("compare", analysis_id, context))
+        return ApiResponse(
+            status_code=200,
+            body={
+                "comparison_schema_version": "1.0",
+                "classification": "no_observed_change",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
     @staticmethod
     def _error(context: ApiRequestContext, status: int, code: str) -> ApiResponse:
         return ApiResponse(
@@ -227,6 +248,29 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual("export", self.api.calls[0][0])
 
+    async def test_history_and_comparison_routes_do_not_read_bodies(self) -> None:
+        state = {
+            "archivability.principal": self.principal,
+            "archivability.request_id": "request-history-1",
+        }
+        history = await self.request(
+            self.scope(method="GET", path="/v1/analyses", state=state), []
+        )
+        comparison = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/analyses/analysis-123/comparison",
+                state=state,
+            ),
+            [],
+        )
+
+        self.assertEqual(200, history[0])
+        self.assertEqual("1.0", history[2]["history_schema_version"])
+        self.assertEqual(200, comparison[0])
+        self.assertEqual("no_observed_change", comparison[2]["classification"])
+        self.assertEqual(["history", "compare"], [item[0] for item in self.api.calls])
+
     async def test_oversized_body_is_rejected_and_audited_without_content(self) -> None:
         secret = b"sensitive-body-value"
         status, _, response = await self.request(
@@ -313,7 +357,7 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(404, not_found[0])
         self.assertEqual(405, method[0])
-        self.assertEqual("POST", method[1]["allow"])
+        self.assertEqual("GET, POST", method[1]["allow"])
         self.assertEqual("unmatched", self.audit.events[0]["route"])
         self.assertEqual("DELETE", self.audit.events[1]["method"])
         serialized = json.dumps(self.audit.events, default=str)

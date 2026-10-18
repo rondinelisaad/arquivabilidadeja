@@ -50,6 +50,8 @@ from archivability.application.production import (
     validate_runtime_database_role,
 )
 from archivability.application.read_model import (
+    AnalysisComparison,
+    AnalysisHistoryEntry,
     AnalysisProgress,
     AnalysisReport,
     AnalysisReportRepository,
@@ -60,6 +62,7 @@ from archivability.application.read_model import (
     CrawlRunReport,
     EvidenceReport,
     EvidenceSourceReport,
+    IndicatorChange,
     IndicatorReport,
     JobReport,
     ReportError,
@@ -75,6 +78,8 @@ from archivability.application.worker import (
 __all__ = [
     "AnalysisApi",
     "AnalysisAsgiApp",
+    "AnalysisComparison",
+    "AnalysisHistoryEntry",
     "AnalysisOwnershipReader",
     "AnalysisProgress",
     "AnalysisReport",
@@ -102,6 +107,7 @@ __all__ = [
     "HttpAssessmentWorkflow",
     "HttpWorkflowOutcome",
     "InMemoryTokenBucketRateLimiter",
+    "IndicatorChange",
     "IndicatorReport",
     "InlineAsgiSyncRunner",
     "JobReport",
