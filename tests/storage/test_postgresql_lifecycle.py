@@ -18,9 +18,11 @@ import psycopg  # noqa: E402
 from archivability import (  # noqa: E402
     AnalysisOrchestrator,
     AnalysisState,
+    AuditedBoundedCrawl,
     AttemptState,
     AuditContext,
     ConcurrencyConflict,
+    CrawlLimits,
     PersistenceError,
     PostgreSqlEvidenceRepository,
     PostgreSqlLifecycleRepository,
@@ -141,6 +143,52 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         with psycopg.connect(POSTGRES_RUNTIME_DSN) as connection:
             with self.assertRaisesRegex(PersistenceError, "autocommit"):
                 PostgreSqlLifecycleRepository(connection)
+
+    def test_runtime_role_records_sanitized_bounded_crawl_events(self) -> None:
+        methodology = load_methodology(ROOT / "methodology" / "v0.1.0")
+        analysis = self.orchestrator.create_analysis(
+            subject_uri="https://example.org/private?token=not-in-crawl-audit",
+            methodology=methodology,
+            owner_user_id=self.audit.user_id,
+            audit=self.audit,
+        )
+        attempt = self.orchestrator.start_attempt(
+            analysis.analysis_id, audit=self.audit
+        )
+        crawl = AuditedBoundedCrawl(
+            analysis_id=analysis.analysis_id,
+            attempt_id=attempt.attempt_id,
+            entry_uri=analysis.subject_uri,
+            recorder=self.repository,
+            limits=CrawlLimits(max_depth=1, max_urls=2),
+            audit=self.audit,
+        )
+        target = crawl.claim_next()
+        assert target is not None
+        crawl.record_response(
+            target,
+            status_code=200,
+            response_bytes=10,
+            elapsed_milliseconds=2,
+        )
+        self.assertIsNone(crawl.claim_next())
+
+        events = self.connection.execute(
+            """
+            SELECT result, extra_json
+            FROM archivability.audit_events
+            WHERE action = 'job.bounded_crawl' AND resource_id = %s
+            ORDER BY timestamp, event_id
+            """,
+            (attempt.attempt_id,),
+        ).fetchall()
+        self.assertEqual(2, len(events))
+        self.assertEqual(["success", "success"], [event[0] for event in events])
+        serialized = repr(events)
+        self.assertIn("started", serialized)
+        self.assertIn("succeeded", serialized)
+        self.assertNotIn("example.org", serialized)
+        self.assertNotIn("not-in-crawl-audit", serialized)
 
     def test_probe_completion_and_evidence_chain_round_trip(self) -> None:
         methodology = load_methodology(ROOT / "methodology" / "v0.1.0")

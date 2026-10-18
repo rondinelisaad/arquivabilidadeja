@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import psycopg
 from psycopg.types.json import Jsonb
 
+from archivability.crawler.frontier import CrawlLimits, CrawlSummary
 from archivability.evidence.models import Evidence, EvidenceSource, Observation
 from archivability.lifecycle.models import (
     Analysis,
@@ -435,6 +436,75 @@ class PostgreSqlEvidenceRepository(PostgreSqlLifecycleRepository):
                     "error_code": error_code,
                 },
             )
+
+    def record_bounded_crawl_event(
+        self,
+        *,
+        analysis_id: str,
+        attempt_id: str,
+        status: str,
+        limits: CrawlLimits | None,
+        summary: CrawlSummary | None,
+        error_code: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        self._validate_crawl_event(status, limits, summary, error_code)
+        relation = self._connection.execute(
+            """
+            SELECT 1 FROM archivability.attempts
+            WHERE attempt_id = %s AND analysis_id = %s
+            """,
+            (attempt_id, analysis_id),
+        ).fetchone()
+        if relation is None:
+            raise IntegrityViolation("crawl event does not reference a valid attempt")
+        extra: dict[str, Any] = {"analysis_id": analysis_id, "status": status}
+        if limits is not None:
+            extra["limits"] = limits.to_dict()
+        if summary is not None:
+            extra["summary"] = summary.to_dict()
+        if error_code is not None:
+            extra["error_code"] = error_code
+        with self._transaction():
+            self._write_audit(
+                resource="crawl",
+                resource_id=attempt_id,
+                result="failure" if status == "failed" else "success",
+                audit=audit,
+                action="job.bounded_crawl",
+                extra=extra,
+            )
+
+    @staticmethod
+    def _validate_crawl_event(
+        status: str,
+        limits: CrawlLimits | None,
+        summary: CrawlSummary | None,
+        error_code: str | None,
+    ) -> None:
+        valid = (
+            (
+                status == "started"
+                and limits is not None
+                and summary is None
+                and error_code is None
+            )
+            or (
+                status == "succeeded"
+                and limits is None
+                and summary is not None
+                and summary.termination_reason != "in_progress"
+                and error_code is None
+            )
+            or (
+                status == "failed"
+                and limits is None
+                and summary is None
+                and error_code is not None
+            )
+        )
+        if not valid:
+            raise IntegrityViolation("crawl audit event is inconsistent")
 
     def authorize_probe_request(
         self, *, analysis_id: str, attempt_id: str, subject_uri: str
