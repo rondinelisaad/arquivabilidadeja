@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1, 2, 3a e 3b concluídos em 2026-10-18.
+Status: incrementos 1, 2, 3a, 3b e 3c concluídos em 2026-10-18.
 
 ## Contrato inicial
 
@@ -24,10 +24,12 @@ SQLite e PostgreSQL localizam no máximo uma observação de browser por tentati
 
 SQLite e PostgreSQL persistem a fila com revisão otimista, constraint de unicidade sobre a tentativa, índice de claim e bloqueio de exclusão. O runtime PostgreSQL recebe somente `SELECT`, `INSERT` e `UPDATE` sobre `browser_jobs`; o validador de inicialização exige esses grants e continua recusando DDL, `TRUNCATE`, `TRIGGER` e `DELETE`. Enqueue, claim, retry, sucesso e falha usam eventos `job.browser_queue_*` sanitizados.
 
+`BrowserWorker` consome essa fila separadamente, monta a requisição somente com a análise/tentativa autorizada e entrega o agregado ao `BrowserExecutionService`. Depois de um render válido, ele enfileira a observação HTTP original para a derivação existente; se o enqueue falhar, a repetição reutiliza a observação de browser já persistida. Falhas usam códigos estáveis e backoff exponencial limitado. Ao esgotar tentativas de browser, o worker ainda enfileira a avaliação HTTP como resultado degradado, preservando o erro terminal do browser sem deixar a análise permanentemente em execução.
+
 ## Próximos incrementos
 
-1. worker de browser separado do worker HTTP;
-2. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
+1. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
+2. integração do worker de browser no pipeline de produção;
 3. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
 4. exposição sanitizada no relatório público.
 
