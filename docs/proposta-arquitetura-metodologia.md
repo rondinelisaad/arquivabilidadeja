@@ -499,6 +499,8 @@ Cada release de metodologia é imutável. Correções que alterem resultados cri
 
 Cada fase só começa após aprovação da anterior quando houver mudança metodológica. A primeira implementação deve priorizar fixtures e golden tests antes de ampliar o número de indicadores.
 
+Estado de implementação em 2026-10-18: a Fundação segura e a primeira camada da Análise HTTP estão concluídas no código. A submissão é assíncrona, a coleta externa ocorre no worker com SSRF/limites, e homepage, robots, sitemap, links HTML agregados, cabeçalhos allowlisted, formato declarado e tempo total geram observações 1.2 reproduzíveis. Itens que exigem crawl de recursos, política aplicável de robots, detecção por assinatura, validação especializada ou browser continuam deliberadamente nas fases seguintes.
+
 ### 16.1 Estratégia de testes
 
 - Testes unitários para normalização, classificação de IP, parsing, derivação, cobertura e fórmulas.

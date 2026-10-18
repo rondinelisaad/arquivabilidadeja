@@ -1,10 +1,10 @@
-# Métodos de derivação HTTP 1.0.0
+# Métodos de derivação HTTP 1.1.0
 
-Este documento descreve as primeiras regras executáveis que transformam uma `Observation` de metadados HTTP, no schema `1.1`, em `Evidence` e `IndicatorResult`. As regras são determinísticas para a mesma metodologia e observação.
+Este documento descreve as regras executáveis que transformam uma `Observation` de metadados HTTP em `Evidence` e `IndicatorResult`. O schema `1.1` permanece compatível com os métodos 1.0.0 de `D01` e `R06`; o schema `1.2` usa métodos 1.1.0 e acrescenta agregados de descoberta, formato e timing. As regras são determinísticas para a mesma metodologia e observação.
 
 ## D01 — Homepage accessible
 
-Método: `http-homepage-accessibility@1.0.0`.
+Método: `http-homepage-accessibility@1.0.0` no schema 1.1 e `@1.1.0` no schema 1.2.
 
 | Status HTTP final | Resultado |
 |---|---|
@@ -17,7 +17,7 @@ A evidência registra status, classe, quantidade de redirects validados e se o t
 
 ## R06 — Response completeness
 
-Método: `http-response-completeness@1.0.0`.
+Método: `http-response-completeness@1.0.0` no schema 1.1 e `@1.1.0` no schema 1.2.
 
 | Condição | Resultado | Motivo registrado |
 |---|---|---|
@@ -28,6 +28,22 @@ Método: `http-response-completeness@1.0.0`.
 
 A ausência de `Content-Length` é válida e não reduz o resultado. O limite de bytes aplicado pelo probe sempre integra a evidência.
 
-## Indicadores não derivados nesta versão
+## Indicadores adicionais do schema 1.2
 
-`R02`, `R05` e `R07` exigem, respectivamente, cadeia detalhada de redirects, detecção segura do formato e requisição condicional. Eles permanecem sem resultado até que essas observações existam; ausência de evidência não é convertida em aprovação ou reprovação.
+| Indicador | Evidência limitada desta camada |
+|---|---|
+| `D02` | disponibilidade, status, parseabilidade por linhas e contagem de diretivas de `/robots.txt` |
+| `D04` | disponibilidade e contagem limitada de elementos `loc` em `/sitemap.xml` |
+| `D05` | quantidade de declarações RSS/Atom na homepage |
+| `D06` | contagens agregadas de links internos e externos no HTML bruto |
+| `R02` | terminação dentro do orçamento de redirects, com cada destino validado |
+| `R04` | distribuição HTTP da amostra de uma homepage |
+| `R05` | MIME declarado, família de formato e resultado do parser; confiança `declared_only` |
+| `S01` | criação do parser HTML tolerante, sem afirmar validade normativa |
+| `S03` | parsing XML do sitemap com DTD e entidades rejeitados |
+| `S04` | inventário contextual da homepage por MIME declarado |
+| `N01` | tempo total da requisição; DNS/TCP/TLS/TTFB permanecem nulos |
+
+## Indicadores não derivados nesta camada
+
+`D03`, `R01`, `R03`, `R07`, `R08`, `S02` e os demais indicadores exigem política aplicável de robots, crawl, recursos adicionais, detecção por assinatura, requisição condicional, validação especializada, browser ou repetição temporal. Eles permanecem sem resultado; ausência de evidência não é convertida em aprovação ou reprovação.

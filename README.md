@@ -4,13 +4,14 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-O projeto está na fase inicial de implementação do domínio. Já existem uma metodologia executável, o motor determinístico de pontuação, a cadeia imutável `Observation → Evidence → IndicatorResult`, o ciclo de vida local `Analysis → Attempt`, adaptadores mínimos de DNS/HTTP protegidos contra SSRF, o primeiro probe de metadados HTTP, uma fila local, um contrato de API e um adaptador ASGI. SQLite é usado somente em desenvolvimento e testes.
+A fundação segura e a primeira camada de análise HTTP estão implementadas. A API cria a análise e apenas enfileira a coleta; um worker separado busca homepage, `robots.txt` e `sitemap.xml` sob limites e proteção SSRF, persiste agregados sanitizados e enfileira a derivação. O projeto também possui metodologia executável, scoring determinístico, cadeia imutável `Observation → Evidence → IndicatorResult`, filas duráveis em SQLite/PostgreSQL, autenticação OIDC, contrato ASGI, relatórios e manifests Kubernetes. SQLite permanece restrito ao desenvolvimento e aos testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
 - [Revisão crítica e matriz de rastreabilidade do CLEAR+](docs/revisao-critica-clear-plus.md)
 - [Requisitos de segurança](docs/requisitos-seguranca.md)
 - [Métodos de derivação HTTP](docs/metodos-derivacao-http.md)
+- [Fase 1 — coleta HTTP assíncrona](docs/fase-1-coleta-http-assincrona.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
 ## Validação
@@ -78,9 +79,9 @@ apply_sqlite_migrations(connection)  # ferramenta de provisionamento, não execu
 repository = SqliteEvidenceRepository(connection)
 ```
 
-Em produção, o próximo adaptador deverá usar PostgreSQL com usuários distintos para migrations e runtime. O usuário da aplicação deve possuir somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
+Em produção, o adaptador PostgreSQL usa usuários distintos para migrations e runtime. O usuário da aplicação possui somente `SELECT` e `INSERT` nas tabelas append-only, sem `CREATE`, `ALTER`, `DROP`, `TRUNCATE` ou privilégios administrativos.
 
-As tabelas mutáveis de ciclo de vida (`analyses`, `attempts` e `assessment_jobs`) também exigem `UPDATE`, sempre protegido por revisão otimista. Nenhuma tabela de domínio concede `DELETE` ao runtime. A única exceção é a tabela operacional `rate_limit_buckets`, na qual `DELETE` é necessário para remover buckets ociosos já totalmente recarregados e manter o armazenamento limitado. O runtime não recebe qualquer permissão DDL. A migration da fila deve ser aplicada pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` em `assessment_jobs`. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
+As tabelas mutáveis de ciclo de vida (`analyses`, `attempts`, `collection_jobs` e `assessment_jobs`) também exigem `UPDATE`, sempre protegido por revisão otimista. Nenhuma tabela de domínio concede `DELETE` ao runtime. A única exceção é a tabela operacional `rate_limit_buckets`, na qual `DELETE` é necessário para remover buckets ociosos já totalmente recarregados e manter o armazenamento limitado. O runtime não recebe qualquer permissão DDL. As migrations das filas são aplicadas pelo usuário separado de migrations; o usuário da aplicação recebe apenas `SELECT`, `INSERT` e `UPDATE` nessas tabelas. A tabela append-only `analysis_ownership` exige apenas `SELECT` e `INSERT`: o vínculo é criado na mesma transação da análise e não pode ser alterado ou excluído.
 
 O schema PostgreSQL de produção é provisionado separadamente com uma conexão ociosa, transacional e pertencente ao usuário exclusivo de migrations. O executor serializa concorrentes com advisory lock, registra versão, checksum, ator e instante de aplicação e recusa migrations já aplicadas cujo checksum tenha mudado:
 
@@ -96,7 +97,7 @@ Depois do provisionamento, um administrador aplica `deploy/postgresql/runtime_gr
 
 `PostgreSqlEvidenceRepository` estende esse contrato com observações, evidências, resultados e proveniência verificável. A conclusão bem-sucedida do probe grava todas as observações e a transição da tentativa na mesma transação; qualquer duplicidade, inconsistência ou falha de persistência desfaz o lote inteiro e produz somente um evento de falha sanitizado. A derivação HTTP também grava evidências, resultados e a transição terminal da análise atomicamente. Uma repetição determinística vira replay auditado sem duplicação; conteúdo parcial ou conflitante é rejeitado.
 
-`PostgreSqlAssessmentJobRepository` adiciona a fila durável. O enqueue usa a identidade única da observação para replay idempotente; workers concorrentes selecionam jobs disponíveis com `FOR UPDATE SKIP LOCKED`, mantêm leases recuperáveis e concluem cada transição por revisão otimista. Retry, esgotamento e ACK são auditados com códigos estáveis, sem mensagens de exceção.
+`PostgreSqlAssessmentJobRepository` implementa duas filas duráveis: coleta por análise e derivação por observação. Os enqueues são idempotentes; workers concorrentes selecionam jobs disponíveis com `FOR UPDATE SKIP LOCKED`, mantêm leases recuperáveis e concluem cada transição por revisão otimista. Se houver interrupção depois de persistir a observação, a retomada a reutiliza e não repete o acesso externo. Retry, esgotamento e ACK são auditados com códigos estáveis, sem mensagens de exceção.
 
 O mesmo adaptador produz snapshots de relatório em uma transação PostgreSQL `REPEATABLE READ READ ONLY`, evitando misturar revisões concorrentes de análises, jobs, evidências e resultados. Acessos ao relatório e eventos das fronteiras API, ASGI e autenticação são gravados na trilha append-only somente com rota lógica, IDs opacos, status e códigos estáveis; URL, corpo, cabeçalhos e credenciais não são registrados. O runtime continua precisando apenas dos grants `SELECT`, `INSERT` e `UPDATE` já documentados, sem DDL.
 
@@ -131,13 +132,13 @@ A composição de produção expõe três rotas operacionais exatas, antes da au
 
 - `GET /health/live` confirma somente que o processo ASGI responde;
 - `GET /health/ready` confirma startup, pool PostgreSQL e a migration mínima esperada;
-- `GET /internal/metrics` retorna contagens agregadas da fila no formato Prometheus.
+- `GET /internal/metrics` retorna contagens agregadas das filas de coleta e derivação no formato Prometheus.
 
 As respostas não incluem configuração, DSN, IDs de análise, URLs ou payloads. A leitura de métricas gera `access.assessment_queue_metrics` com IP, contagens agregadas e resultado; os probes de saúde não escrevem no banco para que liveness continue independente e readiness possa sinalizar indisponibilidade do próprio banco. A rota de métricas deve permanecer em rede interna e não deve ser publicada pelo Ingress.
 
 ## Worker de avaliação
 
-O comando `archivability-worker` consome a fila PostgreSQL e executa a derivação HTTP já persistida, sem realizar coleta externa. Ele valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa os eventos de job existentes para claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; jobs interrompidos abruptamente continuam recuperáveis pelo lease.
+O comando `archivability-worker` consome primeiro a fila PostgreSQL de coleta externa e depois a fila de derivação. A coleta usa resolução validada, IP fixado, TLS verificado, redirects revalidados e limites de tempo, bytes e quantidade. O processo valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa eventos distintos de job para enqueue, claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; interrupções abruptas são recuperadas pelo lease.
 
 Além das variáveis de banco, ambiente e metodologia usadas pelo servidor, o processo aceita limites estritos opcionais:
 
@@ -216,17 +217,17 @@ O pacote `archivability.probes` define o contrato dos probes e fornece adaptador
 
 `SystemAddressResolver` consulta apenas endereços para TCP e não mantém cache. `PinnedHttpClient` ignora proxies do ambiente, desativa redirects automáticos, conecta somente a um IP presente em `ApprovedTarget.addresses`, preserva o hostname aprovado para `Host`, SNI e validação do certificado, exige TLS 1.2 ou superior e limita timeout total, cabeçalhos e corpo. Cada redirect volta à política antes de uma nova conexão, e downgrade de HTTPS para HTTP é bloqueado por padrão. Firewall e filtragem de saída continuam necessários como segunda camada.
 
-`HttpMetadataProbe` converte somente status, cabeçalhos permitidos, contagem de redirects, transporte final e tamanho observado em uma `Observation` imutável. Corpos, cookies e URLs de redirect não são persistidos nem enviados à auditoria. A execução continua condicionada a uma análise/tentativa válida pelo `ProbeRunner`.
+`HttpMetadataProbe` coleta de forma limitada a homepage e, na mesma origem configurada, os caminhos convencionais `/robots.txt` e `/sitemap.xml`. A observação 1.2 contém somente status, cabeçalhos permitidos, contagem de redirects, transporte final, bytes, tempo total e agregados de HTML/robots/sitemap. Corpos, cookies, URLs descobertas e URLs de redirect não são persistidos nem enviados à auditoria. A execução continua condicionada a uma análise/tentativa válida pelo `ProbeRunner`.
 
 `ProbeExecutionService` conecta o runner ao ciclo de vida. Em caso de sucesso, as observações e a transição do `Attempt` para `succeeded` são persistidas na mesma transação. Falhas do probe produzem `PROBE_FAILED`; falhas de persistência produzem `PERSISTENCE_FAILED`, sempre sem copiar mensagens de exceção para o domínio ou para a auditoria. Os eventos `job.probe`, `data.create`, `job.probe_persistence` e `job.analysis_attempt` distinguem as etapas com metadados não sensíveis.
 
-`derive_http_metadata_indicators` transforma a observação HTTP em evidências versionadas para `D01` (acessibilidade da homepage) e `R06` (completude da resposta), preservando o hash da fonte. As regras distinguem sucesso, redirect não terminado, erro HTTP, truncamento por limite e inconsistência de `Content-Length`. Os demais indicadores permanecem sem resultado até existirem as evidências específicas exigidas pela metodologia.
+`derive_http_metadata_indicators` preserva o hash da fonte e produz evidências versionadas para `D01`, `D02`, `D04`, `D05`, `D06`, `R02`, `R04`, `R05`, `R06`, `S01`, `S03`, `S04` e `N01`. Os resultados deixam explícito quando a amostra é apenas a homepage ou quando a identificação deriva somente do MIME declarado. Indicadores que exigem política de robots, crawl, browser, validadores especializados ou repetição temporal permanecem sem resultado.
 
 `HttpMetadataAssessmentService` carrega uma observação já persistida, confirma a metodologia e a tentativa bem-sucedida, deriva `Evidence` e `IndicatorResult` e encerra a análise. A gravação dos artefatos e a transição de `Analysis` ocorrem na mesma transação. Repetir exatamente o mesmo processamento produz um replay idempotente auditado, sem duplicar os registros append-only nem avançar novamente a revisão; conteúdo parcial ou conflitante é rejeitado.
 
-`HttpAssessmentQueueService` e `HttpAssessmentWorker` fornecem uma fila SQLite local e durável para essa derivação. Cada observação possui no máximo um job; a reivindicação usa lease exclusivo e revisão otimista, falhas recebem backoff exponencial limitado e um worker pode recuperar leases expirados. O ACK acontece depois da avaliação: se houver interrupção entre as duas etapas, a recuperação executa o replay idempotente. Os eventos de enqueue, claim, retry, sucesso e falha são auditados sem URL ou mensagem de exceção, e jobs não podem ser excluídos.
+`HttpCollectionQueueService`/`HttpCollectionWorker` e `HttpAssessmentQueueService`/`HttpAssessmentWorker` formam o pipeline durável. Cada análise possui no máximo um job de coleta e cada observação no máximo um job de derivação. Claims usam lease exclusivo e revisão otimista; falhas recebem backoff exponencial limitado. A retomada fecha tentativas abandonadas e reutiliza observações já persistidas. Todos os eventos são auditados sem URL ou mensagem de exceção, e jobs não podem ser excluídos.
 
-`HttpAssessmentWorkflow` oferece o caso de uso explícito `Analysis → Attempt → Probe → AssessmentJob`. Ele valida limites antes da coleta, aceita somente o contrato `http-metadata`, converte saída incompatível do probe em falha de tentativa antes da persistência e permite retry manual apenas após uma tentativa realmente falha. Uma tentativa bem-sucedida gera exatamente um job durável e bloqueia novas coletas para a mesma análise. O evento agregado `job.http_assessment_workflow` registra o desfecho somente com IDs opacos e códigos estáveis. O workflow não é endpoint, scheduler ou daemon: a aplicação chamadora ainda precisa acioná-lo explicitamente e fornecer o probe.
+`HttpAssessmentWorkflow` executa somente `Analysis → CollectionJob`. Ele valida a URL e os limites, persiste a análise e retorna `collection_queued` sem DNS, socket ou fetch no processo da API. O worker cria a tentativa, executa o probe e encaminha a observação à derivação. Retries pertencem exclusivamente às filas duráveis.
 
 `AnalysisReportService` cria um snapshot transacional de progresso, tentativas, jobs, resultados e proveniência. O contrato de saída reduz o alvo à origem (`scheme://host[:port]/`) e não inclui caminho, query string, fragmento, payload de observação, cabeçalhos ou dados derivados internos. A proveniência pública contém somente IDs, hashes, métodos, versões e timestamps. Cada leitura — inclusive análise inexistente — gera `access.analysis_report` com contagens e códigos estáveis, nunca com o conteúdo do relatório.
 
@@ -286,7 +287,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner padrão executa o núcleo síncrono no mesmo worker, preservando a afinidade da conexão SQLite usada em desenvolvimento. A composição de produção usa `ThreadedAsgiSyncRunner`, mantendo cada conexão do pool vinculada a uma requisição e retirando o trabalho síncrono do event loop. A implantação ainda deve restringir egress ao host JWKS. O próximo passo recomendado é adicionar health/readiness checks separados para API e worker, métricas operacionais de fila e um manifesto de implantação com políticas explícitas de rede e recursos.
+O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. Com a primeira camada HTTP concluída, o próximo incremento é o crawl limitado da Fase 3 do roadmap: fronteira, quotas, links quebrados e grafo.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
