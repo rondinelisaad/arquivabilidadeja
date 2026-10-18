@@ -22,7 +22,6 @@ from archivability.lifecycle.state_machine import finalize_analysis
 from archivability.methodology.models import IndicatorResult, MethodologyConfig
 from archivability.storage.audit import AuditContext
 
-
 Clock = Callable[[], datetime]
 
 
@@ -47,6 +46,8 @@ class HttpAssessmentRepository(Protocol):
     def list_attempts(self, analysis_id: str) -> tuple[Attempt, ...]: ...
 
     def get_observation(self, observation_id: str) -> Observation | None: ...
+
+    def get_bounded_crawl_observation(self, attempt_id: str) -> Observation | None: ...
 
     def complete_http_assessment(
         self,
@@ -107,7 +108,14 @@ class HttpMetadataAssessmentService:
             raise LifecycleError("derivation requires a registered successful attempt")
 
         target = self._terminal_state(attempts)
-        derivation = derive_http_metadata_indicators(self._methodology, observation)
+        crawl_observation = self._repository.get_bounded_crawl_observation(
+            observation.attempt_id
+        )
+        derivation = derive_http_metadata_indicators(
+            self._methodology,
+            observation,
+            crawl_observation=crawl_observation,
+        )
         if analysis.state is AnalysisState.RUNNING:
             completed = finalize_analysis(
                 analysis,

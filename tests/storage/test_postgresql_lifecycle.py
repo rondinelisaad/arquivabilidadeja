@@ -214,6 +214,19 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
             payload_schema_version="1.0",
             payload={"status_code": 200, "secret": "not-in-audit"},
         )
+        crawl_observation = Observation.create(
+            observation_id=f"crawl-observation-{uuid4().hex}",
+            analysis_id=analysis.analysis_id,
+            attempt_id=attempt.attempt_id,
+            kind="bounded_crawl",
+            subject_uri=analysis.subject_uri,
+            observed_at=T0,
+            probe_id="http-metadata",
+            tool_name="integration-probe",
+            tool_version="1.0.0",
+            payload_schema_version="1.0",
+            payload={"aggregate": "lookup-test"},
+        )
         succeeded = finish_attempt(
             attempt,
             target=AttemptState.SUCCEEDED,
@@ -221,7 +234,10 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         )
 
         self.repository.complete_probe_attempt(
-            attempt, succeeded, (observation,), audit=self.audit
+            attempt,
+            succeeded,
+            (observation, crawl_observation),
+            audit=self.audit,
         )
         evidence = Evidence.create(
             evidence_id=f"evidence-{uuid4().hex}",
@@ -249,11 +265,15 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
         stored_observation = self.repository.get_observation(
             observation.observation_id
         )
+        stored_crawl = self.repository.get_bounded_crawl_observation(
+            attempt.attempt_id
+        )
         stored_evidence = self.repository.get_evidence(evidence.evidence_id)
         stored_result = self.repository.get_indicator_result(
             analysis.analysis_id, "D01"
         )
         self.assertEqual(observation, stored_observation)
+        self.assertEqual(crawl_observation, stored_crawl)
         self.assertEqual(evidence, stored_evidence)
         self.assertEqual(result, stored_result)
         events = self.connection.execute(

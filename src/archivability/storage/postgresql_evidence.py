@@ -153,6 +153,22 @@ class PostgreSqlEvidenceRepository(PostgreSqlLifecycleRepository):
                 "stored observation failed integrity validation"
             ) from exc
 
+    def get_bounded_crawl_observation(self, attempt_id: str) -> Observation | None:
+        rows = self._connection.execute(
+            """
+            SELECT observation_id
+            FROM archivability.observations
+            WHERE document_json->>'attempt_id' = %s
+              AND document_json->>'kind' = 'bounded_crawl'
+            ORDER BY observation_id
+            LIMIT 2
+            """,
+            (attempt_id,),
+        ).fetchall()
+        if len(rows) > 1:
+            raise IntegrityViolation("attempt has multiple bounded crawl observations")
+        return self.get_observation(rows[0][0]) if rows else None
+
     def get_evidence(self, evidence_id: str) -> Evidence | None:
         row = self._connection.execute(
             """

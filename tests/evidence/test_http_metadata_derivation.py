@@ -110,6 +110,68 @@ def discovery_observation() -> Observation:
     )
 
 
+def crawl_observation(
+    *,
+    robots: dict[str, object] | None = None,
+    summary: dict[str, object] | None = None,
+    attempt_id: str = "attempt-1",
+    kind: str = "bounded_crawl",
+    truncated: bool = False,
+) -> Observation:
+    robots_payload = robots or {
+        "disposition": "allow",
+        "matched_rule": None,
+        "matched_octets": 0,
+        "matched_group_count": 1,
+        "applicable_rule_count": 2,
+        "policy_id": "rfc9309-respect-1",
+        "parser_version": "rfc9309-1",
+        "product_token": "arquivabilidade-ja",
+        "source_state": "parsed",
+    }
+    summary_payload = summary or {
+        "discovered_references": 3,
+        "discovered_unique_internal": 3,
+        "enqueued": 3,
+        "visited": 3,
+        "successful": 2,
+        "broken_internal": 1,
+        "edge_count": 2,
+        "maximum_depth_reached": 2,
+        "response_bytes": 1000,
+        "elapsed_milliseconds": 100.0,
+        "status_classes": {"2xx": 2, "4xx": 1},
+        "failures": {},
+        "discarded": {"external_origin": 1},
+        "termination_reason": "complete",
+    }
+    return Observation.create(
+        observation_id="observation-crawl-1",
+        analysis_id="analysis-1",
+        attempt_id=attempt_id,
+        kind=kind,
+        subject_uri="https://example.org/private?token=must-not-be-logged",
+        observed_at=NOW,
+        probe_id="http-metadata",
+        tool_name="arquivabilidade-http",
+        tool_version="0.2.0",
+        payload_schema_version="1.0",
+        payload={
+            "limits": {
+                "max_depth": 2,
+                "max_urls": 10,
+                "max_response_bytes": 2 * 1024 * 1024,
+                "max_total_bytes": 20 * 1024 * 1024,
+                "max_total_elapsed_milliseconds": 60_000,
+                "max_links_per_document": 1000,
+            },
+            "robots": robots_payload,
+            "summary": summary_payload,
+        },
+        truncated=truncated,
+    )
+
+
 class HttpMetadataDerivationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -174,6 +236,157 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         self.assertEqual(ResultState.CONTEXT, by_id["N01"].state)
         serialized = json.dumps([item.to_dict() for item in derived.evidence])
         self.assertNotIn("discovered_urls", serialized)
+
+    def test_crawl_contract_derives_d03_d08_and_r03_without_urls(self) -> None:
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=crawl_observation(),
+        )
+
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.PASS, by_id["D03"].state)
+        self.assertEqual(ResultState.PASS, by_id["D08"].state)
+        self.assertEqual(ResultState.WARNING, by_id["R03"].state)
+        crawl_evidence = {
+            item.indicator_id: item
+            for item in derived.evidence
+            if item.indicator_id in {"D03", "D08", "R03"}
+        }
+        self.assertEqual(2, crawl_evidence["R03"].data["denominator"])
+        self.assertEqual(1, crawl_evidence["R03"].data["broken_count"])
+        serialized = json.dumps(
+            [item.to_dict()["data"] for item in crawl_evidence.values()]
+        )
+        self.assertNotIn("example.org", serialized)
+        self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_crawl_states_distinguish_policy_and_budget_outcomes(self) -> None:
+        cases = (
+            (
+                {
+                    "disposition": "disallow",
+                    "matched_rule": "disallow",
+                    "matched_octets": 1,
+                    "matched_group_count": 1,
+                    "applicable_rule_count": 1,
+                    "policy_id": "rfc9309-respect-1",
+                    "parser_version": "rfc9309-1",
+                    "product_token": "arquivabilidade-ja",
+                    "source_state": "parsed",
+                },
+                ResultState.FAIL,
+            ),
+            (
+                {
+                    "disposition": "allow",
+                    "matched_rule": None,
+                    "matched_octets": 0,
+                    "matched_group_count": 0,
+                    "applicable_rule_count": 0,
+                    "policy_id": "rfc9309-respect-1",
+                    "parser_version": "rfc9309-1",
+                    "product_token": "arquivabilidade-ja",
+                    "source_state": "unavailable",
+                },
+                ResultState.NOT_APPLICABLE,
+            ),
+            (
+                {
+                    "disposition": "disallow",
+                    "matched_rule": None,
+                    "matched_octets": 0,
+                    "matched_group_count": 0,
+                    "applicable_rule_count": 0,
+                    "policy_id": "rfc9309-respect-1",
+                    "parser_version": "rfc9309-1",
+                    "product_token": "arquivabilidade-ja",
+                    "source_state": "unreachable",
+                },
+                ResultState.UNKNOWN,
+            ),
+        )
+        for robots, expected in cases:
+            with self.subTest(source_state=robots["source_state"]):
+                derived = derive_http_metadata_indicators(
+                    self.methodology,
+                    discovery_observation(),
+                    crawl_observation=crawl_observation(robots=robots),
+                )
+                by_id = {
+                    item.indicator_id: item for item in derived.indicator_results
+                }
+                self.assertEqual(expected, by_id["D03"].state)
+
+        budget_summary = dict(crawl_observation().payload["summary"])
+        budget_summary.update(
+            {
+                "discovered_unique_internal": 4,
+                "enqueued": 4,
+                "discarded": {"external_origin": 1, "time_budget": 1},
+                "termination_reason": "time_budget",
+            }
+        )
+        budget = crawl_observation(summary=budget_summary, truncated=True)
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=budget,
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.WARNING, by_id["D08"].state)
+
+        partial_policy = dict(crawl_observation().payload["summary"])
+        partial_policy.update(
+            {
+                "visited": 2,
+                "successful": 2,
+                "broken_internal": 0,
+                "status_classes": {"2xx": 2},
+                "discarded": {"external_origin": 1, "robots_policy": 1},
+            }
+        )
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=crawl_observation(summary=partial_policy),
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.WARNING, by_id["D03"].state)
+        self.assertEqual(ResultState.PASS, by_id["R03"].state)
+
+        all_broken = dict(crawl_observation().payload["summary"])
+        all_broken.update(
+            {
+                "successful": 1,
+                "broken_internal": 2,
+                "status_classes": {"2xx": 1, "4xx": 2},
+            }
+        )
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=crawl_observation(summary=all_broken),
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.FAIL, by_id["R03"].state)
+
+    def test_rejects_inconsistent_or_unpaired_crawl_observation(self) -> None:
+        invalid_summary = dict(crawl_observation().payload["summary"])
+        invalid_summary["successful"] = 3
+        invalid = (
+            crawl_observation(attempt_id="attempt-other"),
+            crawl_observation(kind="other"),
+            crawl_observation(summary=invalid_summary),
+        )
+        for source in invalid:
+            with self.subTest(kind=source.kind, attempt_id=source.attempt_id):
+                with self.assertRaises(HttpMetadataDerivationError):
+                    derive_http_metadata_indicators(
+                        self.methodology,
+                        discovery_observation(),
+                        crawl_observation=source,
+                    )
 
     def test_truncation_and_invalid_lengths_are_warnings(self) -> None:
         cases = (
