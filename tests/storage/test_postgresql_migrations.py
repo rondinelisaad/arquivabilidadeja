@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -117,7 +116,12 @@ class PostgreSqlMigrationTests(unittest.TestCase):
             ROOT
             / "src/archivability/storage/migrations/postgresql/002_rate_limit_buckets.sql"
         ).read_text(encoding="utf-8")
+        collection_migration = (
+            ROOT
+            / "src/archivability/storage/migrations/postgresql/003_collection_jobs.sql"
+        ).read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE rate_limit_buckets", rate_limit_migration)
+        self.assertIn("CREATE TABLE collection_jobs", collection_migration)
         self.assertIn("JSONB", migration)
         self.assertIn("TIMESTAMPTZ", migration)
         self.assertIn("REVOKE ALL ON ALL TABLES", grants)
@@ -126,6 +130,7 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertNotIn("GRANT ALL", grants)
         self.assertNotIn("GRANT DELETE", grants)
         self.assertIn("archivability.rate_limit_buckets", grants)
+        self.assertIn("archivability.collection_jobs", grants)
         self.assertNotIn("CREATE ROLE", grants)
         self.assertNotIn("PASSWORD", grants.upper())
 

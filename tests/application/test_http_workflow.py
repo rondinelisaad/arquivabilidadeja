@@ -1,262 +1,150 @@
 from __future__ import annotations
 
-import json
 import sqlite3
-import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from archivability import (  # noqa: E402
+from archivability import (
     AnalysisOrchestrator,
     AnalysisState,
-    AttemptState,
     AuditContext,
-    HttpAssessmentQueueService,
     HttpAssessmentWorkflow,
-    Observation,
-    ProbeExecutionService,
-    ProbeRunner,
+    PersistenceError,
+    ProbeLimits,
     SqliteAssessmentJobRepository,
-    SsrfPolicy,
     WorkflowError,
     apply_sqlite_migrations,
     load_methodology,
 )
+from archivability.jobs.collection import HttpCollectionQueueService
 
-
-NOW = datetime(2026, 10, 7, 4, 0, tzinfo=timezone.utc)
+ROOT = Path(__file__).resolve().parents[2]
+NOW = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
 SUBJECT = "https://example.org/private?token=must-not-be-logged"
-PUBLIC_V4 = "93.184.216.34"
-METHODOLOGY_PATH = ROOT / "methodology" / "v0.1.0"
+
+
+class MustNotRunProbe:
+    probe_id = "http-metadata"
+    tool_name = "test"
+    tool_version = "1"
+
+    def execute(self, context):
+        del context
+        raise AssertionError("the API request path must not execute network probes")
+
+
+class SuccessfulHttpProbe(MustNotRunProbe):
+    pass
 
 
 class StaticResolver:
     def resolve(self, hostname: str, port: int) -> tuple[str, ...]:
         del hostname, port
-        return (PUBLIC_V4,)
-
-
-class SuccessfulHttpProbe:
-    probe_id = "http-metadata"
-    tool_name = "workflow-test-probe"
-    tool_version = "1.0.0"
-
-    def execute(self, context):
-        return (
-            Observation.create(
-                observation_id=f"observation-{context.request.attempt_id}",
-                analysis_id=context.request.analysis_id,
-                attempt_id=context.request.attempt_id,
-                kind="http_metadata",
-                subject_uri=context.request.subject_uri,
-                observed_at=context.request.requested_at,
-                probe_id=self.probe_id,
-                tool_name=self.tool_name,
-                tool_version=self.tool_version,
-                payload_schema_version="1.1",
-                payload={
-                    "status_code": 200,
-                    "headers": {"content-length": ["5"]},
-                    "response_bytes_observed": 5,
-                    "response_byte_limit": context.request.max_response_bytes,
-                    "response_truncated": False,
-                    "redirect_count": 0,
-                    "final_transport_secure": True,
-                },
-            ),
-        )
-
-
-class FailingHttpProbe(SuccessfulHttpProbe):
-    def execute(self, context):
-        del context
-        raise RuntimeError("token=must-not-be-logged")
-
-
-class InvalidOutputProbe(SuccessfulHttpProbe):
-    def execute(self, context):
-        source = super().execute(context)[0]
-        return (
-            Observation.create(
-                observation_id=source.observation_id,
-                analysis_id=source.analysis_id,
-                attempt_id=source.attempt_id,
-                kind="incompatible",
-                subject_uri=source.subject_uri,
-                observed_at=source.observed_at,
-                probe_id=source.probe_id,
-                tool_name=source.tool_name,
-                tool_version=source.tool_version,
-                payload_schema_version="1.1",
-                payload=source.payload,
-            ),
-        )
-
-
-class WrongProbe(SuccessfulHttpProbe):
-    probe_id = "other-probe"
+        return ("93.184.216.34",)
 
 
 class HttpAssessmentWorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         apply_sqlite_migrations(self.connection)
-        event_ids = iter(f"event-{index:03d}" for index in range(400))
         self.repository = SqliteAssessmentJobRepository(
             self.connection,
             clock=lambda: NOW,
-            event_id_factory=lambda: next(event_ids),
+            event_id_factory=(f"event-{index}" for index in range(100)).__next__,
         )
-        self.methodology = load_methodology(METHODOLOGY_PATH)
-        attempt_ids = iter(("attempt-1", "attempt-2", "attempt-3"))
         orchestrator = AnalysisOrchestrator(
             self.repository,
             clock=lambda: NOW,
             analysis_id_factory=lambda: "analysis-1",
-            attempt_id_factory=lambda: next(attempt_ids),
-        )
-        runner = ProbeRunner(
-            policy=SsrfPolicy(),
-            resolver=StaticResolver(),
-            event_recorder=self.repository,
-            authorizer=self.repository,
-        )
-        execution = ProbeExecutionService(
-            runner=runner,
-            repository=self.repository,
-            clock=lambda: NOW,
-        )
-        queue = HttpAssessmentQueueService(
-            repository=self.repository,
-            clock=lambda: NOW,
-            job_id_factory=lambda: "job-1",
+            attempt_id_factory=lambda: "attempt-unused",
         )
         self.workflow = HttpAssessmentWorkflow(
-            methodology=self.methodology,
-            repository=self.repository,
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
             orchestrator=orchestrator,
-            probe_execution=execution,
-            queue=queue,
-            clock=lambda: NOW,
+            collection_queue=HttpCollectionQueueService(
+                self.repository,
+                clock=lambda: NOW,
+                job_id_factory=lambda: "collection-1",
+            ),
         )
-        self.audit = AuditContext(user_id="user-opaque-1")
 
     def tearDown(self) -> None:
         self.connection.close()
 
-    def test_success_coordinates_analysis_probe_and_durable_enqueue(self) -> None:
+    def test_submission_only_persists_and_queues_collection(self) -> None:
         outcome = self.workflow.start(
             subject_uri=SUBJECT,
-            probe=SuccessfulHttpProbe(),
-            audit=self.audit,
+            probe=MustNotRunProbe(),
+            owner_user_id="user-opaque",
+            audit=AuditContext(user_id="user-opaque", ip_address="192.0.2.10"),
         )
 
-        self.assertEqual("assessment_queued", outcome.status)
-        self.assertEqual(AnalysisState.RUNNING, outcome.analysis.state)
-        self.assertEqual(AttemptState.SUCCEEDED, outcome.execution.attempt.state)
-        self.assertEqual("pending", outcome.enqueue.job.state.value)
-        self.assertEqual(
-            outcome.enqueue.job,
-            self.repository.get_assessment_job(outcome.enqueue.job.job_id),
-        )
-        event = self.connection.execute(
-            """
-            SELECT result, extra_json FROM audit_events
-            WHERE action = 'job.http_assessment_workflow'
-            ORDER BY event_id DESC LIMIT 1
-            """
-        ).fetchone()
-        self.assertEqual("success", event[0])
-        self.assertEqual("assessment_queued", json.loads(event[1])["status"])
-        serialized = json.dumps(
-            self.connection.execute("SELECT * FROM audit_events").fetchall()
+        self.assertEqual("collection_queued", outcome.status)
+        self.assertEqual(AnalysisState.REQUESTED, outcome.analysis.state)
+        self.assertEqual("pending", outcome.collection.job.state.value)
+        self.assertEqual((), self.repository.list_attempts("analysis-1"))
+        self.assertEqual(0, self.connection.execute("SELECT count(*) FROM observations").fetchone()[0])
+        serialized = " ".join(
+            row[0] or ""
+            for row in self.connection.execute(
+                "SELECT extra_json FROM audit_events ORDER BY event_id"
+            ).fetchall()
         )
         self.assertNotIn("example.org", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
 
-    def test_probe_failure_exhausts_single_attempt_analysis(self) -> None:
+    def test_invalid_limits_fail_before_creating_analysis(self) -> None:
+        with self.assertRaises((WorkflowError, ValueError)):
+            self.workflow.start(
+                subject_uri=SUBJECT,
+                limits=ProbeLimits(timeout_seconds=0.01),
+            )
+        self.assertEqual(0, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0])
+
+    def test_collection_and_assessment_retry_budgets_are_distinct(self) -> None:
         outcome = self.workflow.start(
             subject_uri=SUBJECT,
-            probe=FailingHttpProbe(),
             analysis_max_attempts=1,
-            audit=self.audit,
+            assessment_max_attempts=4,
         )
 
-        self.assertEqual("failed", outcome.status)
-        self.assertEqual(AnalysisState.FAILED, outcome.analysis.state)
-        self.assertEqual("PROBE_FAILED", outcome.execution.failure_code)
-        self.assertEqual(
-            0,
-            self.connection.execute("SELECT count(*) FROM assessment_jobs").fetchone()[0],
-        )
+        self.assertEqual(1, outcome.collection.job.max_attempts)
+        self.assertEqual(4, outcome.collection.job.assessment_max_attempts)
 
-    def test_explicit_retry_can_enqueue_after_initial_probe_failure(self) -> None:
-        first = self.workflow.start(
-            subject_uri=SUBJECT,
-            probe=FailingHttpProbe(),
-            analysis_max_attempts=2,
-            audit=self.audit,
-        )
-        second = self.workflow.retry(
-            first.analysis.analysis_id,
-            probe=SuccessfulHttpProbe(),
-            audit=self.audit,
-        )
-
-        self.assertEqual("retry_available", first.status)
-        self.assertEqual("assessment_queued", second.status)
-        self.assertEqual(
-            [AttemptState.FAILED, AttemptState.SUCCEEDED],
-            [item.state for item in self.repository.list_attempts("analysis-1")],
-        )
-
-    def test_incompatible_probe_output_fails_before_observation_persistence(self) -> None:
-        outcome = self.workflow.start(
-            subject_uri=SUBJECT,
-            probe=InvalidOutputProbe(),
-            analysis_max_attempts=1,
-            audit=self.audit,
-        )
-
-        self.assertEqual("failed", outcome.status)
-        self.assertEqual(
-            0,
-            self.connection.execute("SELECT count(*) FROM observations").fetchone()[0],
-        )
-        self.assertEqual(
-            0,
-            self.connection.execute("SELECT count(*) FROM assessment_jobs").fetchone()[0],
-        )
-
-    def test_wrong_probe_is_rejected_before_creating_analysis(self) -> None:
+    def test_retries_are_owned_by_the_durable_worker(self) -> None:
         with self.assertRaises(WorkflowError):
-            self.workflow.start(subject_uri=SUBJECT, probe=WrongProbe(), audit=self.audit)
+            self.workflow.retry("analysis-1")
+
+    def test_collection_jobs_cannot_be_deleted(self) -> None:
+        self.workflow.start(subject_uri=SUBJECT)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.connection.execute("DELETE FROM collection_jobs")
+
+    def test_collection_insert_failure_rolls_back_new_analysis(self) -> None:
+        self.workflow.start(subject_uri=SUBJECT)
+        second = HttpAssessmentWorkflow(
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+            orchestrator=AnalysisOrchestrator(
+                self.repository,
+                clock=lambda: NOW,
+                analysis_id_factory=lambda: "analysis-2",
+            ),
+            collection_queue=HttpCollectionQueueService(
+                self.repository,
+                clock=lambda: NOW,
+                job_id_factory=lambda: "collection-1",
+            ),
+        )
+
+        with self.assertRaises(PersistenceError):
+            second.start(subject_uri="https://example.net/")
+
+        self.assertIsNone(self.repository.get_analysis("analysis-2"))
         self.assertEqual(
-            0,
+            1,
             self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0],
         )
-
-    def test_retry_is_rejected_after_assessment_was_queued(self) -> None:
-        queued = self.workflow.start(
-            subject_uri=SUBJECT,
-            probe=SuccessfulHttpProbe(),
-            audit=self.audit,
-        )
-
-        with self.assertRaises(WorkflowError):
-            self.workflow.retry(
-                queued.analysis.analysis_id,
-                probe=SuccessfulHttpProbe(),
-                audit=self.audit,
-            )
-        self.assertEqual(1, len(self.repository.list_attempts("analysis-1")))
 
 
 if __name__ == "__main__":

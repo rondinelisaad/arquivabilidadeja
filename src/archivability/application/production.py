@@ -28,20 +28,17 @@ from archivability.application.policies import (
     RateLimitRule,
 )
 from archivability.application.read_model import AnalysisReportService
+from archivability.jobs.collection import HttpCollectionQueueService
 from archivability.jobs.metrics import (
     QueueMetricsService,
     QueueMetricsSnapshot,
     render_prometheus_metrics,
 )
-from archivability.jobs.service import HttpAssessmentQueueService
 from archivability.lifecycle.service import AnalysisOrchestrator
 from archivability.methodology.loader import load_methodology
-from archivability.probes.execution import ProbeExecutionService
 from archivability.probes.http_metadata import HttpMetadataProbe
 from archivability.probes.ports import AddressResolver, Probe
 from archivability.probes.resolver import SystemAddressResolver
-from archivability.probes.runner import ProbeRunner
-from archivability.probes.security import SsrfPolicy
 from archivability.storage.audit import AuditContext
 from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
 from archivability.storage.postgresql_rate_limit import (
@@ -769,21 +766,10 @@ def create_production_app(
                 max_buckets=settings.max_rate_limit_buckets,
             )
         orchestrator = AnalysisOrchestrator(persistence)
-        runner = ProbeRunner(
-            policy=SsrfPolicy(),
-            resolver=resolver,
-            event_recorder=persistence,
-            authorizer=persistence,
-        )
         workflow = HttpAssessmentWorkflow(
             methodology=methodology,
-            repository=persistence,
             orchestrator=orchestrator,
-            probe_execution=ProbeExecutionService(
-                runner=runner,
-                repository=persistence,
-            ),
-            queue=HttpAssessmentQueueService(repository=persistence),
+            collection_queue=HttpCollectionQueueService(persistence),
         )
         api = AnalysisApi(
             workflow=workflow,

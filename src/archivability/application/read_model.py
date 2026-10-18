@@ -7,11 +7,16 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from archivability.evidence.models import Evidence, EvidenceSource
+from archivability.jobs.collection import CollectionJob
 from archivability.jobs.models import AssessmentJob, AssessmentJobState
-from archivability.lifecycle.models import Analysis, AnalysisState, Attempt, AttemptState
+from archivability.lifecycle.models import (
+    Analysis,
+    AnalysisState,
+    Attempt,
+    AttemptState,
+)
 from archivability.methodology.models import IndicatorResult
 from archivability.storage.audit import AuditContext
-
 
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -28,7 +33,7 @@ class ReportNotFoundError(ReportError):
 class AnalysisReportSnapshot:
     analysis: Analysis
     attempts: tuple[Attempt, ...]
-    jobs: tuple[AssessmentJob, ...]
+    jobs: tuple[AssessmentJob | CollectionJob, ...]
     indicator_results: tuple[IndicatorResult, ...]
     evidence: tuple[Evidence, ...]
 
@@ -102,6 +107,7 @@ class AttemptReport:
 @dataclass(frozen=True, slots=True)
 class JobReport:
     job_id: str
+    stage: str
     state: str
     attempt_count: int
     max_attempts: int
@@ -112,6 +118,7 @@ class JobReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "job_id": self.job_id,
+            "stage": self.stage,
             "state": self.state,
             "attempt_count": self.attempt_count,
             "max_attempts": self.max_attempts,
@@ -323,6 +330,7 @@ class AnalysisReportService:
         jobs = tuple(
             JobReport(
                 job_id=item.job_id,
+                stage="collection" if isinstance(item, CollectionJob) else "assessment",
                 state=item.state.value,
                 attempt_count=item.attempt_count,
                 max_attempts=item.max_attempts,
@@ -412,17 +420,30 @@ def _safe_origin(subject_uri: str) -> str:
 def _progress_phase(
     analysis: Analysis,
     attempts: tuple[Attempt, ...],
-    jobs: tuple[AssessmentJob, ...],
+    jobs: tuple[AssessmentJob | CollectionJob, ...],
 ) -> str:
-    if analysis.state is not AnalysisState.RUNNING:
+    if analysis.state in {
+        AnalysisState.COMPLETED,
+        AnalysisState.PARTIALLY_COMPLETED,
+        AnalysisState.FAILED,
+        AnalysisState.CANCELLED,
+    }:
         return analysis.state.value
-    if any(item.state is AssessmentJobState.RUNNING for item in jobs):
+    collection = tuple(item for item in jobs if isinstance(item, CollectionJob))
+    assessment = tuple(item for item in jobs if isinstance(item, AssessmentJob))
+    if any(item.state is AssessmentJobState.RUNNING for item in collection):
+        return "collecting"
+    if any(item.state is AssessmentJobState.PENDING for item in collection):
+        return "collection_queued"
+    if any(item.state is AssessmentJobState.FAILED for item in collection):
+        return "collection_failed"
+    if any(item.state is AssessmentJobState.RUNNING for item in assessment):
         return "assessing"
-    if any(item.state is AssessmentJobState.PENDING for item in jobs):
+    if any(item.state is AssessmentJobState.PENDING for item in assessment):
         return "assessment_queued"
-    if any(item.state is AssessmentJobState.FAILED for item in jobs):
+    if any(item.state is AssessmentJobState.FAILED for item in assessment):
         return "assessment_failed"
-    if any(item.state is AssessmentJobState.SUCCEEDED for item in jobs):
+    if any(item.state is AssessmentJobState.SUCCEEDED for item in assessment):
         return "awaiting_analysis_finalization"
     if any(item.state is AttemptState.RUNNING for item in attempts):
         return "probing"

@@ -44,6 +44,7 @@ TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE ON TABLE
     archivability.analyses,
     archivability.attempts,
+    archivability.collection_jobs,
     archivability.assessment_jobs
 TO :"runtime_role";
 

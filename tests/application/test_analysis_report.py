@@ -7,7 +7,6 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -20,7 +19,10 @@ from archivability import (  # noqa: E402
     HttpAssessmentQueueService,
     HttpAssessmentWorker,
     HttpAssessmentWorkflow,
+    HttpCollectionQueueService,
+    HttpCollectionWorker,
     HttpMetadataAssessmentService,
+    Observation,
     ProbeExecutionService,
     ProbeRunner,
     ReportNotFoundError,
@@ -29,15 +31,48 @@ from archivability import (  # noqa: E402
     apply_sqlite_migrations,
     load_methodology,
 )
-from tests.application.test_http_workflow import (  # noqa: E402
-    StaticResolver,
-    SuccessfulHttpProbe,
-)
-
 
 NOW = datetime(2026, 10, 7, 5, 0, tzinfo=timezone.utc)
 SUBJECT = "https://example.org/private/path?token=must-not-be-logged"
 METHODOLOGY_PATH = ROOT / "methodology" / "v0.1.0"
+
+
+class StaticResolver:
+    def resolve(self, hostname: str, port: int) -> tuple[str, ...]:
+        del hostname, port
+        return ("93.184.216.34",)
+
+
+class SuccessfulHttpProbe:
+    probe_id = "http-metadata"
+    tool_name = "test"
+    tool_version = "1"
+
+    def execute(self, context):
+        request = context.request
+        return (
+            Observation.create(
+                observation_id="observation-report-1",
+                analysis_id=request.analysis_id,
+                attempt_id=request.attempt_id,
+                kind="http_metadata",
+                subject_uri=request.subject_uri,
+                observed_at=NOW,
+                probe_id=self.probe_id,
+                tool_name=self.tool_name,
+                tool_version=self.tool_version,
+                payload_schema_version="1.1",
+                payload={
+                    "status_code": 200,
+                    "headers": {"content-length": ["4"]},
+                    "response_bytes_observed": 4,
+                    "response_byte_limit": 5 * 1024 * 1024,
+                    "response_truncated": False,
+                    "redirect_count": 0,
+                    "final_transport_secure": True,
+                },
+            ),
+        )
 
 
 class AnalysisReportServiceTests(unittest.TestCase):
@@ -63,7 +98,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
             event_recorder=self.repository,
             authorizer=self.repository,
         )
-        execution = ProbeExecutionService(
+        self.execution = ProbeExecutionService(
             runner=runner,
             repository=self.repository,
             clock=lambda: NOW,
@@ -75,12 +110,14 @@ class AnalysisReportServiceTests(unittest.TestCase):
         )
         workflow = HttpAssessmentWorkflow(
             methodology=self.methodology,
-            repository=self.repository,
             orchestrator=orchestrator,
-            probe_execution=execution,
-            queue=self.queue,
-            clock=lambda: NOW,
+            collection_queue=HttpCollectionQueueService(
+                self.repository,
+                clock=lambda: NOW,
+                job_id_factory=lambda: "collection-report-1",
+            ),
         )
+        self.orchestrator = orchestrator
         self.audit = AuditContext(user_id="user-opaque-1")
         self.workflow_outcome = workflow.start(
             subject_uri=SUBJECT,
@@ -88,6 +125,17 @@ class AnalysisReportServiceTests(unittest.TestCase):
             audit=self.audit,
         )
         self.service = AnalysisReportService(self.repository)
+
+    def _run_collection(self) -> None:
+        HttpCollectionWorker(
+            worker_id="collector-report-1",
+            repository=self.repository,
+            orchestrator=self.orchestrator,
+            execution=self.execution,
+            probe=SuccessfulHttpProbe(),
+            assessment_queue=self.queue,
+            clock=lambda: NOW,
+        ).run_once(audit=self.audit)
 
     def tearDown(self) -> None:
         self.connection.close()
@@ -97,9 +145,10 @@ class AnalysisReportServiceTests(unittest.TestCase):
         document = report.to_dict()
 
         self.assertEqual("https://example.org/", report.target_origin)
-        self.assertEqual("assessment_queued", report.progress.phase)
-        self.assertEqual(1, report.progress.attempts_used)
-        self.assertEqual("succeeded", report.attempts[0].state)
+        self.assertEqual("collection_queued", report.progress.phase)
+        self.assertEqual(0, report.progress.attempts_used)
+        self.assertEqual((), report.attempts)
+        self.assertEqual("collection", report.jobs[0].stage)
         self.assertEqual("pending", report.jobs[0].state)
         self.assertEqual([], document["indicator_results"])
         serialized = json.dumps(document)
@@ -108,6 +157,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertNotIn("subject_uri", serialized)
 
     def test_completed_report_contains_results_and_hash_only_provenance(self) -> None:
+        self._run_collection()
         assessor = HttpMetadataAssessmentService(
             methodology=self.methodology,
             repository=self.repository,
@@ -148,8 +198,8 @@ class AnalysisReportServiceTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(("success", "analysis_report", "analysis-report-1"), event[:3])
         extra = json.loads(event[3])
-        self.assertEqual("running", extra["state"])
-        self.assertEqual(1, extra["attempt_count"])
+        self.assertEqual("requested", extra["state"])
+        self.assertEqual(0, extra["attempt_count"])
         serialized = json.dumps(event)
         self.assertNotIn("example.org", serialized)
         self.assertNotIn("must-not-be-logged", serialized)

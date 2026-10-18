@@ -24,7 +24,6 @@ from archivability.application.authentication import (
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
-    HttpWorkflowRepository,
     ProbeLimits,
     WorkflowError,
 )
@@ -98,7 +97,6 @@ __all__ = [
     "EvidenceSourceReport",
     "HttpAssessmentWorkflow",
     "HttpWorkflowOutcome",
-    "HttpWorkflowRepository",
     "InMemoryTokenBucketRateLimiter",
     "IndicatorReport",
     "InlineAsgiSyncRunner",

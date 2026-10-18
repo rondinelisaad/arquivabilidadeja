@@ -1,5 +1,14 @@
 """Durable local jobs for deterministic assessment orchestration."""
 
+from archivability.jobs.collection import (
+    CollectionEnqueueOutcome,
+    CollectionJob,
+    CollectionJobRepository,
+    CollectionLimits,
+    CollectionWorkerOutcome,
+    HttpCollectionQueueService,
+    HttpCollectionWorker,
+)
 from archivability.jobs.metrics import (
     QueueMetricsRepository,
     QueueMetricsService,
@@ -24,9 +33,16 @@ __all__ = [
     "AssessmentJob",
     "AssessmentJobRepository",
     "AssessmentJobState",
+    "CollectionEnqueueOutcome",
+    "CollectionJob",
+    "CollectionJobRepository",
+    "CollectionLimits",
+    "CollectionWorkerOutcome",
     "EnqueueOutcome",
     "HttpAssessmentQueueService",
     "HttpAssessmentWorker",
+    "HttpCollectionQueueService",
+    "HttpCollectionWorker",
     "JobError",
     "QueueMetricsRepository",
     "QueueMetricsService",

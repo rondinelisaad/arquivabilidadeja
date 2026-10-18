@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -24,6 +23,8 @@ from archivability import (  # noqa: E402
     AuditContext,
     ConcurrencyConflict,
     HttpAssessmentQueueService,
+    HttpAssessmentWorkflow,
+    HttpCollectionQueueService,
     HttpMetadataAssessmentService,
     IntegrityViolation,
     Observation,
@@ -37,7 +38,6 @@ from archivability.jobs import (  # noqa: E402
     succeed_assessment_job,
 )
 from archivability.lifecycle import finish_attempt  # noqa: E402
-
 
 POSTGRES_DSN = os.environ.get("ARCHIVABILITY_TEST_POSTGRES_DSN")
 POSTGRES_RUNTIME_DSN = os.environ.get(
@@ -101,6 +101,65 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
                 claimed, occurred_at=T0 + timedelta(seconds=5)
             ),
             action="job.http_assessment_queue_succeeded",
+        )
+
+    def test_collection_enqueue_is_idempotent_with_runtime_role(self) -> None:
+        identifier = uuid4().hex
+        orchestrator = AnalysisOrchestrator(
+            self.repository,
+            clock=lambda: T0,
+            analysis_id_factory=lambda: f"analysis-collection-{identifier}",
+        )
+        analysis = orchestrator.create_analysis(
+            subject_uri="https://example.org/collection",
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+        )
+        queue = HttpCollectionQueueService(
+            self.repository,
+            clock=lambda: T0 + timedelta(seconds=1),
+            job_id_factory=lambda: f"collection-{uuid4().hex}",
+        )
+
+        first = queue.enqueue(analysis.analysis_id, audit=self.audit)
+        second = queue.enqueue(analysis.analysis_id, audit=self.audit)
+
+        self.assertTrue(first.created)
+        self.assertFalse(second.created)
+        self.assertEqual(first.job, second.job)
+        self.assertEqual(
+            first.job,
+            self.repository.get_collection_job(first.job.job_id),
+        )
+
+    def test_workflow_atomically_creates_analysis_and_collection(self) -> None:
+        identifier = uuid4().hex
+        user_id = f"owner-{identifier}"
+        audit = AuditContext(user_id=user_id)
+        workflow = HttpAssessmentWorkflow(
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+            orchestrator=AnalysisOrchestrator(
+                self.repository,
+                clock=lambda: T0,
+                analysis_id_factory=lambda: f"analysis-atomic-{identifier}",
+            ),
+            collection_queue=HttpCollectionQueueService(
+                self.repository,
+                clock=lambda: T0,
+                job_id_factory=lambda: f"collection-atomic-{identifier}",
+            ),
+        )
+
+        outcome = workflow.start(
+            subject_uri="https://example.org/atomic",
+            owner_user_id=user_id,
+            audit=audit,
+        )
+
+        self.assertEqual("collection_queued", outcome.status)
+        self.assertEqual(user_id, self.repository.get_analysis_owner(outcome.analysis.analysis_id))
+        self.assertEqual(
+            outcome.collection.job,
+            self.repository.get_collection_job(outcome.collection.job.job_id),
         )
 
     def test_expired_lease_is_reclaimed_by_another_worker(self) -> None:

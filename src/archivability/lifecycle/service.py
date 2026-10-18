@@ -46,13 +46,9 @@ class AnalysisOrchestrator:
         owner_user_id: str | None = None,
         audit: AuditContext = AuditContext(),
     ) -> Analysis:
-        now = self._now()
-        analysis = Analysis.create(
-            analysis_id=self._analysis_id_factory(),
+        analysis = self.prepare_analysis(
             subject_uri=subject_uri,
-            methodology_id=methodology.id,
-            methodology_version=methodology.version,
-            created_at=now,
+            methodology=methodology,
             max_attempts=max_attempts,
         )
         self._repository.add_analysis(
@@ -61,6 +57,23 @@ class AnalysisOrchestrator:
             audit=audit,
         )
         return analysis
+
+    def prepare_analysis(
+        self,
+        *,
+        subject_uri: str,
+        methodology: MethodologyConfig,
+        max_attempts: int = 3,
+    ) -> Analysis:
+        """Build a validated analysis for an outer atomic persistence operation."""
+        return Analysis.create(
+            analysis_id=self._analysis_id_factory(),
+            subject_uri=subject_uri,
+            methodology_id=methodology.id,
+            methodology_version=methodology.version,
+            created_at=self._now(),
+            max_attempts=max_attempts,
+        )
 
     def start_attempt(
         self, analysis_id: str, *, audit: AuditContext = AuditContext()

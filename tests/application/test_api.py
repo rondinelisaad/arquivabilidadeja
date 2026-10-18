@@ -219,7 +219,7 @@ class AnalysisApiTests(unittest.TestCase):
         )
 
         self.assertEqual(202, created.status_code)
-        self.assertEqual("assessment_queued", created.body["status"])
+        self.assertEqual("collection_queued", created.body["status"])
         self.assertEqual(200, report.status_code)
         self.assertEqual("https://example.org/", report.body["target_origin"])
         self.assertEqual("no-store", report.headers["Cache-Control"])

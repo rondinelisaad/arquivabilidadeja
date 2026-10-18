@@ -7,10 +7,15 @@ import psycopg
 from psycopg.pq import TransactionStatus
 from psycopg.types.json import Jsonb
 
+from archivability.jobs.collection import (
+    CollectionJob,
+    CollectionLimits,
+    claim_collection_job,
+)
 from archivability.jobs.metrics import QueueMetricsSnapshot
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.state_machine import claim_assessment_job
-from archivability.lifecycle.models import AnalysisState
+from archivability.lifecycle.models import Analysis, AnalysisState
 from archivability.storage.audit import AuditContext
 from archivability.storage.errors import (
     ConcurrencyConflict,
@@ -44,6 +49,266 @@ _JOB_COLUMNS = """
 
 class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
     """PostgreSQL assessment queue using row locks, leases, and revisions."""
+
+    def add_analysis_with_collection_job(
+        self,
+        analysis: Analysis,
+        job: CollectionJob,
+        *,
+        owner_user_id: str | None,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        if job.analysis_id != analysis.analysis_id:
+            raise IntegrityViolation("collection job belongs to another analysis")
+        self._validate_owner(owner_user_id, audit)
+        try:
+            with self._transaction():
+                now = self._now()
+                self._connection.execute(
+                    """
+                    INSERT INTO archivability.analyses
+                        (analysis_id, state, revision, document_json,
+                         stored_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        analysis.analysis_id,
+                        analysis.state.value,
+                        analysis.revision,
+                        Jsonb(analysis.to_dict()),
+                        now,
+                        now,
+                    ),
+                )
+                if owner_user_id is not None:
+                    self._connection.execute(
+                        """
+                        INSERT INTO archivability.analysis_ownership
+                            (analysis_id, owner_user_id, created_at)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (analysis.analysis_id, owner_user_id, now),
+                    )
+                self._connection.execute(
+                    """
+                    INSERT INTO archivability.collection_jobs
+                        (job_id, analysis_id, state, attempt_count, max_attempts,
+                         revision, available_at, claimed_by, lease_expires_at,
+                         completed_at, error_code, document_json, created_at,
+                         stored_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s)
+                    """,
+                    self._collection_job_values(job),
+                )
+                self._write_audit(
+                    resource="analysis",
+                    resource_id=analysis.analysis_id,
+                    result="success",
+                    audit=audit,
+                    action="data.create",
+                    after={
+                        "state": analysis.state.value,
+                        "revision": analysis.revision,
+                        "owner_bound": owner_user_id is not None,
+                    },
+                )
+                if owner_user_id is not None:
+                    self._write_audit(
+                        resource="analysis_ownership",
+                        resource_id=analysis.analysis_id,
+                        result="success",
+                        audit=audit,
+                        action="permission.analysis_owner_assign",
+                        after={"owner_bound": True},
+                    )
+                self._write_audit(
+                    resource="collection_job",
+                    resource_id=job.job_id,
+                    result="success",
+                    audit=audit,
+                    action="job.http_collection_queue_enqueue",
+                    after=self._collection_job_audit_state(job),
+                    extra={"outcome": "created"},
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_failure(
+                "collection_job",
+                job.job_id,
+                audit,
+                exc,
+                action="job.http_collection_queue_enqueue",
+            )
+            self._raise_integrity(exc)
+
+    def enqueue_collection_job(
+        self,
+        job: CollectionJob,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> tuple[CollectionJob, bool]:
+        try:
+            with self._transaction():
+                cursor = self._connection.execute(
+                    """
+                    INSERT INTO archivability.collection_jobs
+                        (job_id, analysis_id, state, attempt_count, max_attempts,
+                         revision, available_at, claimed_by, lease_expires_at,
+                         completed_at, error_code, document_json, created_at,
+                         stored_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s)
+                    ON CONFLICT (analysis_id) DO NOTHING
+                    RETURNING job_id
+                    """,
+                    self._collection_job_values(job),
+                )
+                created = cursor.fetchone() is not None
+                stored = self._get_collection_job_for_analysis(job.analysis_id)
+                if stored is None:
+                    raise IntegrityViolation("enqueued collection job disappeared")
+                if (
+                    stored.max_attempts != job.max_attempts
+                    or stored.assessment_max_attempts
+                    != job.assessment_max_attempts
+                    or stored.limits != job.limits
+                ):
+                    raise IntegrityViolation("collection job replay conflicts with existing job")
+                self._write_audit(
+                    resource="collection_job",
+                    resource_id=stored.job_id,
+                    result="success",
+                    audit=audit,
+                    action="job.http_collection_queue_enqueue",
+                    after=self._collection_job_audit_state(stored),
+                    extra={"outcome": "created" if created else "replayed"},
+                )
+            return stored, created
+        except psycopg.IntegrityError as exc:
+            self._record_failure(
+                "collection_job",
+                job.job_id,
+                audit,
+                exc,
+                action="job.http_collection_queue_enqueue",
+            )
+            self._raise_integrity(exc)
+
+    def get_collection_job(self, job_id: str) -> CollectionJob | None:
+        row = self._connection.execute(
+            """
+            SELECT document_json, analysis_id, state, revision, attempt_count,
+                   max_attempts, available_at, claimed_by, lease_expires_at,
+                   completed_at, error_code, created_at, updated_at
+            FROM archivability.collection_jobs WHERE job_id = %s
+            """,
+            (job_id,),
+        ).fetchone()
+        return self._collection_job_from_row(row, expected_job_id=job_id) if row else None
+
+    def get_latest_successful_http_observation(self, analysis_id: str):
+        row = self._connection.execute(
+            """
+            SELECT o.observation_id
+            FROM archivability.observations AS o
+            JOIN archivability.attempts AS a
+              ON a.attempt_id = o.document_json->>'attempt_id'
+            WHERE o.analysis_id = %s
+              AND o.document_json->>'kind' = 'http_metadata'
+              AND o.document_json->>'error_code' IS NULL
+              AND a.state = 'succeeded'
+            ORDER BY a.sequence DESC,
+                     o.document_json->>'observed_at' DESC,
+                     o.observation_id DESC
+            LIMIT 1
+            """,
+            (analysis_id,),
+        ).fetchone()
+        return self.get_observation(row[0]) if row is not None else None
+
+    def claim_next_collection_job(
+        self,
+        *,
+        worker_id: str,
+        occurred_at: datetime,
+        lease_expires_at: datetime,
+        audit: AuditContext = AuditContext(),
+    ) -> CollectionJob | None:
+        try:
+            with self._transaction():
+                row = self._connection.execute(
+                    """
+                    SELECT document_json, analysis_id, state, revision, attempt_count,
+                           max_attempts, available_at, claimed_by, lease_expires_at,
+                           completed_at, error_code, created_at, updated_at
+                    FROM archivability.collection_jobs
+                    WHERE attempt_count < max_attempts
+                      AND ((state = 'pending' AND available_at <= %s)
+                        OR (state = 'running' AND lease_expires_at <= %s))
+                    ORDER BY available_at, created_at, job_id
+                    FOR UPDATE SKIP LOCKED LIMIT 1
+                    """,
+                    (occurred_at, occurred_at),
+                ).fetchone()
+                if row is None:
+                    return None
+                previous = self._collection_job_from_row(row)
+                current = claim_collection_job(
+                    previous, worker_id, occurred_at, lease_expires_at
+                )
+                self._update_collection_job(previous, current)
+                self._write_audit(
+                    resource="collection_job",
+                    resource_id=current.job_id,
+                    result="success",
+                    audit=audit,
+                    action="job.http_collection_queue_claim",
+                    before=self._collection_job_audit_state(previous),
+                    after=self._collection_job_audit_state(current),
+                    extra={"recovered_expired_lease": previous.state is AssessmentJobState.RUNNING},
+                )
+                return current
+        except psycopg.IntegrityError as exc:
+            self._record_failure(
+                "collection_job",
+                "collection_queue",
+                audit,
+                exc,
+                action="job.http_collection_queue_claim",
+            )
+            self._raise_integrity(exc)
+
+    def update_collection_job(
+        self,
+        previous: CollectionJob,
+        current: CollectionJob,
+        *,
+        action: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        expected = {
+            "job.http_collection_queue_succeeded": AssessmentJobState.SUCCEEDED,
+            "job.http_collection_queue_retry": AssessmentJobState.PENDING,
+            "job.http_collection_queue_failed": AssessmentJobState.FAILED,
+        }
+        if expected.get(action) is not current.state:
+            raise IntegrityViolation("collection job action does not match state")
+        try:
+            with self._transaction():
+                self._update_collection_job(previous, current)
+                self._write_audit(
+                    resource="collection_job",
+                    resource_id=current.job_id,
+                    result="success" if current.state is AssessmentJobState.SUCCEEDED else "failure",
+                    audit=audit,
+                    action=action,
+                    before=self._collection_job_audit_state(previous),
+                    after=self._collection_job_audit_state(current),
+                    extra={"error_code": current.error_code},
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_failure("collection_job", previous.job_id, audit, exc, action=action)
+            self._raise_integrity(exc)
 
     def enqueue_assessment_job(
         self,
@@ -310,7 +575,18 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 if analysis is None:
                     return None
                 attempts = self.list_attempts(analysis_id)
-                job_ids = tuple(
+                collection_job_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT job_id FROM archivability.collection_jobs
+                        WHERE analysis_id = %s
+                        ORDER BY created_at, job_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
+                assessment_job_ids = tuple(
                     row[0]
                     for row in self._connection.execute(
                         """
@@ -321,7 +597,10 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         (analysis_id,),
                     ).fetchall()
                 )
-                jobs = tuple(self.get_assessment_job(job_id) for job_id in job_ids)
+                jobs = (
+                    *(self.get_collection_job(job_id) for job_id in collection_job_ids),
+                    *(self.get_assessment_job(job_id) for job_id in assessment_job_ids),
+                )
                 evidence_ids = tuple(
                     row[0]
                     for row in self._connection.execute(
@@ -685,7 +964,13 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                                 0
                             )
                         )
-                    FROM archivability.assessment_jobs
+                    FROM (
+                        SELECT state, available_at, lease_expires_at, created_at
+                        FROM archivability.collection_jobs
+                        UNION ALL
+                        SELECT state, available_at, lease_expires_at, created_at
+                        FROM archivability.assessment_jobs
+                    ) AS pipeline_jobs
                     """
                 ).fetchone()
                 if row is None:
@@ -801,6 +1086,128 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             (observation_id,),
         ).fetchone()
         return self._job_from_row(row) if row else None
+
+    def _get_collection_job_for_analysis(
+        self, analysis_id: str
+    ) -> CollectionJob | None:
+        row = self._connection.execute(
+            """
+            SELECT document_json, analysis_id, state, revision, attempt_count,
+                   max_attempts, available_at, claimed_by, lease_expires_at,
+                   completed_at, error_code, created_at, updated_at
+            FROM archivability.collection_jobs WHERE analysis_id = %s
+            """,
+            (analysis_id,),
+        ).fetchone()
+        return self._collection_job_from_row(row) if row else None
+
+    def _collection_job_values(self, value: CollectionJob) -> tuple[Any, ...]:
+        now = datetime.now(timezone.utc)
+        return (
+            value.job_id,
+            value.analysis_id,
+            value.state.value,
+            value.attempt_count,
+            value.max_attempts,
+            value.revision,
+            value.available_at,
+            value.claimed_by,
+            value.lease_expires_at,
+            value.completed_at,
+            value.error_code,
+            Jsonb(value.to_dict()),
+            value.created_at,
+            now,
+            value.updated_at,
+        )
+
+    def _update_collection_job(
+        self, previous: CollectionJob, current: CollectionJob
+    ) -> None:
+        if (
+            previous.job_id != current.job_id
+            or previous.analysis_id != current.analysis_id
+            or previous.max_attempts != current.max_attempts
+            or previous.assessment_max_attempts
+            != current.assessment_max_attempts
+            or previous.limits != current.limits
+            or previous.created_at != current.created_at
+        ):
+            raise IntegrityViolation("collection job identity cannot change")
+        if current.revision != previous.revision + 1:
+            raise ConcurrencyConflict("collection job revision must increase by one")
+        cursor = self._connection.execute(
+            """
+            UPDATE archivability.collection_jobs
+            SET state = %s, attempt_count = %s, revision = %s, available_at = %s,
+                claimed_by = %s, lease_expires_at = %s, completed_at = %s,
+                error_code = %s, document_json = %s, updated_at = %s
+            WHERE job_id = %s AND revision = %s AND state = %s
+              AND claimed_by IS NOT DISTINCT FROM %s
+            """,
+            (
+                current.state.value,
+                current.attempt_count,
+                current.revision,
+                current.available_at,
+                current.claimed_by,
+                current.lease_expires_at,
+                current.completed_at,
+                current.error_code,
+                Jsonb(current.to_dict()),
+                current.updated_at,
+                previous.job_id,
+                previous.revision,
+                previous.state.value,
+                previous.claimed_by,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ConcurrencyConflict("collection job was changed by another worker")
+
+    def _collection_job_from_row(
+        self, row: tuple[Any, ...], *, expected_job_id: str | None = None
+    ) -> CollectionJob:
+        try:
+            document = row[0]
+            limits = document["limits"]
+            value = CollectionJob(
+                job_id=document["job_id"],
+                analysis_id=row[1],
+                state=AssessmentJobState(row[2]),
+                revision=row[3],
+                attempt_count=row[4],
+                max_attempts=row[5],
+                assessment_max_attempts=document["assessment_max_attempts"],
+                limits=CollectionLimits(
+                    timeout_seconds=limits["timeout_seconds"],
+                    max_response_bytes=limits["max_response_bytes"],
+                    max_redirects=limits["max_redirects"],
+                ),
+                available_at=row[6],
+                claimed_by=row[7],
+                lease_expires_at=row[8],
+                completed_at=row[9],
+                error_code=row[10],
+                created_at=row[11],
+                updated_at=row[12],
+            )
+        except (KeyError, TypeError, ValueError, JobError) as exc:
+            raise IntegrityViolation("stored collection job failed validation") from exc
+        if expected_job_id is not None and value.job_id != expected_job_id:
+            raise IntegrityViolation("stored collection job identity is inconsistent")
+        return value
+
+    @staticmethod
+    def _collection_job_audit_state(value: CollectionJob) -> dict[str, Any]:
+        return {
+            "analysis_id": value.analysis_id,
+            "state": value.state.value,
+            "attempt_count": value.attempt_count,
+            "max_attempts": value.max_attempts,
+            "assessment_max_attempts": value.assessment_max_attempts,
+            "revision": value.revision,
+        }
 
     def _job_values(self, value: AssessmentJob) -> tuple[Any, ...]:
         return (

@@ -20,8 +20,18 @@ from archivability.application.production import (
     validate_runtime_database_role,
 )
 from archivability.evidence.assessment import HttpMetadataAssessmentService
-from archivability.jobs.service import HttpAssessmentWorker, WorkerOutcome
+from archivability.jobs.collection import HttpCollectionWorker
+from archivability.jobs.service import (
+    HttpAssessmentQueueService,
+    HttpAssessmentWorker,
+)
+from archivability.lifecycle.service import AnalysisOrchestrator
 from archivability.methodology.loader import load_methodology
+from archivability.probes.execution import ProbeExecutionService
+from archivability.probes.http_metadata import HttpMetadataProbe
+from archivability.probes.resolver import SystemAddressResolver
+from archivability.probes.runner import ProbeRunner
+from archivability.probes.security import SsrfPolicy
 from archivability.storage.audit import AuditContext
 from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
 
@@ -41,7 +51,21 @@ class WorkerLifecycleRecorder(Protocol):
 
 
 class QueueWorker(Protocol):
-    def run_once(self, *, audit: AuditContext = AuditContext()) -> WorkerOutcome: ...
+    def run_once(self, *, audit: AuditContext = AuditContext()) -> Any: ...
+
+
+class PipelineQueueWorker:
+    """Drain collection before derivation while keeping both stages durable."""
+
+    def __init__(self, collection: Any, assessment: HttpAssessmentWorker) -> None:
+        self._collection = collection
+        self._assessment = assessment
+
+    def run_once(self, *, audit: AuditContext = AuditContext()) -> Any:
+        collected = self._collection.run_once(audit=audit)
+        if collected.status != "idle":
+            return collected
+        return self._assessment.run_once(audit=audit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,9 +222,9 @@ def check_worker_readiness(
         validate_runtime_database_role(connection)
         row = connection.execute(
             """
-            SELECT to_regclass(
-                'archivability.rate_limit_buckets'
-            ) IS NOT NULL
+            SELECT
+                to_regclass('archivability.rate_limit_buckets') IS NOT NULL
+                AND to_regclass('archivability.collection_jobs') IS NOT NULL
             """
         ).fetchone()
         return row == (True,)
@@ -224,7 +248,7 @@ def run_production_worker(
     try:
         validate_runtime_database_role(connection)
         repository = PostgreSqlAssessmentJobRepository(connection)
-        worker = HttpAssessmentWorker(
+        assessment_worker = HttpAssessmentWorker(
             worker_id=settings.worker_id,
             repository=repository,
             assessor=HttpMetadataAssessmentService(
@@ -234,9 +258,27 @@ def run_production_worker(
             lease_duration=timedelta(seconds=settings.lease_seconds),
             retry_base_delay=timedelta(seconds=settings.retry_base_seconds),
         )
+        collection_worker = HttpCollectionWorker(
+            worker_id=settings.worker_id,
+            repository=repository,
+            orchestrator=AnalysisOrchestrator(repository),
+            execution=ProbeExecutionService(
+                runner=ProbeRunner(
+                    policy=SsrfPolicy(),
+                    resolver=SystemAddressResolver(),
+                    event_recorder=repository,
+                    authorizer=repository,
+                ),
+                repository=repository,
+            ),
+            probe=HttpMetadataProbe(),
+            assessment_queue=HttpAssessmentQueueService(repository=repository),
+            lease_duration=timedelta(seconds=settings.lease_seconds),
+            retry_base_delay=timedelta(seconds=settings.retry_base_seconds),
+        )
         process = AssessmentQueueWorkerProcess(
             worker_id=settings.worker_id,
-            worker=worker,
+            worker=PipelineQueueWorker(collection_worker, assessment_worker),
             lifecycle_recorder=repository,
             poll_interval_seconds=settings.poll_interval_milliseconds / 1000,
         )
