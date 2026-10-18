@@ -13,6 +13,7 @@ A fundação segura e a primeira camada de análise HTTP estão implementadas. A
 - [Métodos de derivação HTTP](docs/metodos-derivacao-http.md)
 - [Fase 1 — coleta HTTP assíncrona](docs/fase-1-coleta-http-assincrona.md)
 - [Fase 3 — crawl limitado](docs/fase-3-crawl-limitado.md)
+- [Fase 4 — browser isolado](docs/fase-4-browser-isolado.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
 ## Validação
