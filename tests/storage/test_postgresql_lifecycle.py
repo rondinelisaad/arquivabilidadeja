@@ -253,9 +253,11 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
                 internal_request_count=1,
                 external_request_count=1,
                 api_request_count=1,
+                external_api_request_count=1,
                 failed_request_count=0,
                 blocked_request_count=0,
                 transfer_bytes=100,
+                raw_dom_bytes=100,
                 rendered_dom_bytes=200,
                 console_event_count=0,
                 elapsed_milliseconds=1000,
@@ -490,7 +492,7 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
             """,
             (analysis.analysis_id, analysis.analysis_id),
         ).fetchone()
-        self.assertEqual((2, 2), counts)
+        self.assertEqual((6, 6), counts)
         events = self.connection.execute(
             """
             SELECT result, extra_json

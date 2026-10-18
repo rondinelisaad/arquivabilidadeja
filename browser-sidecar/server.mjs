@@ -94,7 +94,10 @@ async function configurePage(page, targetOrigin, budgets, stats) {
     stats.requestCount += 1;
     if (scope(request.url(), targetOrigin) === "internal") stats.internalRequests += 1;
     else stats.externalRequests += 1;
-    if (["xhr", "fetch"].includes(request.resourceType())) stats.apiRequests += 1;
+    if (["xhr", "fetch"].includes(request.resourceType())) {
+      stats.apiRequests += 1;
+      if (scope(request.url(), targetOrigin) === "external") stats.externalApiRequests += 1;
+    }
     try {
       await validatePublicUrl(request.url());
       await route.continue();
@@ -146,7 +149,8 @@ async function render(request) {
   const startedMs = Math.max(Date.now(), requested);
   const stats = {
     requestCount: 0, internalRequests: 0, externalRequests: 0, apiRequests: 0,
-    failedRequests: 0, blockedRequests: 0, transferBytes: 0, consoleEvents: 0,
+    externalApiRequests: 0, failedRequests: 0, blockedRequests: 0,
+    transferBytes: 0, consoleEvents: 0,
     termination: "complete",
   };
   const browser = await chromium.launch({ chromiumSandbox: true, headless: true });
@@ -178,9 +182,11 @@ async function render(request) {
         additional_url_count: [...renderedSet].filter((url) => !rawSet.has(url)).length,
         request_count: stats.requestCount, internal_request_count: stats.internalRequests,
         external_request_count: stats.externalRequests, api_request_count: stats.apiRequests,
+        external_api_request_count: stats.externalApiRequests,
         failed_request_count: Math.min(stats.failedRequests, stats.requestCount),
         blocked_request_count: Math.min(stats.blockedRequests, stats.requestCount),
         transfer_bytes: stats.transferBytes,
+        raw_dom_bytes: Math.min(rawBytes.length, request.budgets.max_dom_bytes),
         rendered_dom_bytes: Math.min(renderedBytes.length, request.budgets.max_dom_bytes),
         console_event_count: stats.consoleEvents, elapsed_milliseconds: elapsed,
         termination_reason: stats.termination,

@@ -228,9 +228,11 @@ class BrowserRenderAggregate:
     internal_request_count: int
     external_request_count: int
     api_request_count: int
+    external_api_request_count: int
     failed_request_count: int
     blocked_request_count: int
     transfer_bytes: int
+    raw_dom_bytes: int
     rendered_dom_bytes: int
     console_event_count: int
     elapsed_milliseconds: int
@@ -253,9 +255,11 @@ class BrowserRenderAggregate:
             "internal_request_count",
             "external_request_count",
             "api_request_count",
+            "external_api_request_count",
             "failed_request_count",
             "blocked_request_count",
             "transfer_bytes",
+            "raw_dom_bytes",
             "rendered_dom_bytes",
             "console_event_count",
             "elapsed_milliseconds",
@@ -274,6 +278,10 @@ class BrowserRenderAggregate:
             )
         ):
             raise BrowserContractError("browser request subtype counts are inconsistent")
+        if self.external_api_request_count > min(
+            self.api_request_count, self.external_request_count
+        ):
+            raise BrowserContractError("external API request count is inconsistent")
         if self.termination_reason not in {
             "complete",
             "request_budget",
@@ -290,6 +298,8 @@ class BrowserRenderAggregate:
             raise BrowserContractError("browser transfer budget was exceeded")
         if self.rendered_dom_bytes > budgets.max_dom_bytes:
             raise BrowserContractError("browser DOM budget was exceeded")
+        if self.raw_dom_bytes > budgets.max_dom_bytes:
+            raise BrowserContractError("raw DOM budget was exceeded")
         if self.console_event_count > budgets.max_console_events:
             raise BrowserContractError("browser console event budget was exceeded")
         if self.elapsed_milliseconds > budgets.total_timeout_milliseconds:
@@ -308,9 +318,11 @@ class BrowserRenderAggregate:
             "internal_request_count": self.internal_request_count,
             "external_request_count": self.external_request_count,
             "api_request_count": self.api_request_count,
+            "external_api_request_count": self.external_api_request_count,
             "failed_request_count": self.failed_request_count,
             "blocked_request_count": self.blocked_request_count,
             "transfer_bytes": self.transfer_bytes,
+            "raw_dom_bytes": self.raw_dom_bytes,
             "rendered_dom_bytes": self.rendered_dom_bytes,
             "console_event_count": self.console_event_count,
             "elapsed_milliseconds": self.elapsed_milliseconds,
