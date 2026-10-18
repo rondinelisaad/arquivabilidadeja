@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
 
+from archivability.evidence.browser_derivation import derive_browser_indicators
 from archivability.evidence.http_derivation import (
     HttpMetadataDerivation,
     derive_http_metadata_indicators,
@@ -48,6 +49,8 @@ class HttpAssessmentRepository(Protocol):
     def get_observation(self, observation_id: str) -> Observation | None: ...
 
     def get_bounded_crawl_observation(self, attempt_id: str) -> Observation | None: ...
+
+    def get_browser_render_observation(self, attempt_id: str) -> Observation | None: ...
 
     def complete_http_assessment(
         self,
@@ -111,10 +114,22 @@ class HttpMetadataAssessmentService:
         crawl_observation = self._repository.get_bounded_crawl_observation(
             observation.attempt_id
         )
-        derivation = derive_http_metadata_indicators(
+        http_derivation = derive_http_metadata_indicators(
             self._methodology,
             observation,
             crawl_observation=crawl_observation,
+        )
+        browser_derivation = derive_browser_indicators(
+            self._methodology,
+            observation,
+            self._repository.get_browser_render_observation(observation.attempt_id),
+        )
+        derivation = HttpMetadataDerivation(
+            evidence=http_derivation.evidence + browser_derivation.evidence,
+            indicator_results=(
+                http_derivation.indicator_results
+                + browser_derivation.indicator_results
+            ),
         )
         if analysis.state is AnalysisState.RUNNING:
             completed = finalize_analysis(

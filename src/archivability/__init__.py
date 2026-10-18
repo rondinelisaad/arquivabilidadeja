@@ -76,6 +76,8 @@ from archivability.crawler import (
     RobotsRules,
 )
 from archivability.evidence import (
+    BrowserDerivation,
+    BrowserDerivationError,
     DerivationPersistenceResult,
     Evidence,
     EvidenceSource,
@@ -86,6 +88,7 @@ from archivability.evidence import (
     HttpMetadataDerivation,
     HttpMetadataDerivationError,
     Observation,
+    derive_browser_indicators,
     derive_http_metadata_indicators,
     derive_indicator_result,
 )
@@ -202,6 +205,8 @@ __all__ = [
     "BoundedCrawlFrontier",
     "BrowserBudgets",
     "BrowserContractError",
+    "BrowserDerivation",
+    "BrowserDerivationError",
     "BrowserEnqueueOutcome",
     "BrowserExecutionOutcome",
     "BrowserExecutionRepository",
@@ -308,6 +313,7 @@ __all__ = [
     "check_worker_readiness",
     "configure_sqlite_connection",
     "create_production_app",
+    "derive_browser_indicators",
     "derive_http_metadata_indicators",
     "derive_indicator_result",
     "load_methodology",

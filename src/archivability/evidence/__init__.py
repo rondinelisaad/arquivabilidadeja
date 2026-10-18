@@ -6,6 +6,11 @@ from archivability.evidence.assessment import (
     HttpAssessmentRepository,
     HttpMetadataAssessmentService,
 )
+from archivability.evidence.browser_derivation import (
+    BrowserDerivation,
+    BrowserDerivationError,
+    derive_browser_indicators,
+)
 from archivability.evidence.derivation import derive_indicator_result
 from archivability.evidence.http_derivation import (
     HttpMetadataDerivation,
@@ -21,6 +26,8 @@ from archivability.evidence.models import (
 )
 
 __all__ = [
+    "BrowserDerivation",
+    "BrowserDerivationError",
     "DerivationPersistenceResult",
     "Evidence",
     "EvidenceSource",
@@ -31,6 +38,7 @@ __all__ = [
     "HttpMetadataDerivation",
     "HttpMetadataDerivationError",
     "Observation",
+    "derive_browser_indicators",
     "derive_http_metadata_indicators",
     "derive_indicator_result",
     "validate_bounded_crawl_observation",

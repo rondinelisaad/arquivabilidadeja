@@ -402,8 +402,8 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
         )
         completed = service.get_report(observation.analysis_id, audit=self.audit)
         self.assertEqual("completed", completed.state)
-        self.assertEqual(2, len(completed.indicator_results))
-        self.assertEqual(2, len(completed.evidence))
+        self.assertEqual(6, len(completed.indicator_results))
+        self.assertEqual(6, len(completed.evidence))
 
         with self.assertRaises(ReportNotFoundError):
             service.get_report(f"missing-{uuid4().hex}", audit=self.audit)

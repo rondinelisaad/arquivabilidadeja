@@ -215,9 +215,9 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
         self.assertEqual("created", outcome.persistence.outcome)
         self.assertEqual(AnalysisState.COMPLETED, outcome.analysis.state)
         self.assertEqual(outcome.analysis, self.repository.get_analysis("analysis-1"))
-        self.assertEqual(2, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
+        self.assertEqual(6, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
         self.assertEqual(
-            2,
+            6,
             self.connection.execute("SELECT count(*) FROM indicator_results").fetchone()[0],
         )
         events = self.connection.execute(
@@ -238,7 +238,7 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
         self.assertEqual("created", first.persistence.outcome)
         self.assertEqual("replayed", second.persistence.outcome)
         self.assertEqual(first.analysis, second.analysis)
-        self.assertEqual(2, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
+        self.assertEqual(6, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
         outcomes = [
             json.loads(row[0])["outcome"]
             for row in self.connection.execute(
@@ -307,8 +307,8 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
 
         self.assertEqual("created", first.persistence.outcome)
         self.assertEqual("replayed", second.persistence.outcome)
-        self.assertEqual(16, first.persistence.evidence_count)
-        self.assertEqual(16, first.persistence.indicator_result_count)
+        self.assertEqual(20, first.persistence.evidence_count)
+        self.assertEqual(20, first.persistence.indicator_result_count)
         by_id = {
             item.indicator_id: item for item in first.derivation.indicator_results
         }

@@ -234,8 +234,11 @@ class AnalysisReportServiceTests(unittest.TestCase):
 
         self.assertEqual("completed", report.state)
         self.assertEqual("completed", report.progress.phase)
-        self.assertEqual(["D01", "R06"], [item.indicator_id for item in report.indicator_results])
-        self.assertEqual(2, len(report.evidence))
+        self.assertEqual(
+            ["C01", "C05", "D01", "D07", "O05", "R06"],
+            [item.indicator_id for item in report.indicator_results],
+        )
+        self.assertEqual(6, len(report.evidence))
         self.assertTrue(all(item.sources for item in report.evidence))
         serialized = json.dumps(document)
         self.assertNotIn("headers", serialized)
