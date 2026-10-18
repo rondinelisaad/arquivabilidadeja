@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1, 2, 3a, 3b, 3c, 4 e 5 implementados em 2026-10-18.
+Status: incrementos 1 a 6 implementados em 2026-10-18.
 
 ## Contrato inicial
 
@@ -34,9 +34,14 @@ Cada navegação e subrequest revalida esquema, credenciais, DNS e todos os ende
 
 O container só responde saudável quando confirma sandbox habilitado, UID não-root, raiz read-only, perfil efêmero e ausência de secrets, mounts de host e socket Docker. No Kubernetes ele não recebe `envFrom`, Secret ou token de ServiceAccount e usa volume temporário próprio. O worker de produção passa a drenar, em ordem, coleta HTTP, browser e avaliação; a coleta só pula o browser nos testes legados que injetam explicitamente a fila HTTP.
 
+## Derivação inicial
+
+A observação 1.0 agora inclui tamanho bruto/renderizado do DOM e contagem explícita de requests de API externos. O método versionado deriva `D07`, `C01`, `C05` e `O05` com thresholds declarados como hipótese de projeto. Budget interrompido gera `UNKNOWN`; ausência de observação após falha terminal também gera evidência `UNKNOWN` com confiança zero. A fixture controlada separa HTML bruto, script, API em outra origem e link inserido no DOM.
+
+As fórmulas, limites e ressalvas estão em `docs/metodos-derivacao-browser.md`. Esses resultados não devem ser apresentados como cientificamente validados até revisão externa e calibração com dataset estratificado.
+
 ## Próximos incrementos
 
-1. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
-2. exposição sanitizada no relatório público;
-3. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
+1. exposição sanitizada no relatório público;
+2. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
 
