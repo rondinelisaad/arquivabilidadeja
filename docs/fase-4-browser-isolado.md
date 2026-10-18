@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1 a 6 implementados em 2026-10-18.
+Status: implementação funcional concluída em 2026-10-18; validação operacional da imagem pendente do daemon Docker local.
 
 ## Contrato inicial
 
@@ -40,8 +40,11 @@ A observação 1.0 agora inclui tamanho bruto/renderizado do DOM e contagem expl
 
 As fórmulas, limites e ressalvas estão em `docs/metodos-derivacao-browser.md`. Esses resultados não devem ser apresentados como cientificamente validados até revisão externa e calibração com dataset estratificado.
 
+## Relatório público
+
+O snapshot transacional inclui jobs `collection`, `browser` e `assessment`, com fases `browser_queued`, `rendering`, `browser_failed` e `assessment_queued_degraded`. `browser_runs` valida novamente o contrato persistido e expõe somente IDs opacos, hash da observação, perfil, budgets e contagens/medidas. Hashes de DOM e conjuntos de URL, atestação interna, URL, DOM e payload bruto não entram na resposta. A auditoria registra apenas `browser_count` junto às demais contagens.
+
 ## Próximos incrementos
 
-1. exposição sanitizada no relatório público;
-2. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
+1. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
 
