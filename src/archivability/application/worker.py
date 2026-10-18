@@ -271,7 +271,10 @@ def run_production_worker(
                 ),
                 repository=repository,
             ),
-            probe=HttpMetadataProbe(),
+            probe=HttpMetadataProbe(
+                crawl_event_recorder=repository,
+                crawl_audit=AuditContext(user_id=settings.worker_id),
+            ),
             assessment_queue=HttpAssessmentQueueService(repository=repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
             retry_base_delay=timedelta(seconds=settings.retry_base_seconds),

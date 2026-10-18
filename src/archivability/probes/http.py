@@ -118,6 +118,18 @@ class PinnedHttpClient:
         self._clock = clock
 
     def fetch(self, context: ProbeContext) -> HttpFetchResult:
+        return self._fetch(context, required_origin=None)
+
+    def fetch_same_origin(self, context: ProbeContext) -> HttpFetchResult:
+        """Fetch while rejecting redirects outside the initially approved origin."""
+        return self._fetch(context, required_origin=self._origin(context.target))
+
+    def _fetch(
+        self,
+        context: ProbeContext,
+        *,
+        required_origin: tuple[str, str, int] | None,
+    ) -> HttpFetchResult:
         if not isinstance(context, ProbeContext):
             raise ProbeValidationError("HTTP fetch requires an approved probe context")
         started_at = self._clock()
@@ -134,7 +146,14 @@ class PinnedHttpClient:
                         0.0, (self._clock() - started_at) * 1000
                     ),
                 )
-            current = current.redirect(exchange.redirect_location)
+            redirected = current.redirect(exchange.redirect_location)
+            if required_origin is not None and self._origin(redirected.target) != required_origin:
+                raise ProbeValidationError("cross-origin crawl redirect is forbidden")
+            current = redirected
+
+    @staticmethod
+    def _origin(target: ApprovedTarget) -> tuple[str, str, int]:
+        return (target.scheme, target.hostname, target.port)
 
     @staticmethod
     def _validate_ssl_context(context: ssl.SSLContext) -> None:

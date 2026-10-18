@@ -8,7 +8,6 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -23,7 +22,6 @@ from archivability.probes import (  # noqa: E402
     SsrfPolicy,
     SystemAddressResolver,
 )
-
 
 NOW = datetime(2026, 10, 6, 20, 0, tzinfo=timezone.utc)
 PUBLIC_V4 = "93.184.216.34"
@@ -196,6 +194,26 @@ class PinnedHttpClientTests(unittest.TestCase):
             [call[0] for call in sockets.calls],
         )
         self.assertEqual(b"ok", result.response.body)
+
+    def test_same_origin_fetch_rejects_external_redirect_before_connection(self) -> None:
+        resolver = StaticResolver(
+            {
+                "example.org": (PUBLIC_V4,),
+                "redirect.example": (PUBLIC_V4_REDIRECT,),
+            }
+        )
+        context = make_context("http://example.org/start", resolver)
+        sockets = FakeSocketFactory(
+            [
+                b"HTTP/1.1 302 Found\r\nLocation: http://redirect.example/final\r\nContent-Length: 0\r\n\r\n"
+            ]
+        )
+
+        with self.assertRaisesRegex(ProbeValidationError, "cross-origin"):
+            PinnedHttpClient(socket_factory=sockets).fetch_same_origin(context)
+
+        self.assertEqual(1, len(sockets.calls))
+        self.assertIn(("redirect.example", 80), resolver.calls)
 
     def test_timeout_is_shared_across_redirect_chain(self) -> None:
         resolver = StaticResolver(

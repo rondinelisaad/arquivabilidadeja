@@ -23,7 +23,7 @@ _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 @dataclass(frozen=True, slots=True)
 class CollectionLimits:
     timeout_seconds: float = 10.0
-    max_response_bytes: int = 5 * 1024 * 1024
+    max_response_bytes: int = 2 * 1024 * 1024
     max_redirects: int = 3
 
     def __post_init__(self) -> None:

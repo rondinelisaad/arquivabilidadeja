@@ -179,6 +179,18 @@ class BoundedCrawlFrontierTests(unittest.TestCase):
         with self.assertRaises(CrawlError):
             BoundedCrawlFrontier("https://example.org/unsafe path")
 
+    def test_policy_discard_does_not_count_as_network_visit(self) -> None:
+        frontier = BoundedCrawlFrontier("https://example.org/")
+        target = frontier.claim_next()
+        assert target is not None
+
+        frontier.discard(target, reason="robots_policy")
+
+        self.assertIsNone(frontier.claim_next())
+        summary = frontier.summary().to_dict()
+        self.assertEqual(0, summary["visited"])
+        self.assertEqual({"robots_policy": 1}, summary["discarded"])
+
 
 if __name__ == "__main__":
     unittest.main()

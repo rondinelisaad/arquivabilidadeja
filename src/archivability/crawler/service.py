@@ -102,6 +102,10 @@ class AuditedBoundedCrawl:
             elapsed_milliseconds=elapsed_milliseconds,
         )
 
+    def discard(self, target: CrawlTarget, *, reason: str) -> None:
+        self._ensure_open()
+        self._frontier.discard(target, reason=reason)
+
     def abort(self, error_code: str) -> None:
         if self._terminal_recorded:
             raise CrawlError("crawl terminal event was already recorded")

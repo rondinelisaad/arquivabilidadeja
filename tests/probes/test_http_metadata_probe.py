@@ -12,6 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from archivability.crawler import CrawlLimits  # noqa: E402
 from archivability.lifecycle import AnalysisOrchestrator  # noqa: E402
 from archivability.methodology import load_methodology  # noqa: E402
 from archivability.probes import (  # noqa: E402
@@ -20,6 +21,7 @@ from archivability.probes import (  # noqa: E402
     HttpMetadataProbe,
     HttpResponse,
     HttpTransportError,
+    ProbeExecutionService,
     ProbeRequest,
     ProbeRunner,
     SsrfPolicy,
@@ -97,6 +99,67 @@ class RoutingHttpFetcher:
         )
 
 
+class CrawlRoutingHttpFetcher:
+    def __init__(self) -> None:
+        self.crawled_paths: list[str] = []
+
+    def fetch(self, context):
+        path = context.target.normalized_uri.split("example.org", 1)[-1]
+        if path == "/robots.txt":
+            body = b"User-agent: arquivabilidade-ja\nDisallow: /blocked\n"
+            content_type = "text/plain"
+            status = 200
+        elif path == "/sitemap.xml":
+            body = b"<urlset/>"
+            content_type = "application/xml"
+            status = 200
+        else:
+            body = (
+                b"<html><body><a href='/allowed'>Allowed</a>"
+                b"<a href='/blocked'>Blocked</a>"
+                b"<a href='https://cdn.example.net/external'>External</a></body></html>"
+            )
+            content_type = "text/html"
+            status = 200
+        return self._result(context, status, content_type, body)
+
+    def fetch_same_origin(self, context):
+        path = context.target.normalized_uri.split("example.org", 1)[-1]
+        self.crawled_paths.append(path)
+        if path == "/allowed":
+            return self._result(
+                context,
+                200,
+                "text/html",
+                b"<html><body><a href='/deep'>Deep</a></body></html>",
+            )
+        if path == "/deep":
+            return self._result(context, 404, "text/html", b"not found")
+        raise AssertionError(f"unexpected crawl path: {path}")
+
+    @staticmethod
+    def _result(context, status, content_type, body):
+        return HttpFetchResult(
+            target=context.target,
+            response=HttpResponse(
+                status_code=status,
+                reason="OK",
+                headers=(("content-type", content_type),),
+                body=body,
+            ),
+            redirect_count=0,
+            elapsed_milliseconds=12.5,
+        )
+
+
+class UnreachableRobotsHttpFetcher(CrawlRoutingHttpFetcher):
+    def fetch(self, context):
+        path = context.target.normalized_uri.split("example.org", 1)[-1]
+        if path == "/robots.txt":
+            return self._result(context, 503, "text/plain", b"")
+        return super().fetch(context)
+
+
 class HttpMetadataProbeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
@@ -167,9 +230,9 @@ class HttpMetadataProbeTests(unittest.TestCase):
         directory = ROOT / "schemas" / "probes" / "v1"
         documents = [
             json.loads(path.read_text(encoding="utf-8"))
-            for path in sorted(directory.glob("http-metadata*.schema.json"))
+            for path in sorted(directory.glob("*.schema.json"))
         ]
-        self.assertEqual(3, len(documents))
+        self.assertEqual(4, len(documents))
         self.assertTrue(all(document["type"] == "object" for document in documents))
         self.assertTrue(
             all(document["additionalProperties"] is False for document in documents)
@@ -225,6 +288,76 @@ class HttpMetadataProbeTests(unittest.TestCase):
         )
         self.assertNotIn("example.org", json.dumps(event))
         self.assertNotIn("must-not-be-logged", json.dumps(event))
+
+    def test_integrates_robots_and_bounded_frontier_without_persisting_urls(self) -> None:
+        fetcher = CrawlRoutingHttpFetcher()
+        identifiers = iter(("observation-http-crawl", "observation-crawl-1"))
+        times = iter((0.0, 0.001, 0.002, 0.003))
+        probe = HttpMetadataProbe(
+            fetcher,
+            clock=lambda: NOW,
+            monotonic_clock=lambda: next(times),
+            observation_id_factory=identifiers.__next__,
+            crawl_limits=CrawlLimits(max_depth=2, max_urls=10),
+            crawl_event_recorder=self.repository,
+        )
+
+        result = ProbeExecutionService(
+            runner=self.runner,
+            repository=self.repository,
+            clock=lambda: NOW,
+        ).execute(self.request, probe)
+
+        self.assertEqual(2, len(result.observations))
+        crawl = result.observations[1]
+        self.assertEqual("bounded_crawl", crawl.kind)
+        self.assertEqual("1.0", crawl.payload_schema_version)
+        summary = crawl.payload["summary"]
+        self.assertEqual(3, summary["visited"])
+        self.assertEqual(1, summary["broken_internal"])
+        self.assertEqual(1, summary["discarded"]["external_origin"])
+        self.assertEqual(1, summary["discarded"]["robots_policy"])
+        self.assertEqual(["/allowed", "/deep"], fetcher.crawled_paths)
+        serialized = json.dumps(crawl.to_dict()["payload"])
+        self.assertNotIn("example.org", serialized)
+        self.assertNotIn("must-not-be-logged", serialized)
+        self.assertNotIn("/blocked", serialized)
+        self.assertIsNotNone(self.repository.get_observation("observation-http-crawl"))
+        self.assertIsNotNone(self.repository.get_observation("observation-crawl-1"))
+
+        audit_rows = self.connection.execute(
+            """
+            SELECT extra_json FROM audit_events
+            WHERE action = 'job.bounded_crawl'
+            ORDER BY event_id
+            """
+        ).fetchall()
+        self.assertEqual(2, len(audit_rows))
+        self.assertNotIn("example.org", json.dumps(audit_rows))
+
+    def test_unreachable_robots_fails_closed_before_child_connections(self) -> None:
+        fetcher = UnreachableRobotsHttpFetcher()
+        identifiers = iter(("observation-http-unreachable", "observation-crawl-2"))
+        probe = HttpMetadataProbe(
+            fetcher,
+            clock=lambda: NOW,
+            observation_id_factory=identifiers.__next__,
+            crawl_limits=CrawlLimits(max_depth=2, max_urls=10),
+            crawl_event_recorder=self.repository,
+        )
+
+        result = ProbeExecutionService(
+            runner=self.runner,
+            repository=self.repository,
+            clock=lambda: NOW,
+        ).execute(self.request, probe)
+
+        crawl = result.observations[1].payload
+        self.assertEqual("unreachable", crawl["robots"]["source_state"])
+        self.assertEqual("disallow", crawl["robots"]["disposition"])
+        self.assertEqual(1, crawl["summary"]["visited"])
+        self.assertEqual(2, crawl["summary"]["discarded"]["robots_policy"])
+        self.assertEqual([], fetcher.crawled_paths)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 _UNSAFE_URI_CHARACTER = re.compile(r"[\x00-\x20\x7f\\]")
 _FAILURE_CLASSES = frozenset({"dns", "network", "policy", "timeout", "tls", "tool"})
+_ACTIVE_DISCARD_REASONS = frozenset({"robots_policy"})
 
 
 class CrawlError(ValueError):
@@ -203,6 +204,15 @@ class BoundedCrawlFrontier:
         self._failures[failure_class] += 1
         if target.depth > 0:
             self._broken_internal += 1
+        self._active = None
+        self._apply_hard_budget_stop()
+
+    def discard(self, target: CrawlTarget, *, reason: str) -> None:
+        """Discard a claimed target without treating it as a network visit."""
+        self._require_active(target)
+        if reason not in _ACTIVE_DISCARD_REASONS:
+            raise CrawlError("active crawl discard reason is invalid")
+        self._discarded[reason] += 1
         self._active = None
         self._apply_hard_budget_stop()
 

@@ -10,7 +10,11 @@ from archivability.probes.http import (
     HttpTransportError,
     PinnedHttpClient,
 )
-from archivability.probes.http_metadata import HttpFetcher, HttpMetadataProbe
+from archivability.probes.http_metadata import (
+    CrawlHttpFetcher,
+    HttpFetcher,
+    HttpMetadataProbe,
+)
 
 from archivability.probes.models import (
     ApprovedTarget,
@@ -33,6 +37,7 @@ from archivability.probes.security import SsrfPolicy
 __all__ = [
     "AddressResolver",
     "ApprovedTarget",
+    "CrawlHttpFetcher",
     "HttpFetchResult",
     "HttpFetcher",
     "HttpMetadataProbe",
