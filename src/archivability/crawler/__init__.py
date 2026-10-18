@@ -7,6 +7,13 @@ from archivability.crawler.frontier import (
     CrawlSummary,
     CrawlTarget,
 )
+from archivability.crawler.robots import (
+    RobotsDecision,
+    RobotsDisposition,
+    RobotsError,
+    RobotsPolicy,
+    RobotsRules,
+)
 from archivability.crawler.service import AuditedBoundedCrawl, CrawlEventRecorder
 
 __all__ = [
@@ -17,4 +24,9 @@ __all__ = [
     "CrawlLimits",
     "CrawlSummary",
     "CrawlTarget",
+    "RobotsDecision",
+    "RobotsDisposition",
+    "RobotsError",
+    "RobotsPolicy",
+    "RobotsRules",
 ]

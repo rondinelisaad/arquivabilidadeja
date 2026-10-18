@@ -54,6 +54,11 @@ from archivability.crawler import (
     CrawlLimits,
     CrawlSummary,
     CrawlTarget,
+    RobotsDecision,
+    RobotsDisposition,
+    RobotsError,
+    RobotsPolicy,
+    RobotsRules,
 )
 from archivability.evidence import (
     DerivationPersistenceResult,
@@ -243,6 +248,11 @@ __all__ = [
     "ReportError",
     "ReportNotFoundError",
     "ResultState",
+    "RobotsDecision",
+    "RobotsDisposition",
+    "RobotsError",
+    "RobotsPolicy",
+    "RobotsRules",
     "RuntimeConfigurationError",
     "ScoringEngine",
     "SqliteAssessmentJobRepository",
