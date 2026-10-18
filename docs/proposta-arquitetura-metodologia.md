@@ -499,7 +499,7 @@ Cada release de metodologia é imutável. Correções que alterem resultados cri
 
 Cada fase só começa após aprovação da anterior quando houver mudança metodológica. A primeira implementação deve priorizar fixtures e golden tests antes de ampliar o número de indicadores.
 
-Estado de implementação em 2026-10-18: a Fundação segura e a primeira camada da Análise HTTP estão concluídas no código. A submissão é assíncrona, a coleta externa ocorre no worker com SSRF/limites, e homepage, robots, sitemap, links HTML agregados, cabeçalhos allowlisted, formato declarado e tempo total geram observações 1.2 reproduzíveis. Itens que exigem crawl de recursos, política aplicável de robots, detecção por assinatura, validação especializada ou browser continuam deliberadamente nas fases seguintes.
+Estado de implementação em 2026-10-18: a Fundação segura e a primeira camada da Análise HTTP estão concluídas no código. A submissão é assíncrona, a coleta externa ocorre no worker com SSRF/limites, e homepage, robots, sitemap, links HTML agregados, cabeçalhos allowlisted, formato declarado e tempo total geram observações 1.2 reproduzíveis. A Fase 3 possui uma fronteira FIFO determinística de mesma origem com limites de profundidade, URLs, bytes, tempo e links por documento, além de classificação agregada de descartes, falhas e links quebrados. Ela ainda não dispara novos fetches: política aplicável de robots, integração com o worker, detecção por assinatura, validação especializada e browser continuam deliberadamente nos incrementos seguintes.
 
 ### 16.1 Estratégia de testes
 

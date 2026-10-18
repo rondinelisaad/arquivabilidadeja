@@ -4,7 +4,7 @@ Este repositório contém o desenho de uma plataforma aberta para avaliar a arqu
 
 ## Estado do projeto
 
-A fundação segura e a primeira camada de análise HTTP estão implementadas. A API cria a análise e apenas enfileira a coleta; um worker separado busca homepage, `robots.txt` e `sitemap.xml` sob limites e proteção SSRF, persiste agregados sanitizados e enfileira a derivação. O projeto também possui metodologia executável, scoring determinístico, cadeia imutável `Observation → Evidence → IndicatorResult`, filas duráveis em SQLite/PostgreSQL, autenticação OIDC, contrato ASGI, relatórios e manifests Kubernetes. SQLite permanece restrito ao desenvolvimento e aos testes.
+A fundação segura e a primeira camada de análise HTTP estão implementadas. A API cria a análise e apenas enfileira a coleta; um worker separado busca homepage, `robots.txt` e `sitemap.xml` sob limites e proteção SSRF, persiste agregados sanitizados e enfileira a derivação. A Fase 3 já possui o núcleo determinístico do crawl limitado: fronteira FIFO de mesma origem, quotas estritas, classificação de descartes, links quebrados e resumo agregado auditável. A execução de novos fetches permanece desabilitada até a implementação da política aplicável de robots. O projeto também possui metodologia executável, scoring determinístico, cadeia imutável `Observation → Evidence → IndicatorResult`, filas duráveis em SQLite/PostgreSQL, autenticação OIDC, contrato ASGI, relatórios e manifests Kubernetes. SQLite permanece restrito ao desenvolvimento e aos testes.
 
 - [Proposta de arquitetura e metodologia](docs/proposta-arquitetura-metodologia.md)
 - [Catálogo inicial de indicadores](docs/catalogo-inicial-indicadores.md)
@@ -12,6 +12,7 @@ A fundação segura e a primeira camada de análise HTTP estão implementadas. A
 - [Requisitos de segurança](docs/requisitos-seguranca.md)
 - [Métodos de derivação HTTP](docs/metodos-derivacao-http.md)
 - [Fase 1 — coleta HTTP assíncrona](docs/fase-1-coleta-http-assincrona.md)
+- [Fase 3 — crawl limitado](docs/fase-3-crawl-limitado.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
 ## Validação
@@ -287,7 +288,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. Com a primeira camada HTTP concluída, o próximo incremento é o crawl limitado da Fase 3 do roadmap: fronteira, quotas, links quebrados e grafo.
+O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. O núcleo da fronteira da Fase 3 está concluído; o próximo incremento é interpretar e registrar a política de robots antes de ligar a fronteira ao cliente HTTP do worker.
 
 As regras seguem o [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) e a classificação de endereços especiais do [RFC 6890](https://www.rfc-editor.org/rfc/rfc6890.html).
 
