@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "dataset_id": "synthetic-example-001",
+  "methodology_id": "arquivabilidade-ja",
+  "methodology_version": "0.1.0",
+  "primary_threshold_profile": "candidate",
+  "threshold_profiles": [
+    {"id": "candidate", "warning_min": 50, "pass_min": 80},
+    {"id": "strict", "warning_min": 60, "pass_min": 90}
+  ],
+  "cases": [
+    {
+      "case_id": "cal-001",
+      "split": "calibration",
+      "strata": ["static", "small"],
+      "dimension_scores": {"discoverability": 85, "retrievability": 70},
+      "expert_ratings": {
+        "expert-a": {"discoverability": "pass", "retrievability": "warning"},
+        "expert-b": {"discoverability": "pass", "retrievability": "warning"}
+      }
+    },
+    {
+      "case_id": "cal-002",
+      "split": "calibration",
+      "strata": ["dynamic", "small"],
+      "dimension_scores": {"discoverability": 55, "retrievability": 35},
+      "expert_ratings": {
+        "expert-a": {"discoverability": "warning", "retrievability": "fail"},
+        "expert-b": {"discoverability": "warning", "retrievability": "fail"}
+      }
+    },
+    {
+      "case_id": "hold-001",
+      "split": "holdout",
+      "strata": ["static", "medium"],
+      "dimension_scores": {"discoverability": 20, "retrievability": 25},
+      "expert_ratings": {
+        "expert-a": {"discoverability": "fail", "retrievability": "fail"},
+        "expert-b": {"discoverability": "fail", "retrievability": "fail"}
+      }
+    },
+    {
+      "case_id": "hold-002",
+      "split": "holdout",
+      "strata": ["dynamic", "medium"],
+      "dimension_scores": {"discoverability": 88, "retrievability": 82},
+      "expert_ratings": {
+        "expert-a": {"discoverability": "pass", "retrievability": "pass"},
+        "expert-b": {"discoverability": "pass", "retrievability": "pass"}
+      }
+    }
+  ]
+}
