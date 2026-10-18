@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -50,6 +49,23 @@ class CapturingApi:
             status_code=200,
             body={"analysis_id": analysis_id, "state": "running"},
             headers={"Cache-Control": "no-store"},
+        )
+
+    def export_analysis(
+        self, analysis_id: str, *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("export", analysis_id, context))
+        if context.principal is None:
+            return self._error(context, 401, "AUTHENTICATION_REQUIRED")
+        return ApiResponse(
+            status_code=200,
+            body={"analysis_id": analysis_id, "report_schema_version": "1.0"},
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="analysis-{analysis_id}.json"'
+                ),
+            },
         )
 
     @staticmethod
@@ -189,6 +205,27 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, status)
         self.assertEqual("analysis-123", response["analysis_id"])
         self.assertEqual("analysis-123", self.api.calls[0][1])
+
+    async def test_export_routes_canonical_json_as_attachment(self) -> None:
+        status, headers, response = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/analyses/analysis-123/export.json",
+                state={
+                    "archivability.principal": self.principal,
+                    "archivability.request_id": "request-export-1",
+                },
+            ),
+            [],
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual("1.0", response["report_schema_version"])
+        self.assertEqual(
+            'attachment; filename="analysis-analysis-123.json"',
+            headers["content-disposition"],
+        )
+        self.assertEqual("export", self.api.calls[0][0])
 
     async def test_oversized_body_is_rejected_and_audited_without_content(self) -> None:
         secret = b"sensitive-body-value"

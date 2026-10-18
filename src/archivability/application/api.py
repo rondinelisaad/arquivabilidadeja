@@ -7,7 +7,10 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 from urllib.parse import quote
 
-from archivability.application.http_workflow import HttpAssessmentWorkflow, WorkflowError
+from archivability.application.http_workflow import (
+    HttpAssessmentWorkflow,
+    WorkflowError,
+)
 from archivability.application.read_model import (
     AnalysisReportService,
     ReportError,
@@ -17,7 +20,6 @@ from archivability.lifecycle.models import LifecycleError
 from archivability.probes.models import ProbeValidationError
 from archivability.probes.ports import Probe
 from archivability.storage.audit import AuditContext
-
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 _PERMISSION_PATTERN = re.compile(r'^[\x21\x23-\x5B\x5D-\x7E]{1,128}$')
@@ -222,6 +224,9 @@ class AnalysisApi:
             "analysis_id": outcome.analysis.analysis_id,
             "status": outcome.status,
             "report_path": f"/v1/analyses/{quote(outcome.analysis.analysis_id, safe='')}",
+            "export_path": (
+                f"/v1/analyses/{quote(outcome.analysis.analysis_id, safe='')}/export.json"
+            ),
         }
         return self._response(
             context,
@@ -238,7 +243,24 @@ class AnalysisApi:
         *,
         context: ApiRequestContext,
     ) -> ApiResponse:
-        denied = self._authenticate(context, "read")
+        return self._get_analysis(analysis_id, context=context, operation="read")
+
+    def export_analysis(
+        self,
+        analysis_id: str,
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        return self._get_analysis(analysis_id, context=context, operation="export")
+
+    def _get_analysis(
+        self,
+        analysis_id: str,
+        *,
+        context: ApiRequestContext,
+        operation: str,
+    ) -> ApiResponse:
+        denied = self._authenticate(context, operation)
         if denied is not None:
             return denied
         principal = context.principal
@@ -248,7 +270,7 @@ class AnalysisApi:
         ):
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=400,
                 code="INVALID_REQUEST",
                 message="Request is invalid.",
@@ -258,7 +280,7 @@ class AnalysisApi:
         except Exception:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=500,
                 code="INTERNAL_ERROR",
                 message="Unable to process the request.",
@@ -267,7 +289,7 @@ class AnalysisApi:
         if not authorized:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=403,
                 code="ACCESS_DENIED",
                 message="Access denied.",
@@ -279,7 +301,7 @@ class AnalysisApi:
         except Exception:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=500,
                 code="INTERNAL_ERROR",
                 message="Unable to process the request.",
@@ -288,7 +310,7 @@ class AnalysisApi:
         if not within_limit:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=429,
                 code="RATE_LIMITED",
                 message="Request limit exceeded.",
@@ -302,7 +324,7 @@ class AnalysisApi:
         except ReportNotFoundError:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=404,
                 code="NOT_FOUND",
                 message="Analysis was not found.",
@@ -311,7 +333,7 @@ class AnalysisApi:
         except ReportError:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=400,
                 code="INVALID_REQUEST",
                 message="Request is invalid.",
@@ -320,20 +342,32 @@ class AnalysisApi:
         except Exception:
             return self._error(
                 context,
-                operation="read",
+                operation=operation,
                 status_code=500,
                 code="INTERNAL_ERROR",
                 message="Unable to process the request.",
                 analysis_id=analysis_id,
             )
-        return self._response(
+        response = self._response(
             context,
-            operation="read",
+            operation=operation,
             status_code=200,
             body=report.to_dict(),
             result="success",
             analysis_id=analysis_id,
         )
+        if operation == "export":
+            return ApiResponse(
+                status_code=response.status_code,
+                body=response.body,
+                headers={
+                    **response.headers,
+                    "Content-Disposition": (
+                        f'attachment; filename="analysis-{analysis_id}.json"'
+                    ),
+                },
+            )
+        return response
 
     def _authenticate(
         self, context: ApiRequestContext, operation: str

@@ -16,8 +16,8 @@ from archivability.application.api import (
 )
 from archivability.storage.audit import AuditContext
 
-
 _ANALYSIS_PATH = re.compile(r"^/v1/analyses/([^/]+)$")
+_ANALYSIS_EXPORT_PATH = re.compile(r"^/v1/analyses/([^/]+)/export\.json$")
 _COLLECTION_PATH = "/v1/analyses"
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
@@ -122,6 +122,13 @@ class AnalysisAsgiApp:
                 response = await self._sync_runner.run(
                     lambda: self._api.get_analysis(analysis_id, context=context)
                 )
+            elif route == "analysis_export":
+                if method != "GET":
+                    raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
+                assert analysis_id is not None
+                response = await self._sync_runner.run(
+                    lambda: self._api.export_analysis(analysis_id, context=context)
+                )
             else:
                 raise _RequestFailure(404, "NOT_FOUND", "Resource was not found.")
         except _RequestFailure as exc:
@@ -190,6 +197,9 @@ class AnalysisAsgiApp:
     def _route(path: str) -> tuple[str, str | None]:
         if path == _COLLECTION_PATH:
             return "analyses_collection", None
+        export_match = _ANALYSIS_EXPORT_PATH.fullmatch(path)
+        if export_match is not None:
+            return "analysis_export", export_match.group(1)
         match = _ANALYSIS_PATH.fullmatch(path)
         if match is not None:
             return "analysis_item", match.group(1)
@@ -336,6 +346,7 @@ class AnalysisAsgiApp:
             ensure_ascii=False,
             allow_nan=False,
             separators=(",", ":"),
+            sort_keys=True,
         ).encode("utf-8")
         headers = {**_SECURITY_HEADERS, **dict(response.headers), "X-Request-ID": request_id}
         if response.status_code == 401:

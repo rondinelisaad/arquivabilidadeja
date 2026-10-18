@@ -444,6 +444,16 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             analysis_id="analysis-opaque-1",
             audit=self.audit,
         )
+        export_request_id = f"request-export-{suffix}"
+        self.repository.record_analysis_api_event(
+            request_id=export_request_id,
+            operation="export",
+            result="success",
+            status_code=200,
+            error_code=None,
+            analysis_id="analysis-opaque-1",
+            audit=self.audit,
+        )
         self.repository.record_analysis_http_event(
             request_id=http_request_id,
             route="unmatched",
@@ -464,12 +474,13 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             """
             SELECT action, resource_id, result, extra_json
             FROM archivability.audit_events
-            WHERE resource_id IN (%s, %s, %s)
+            WHERE resource_id IN (%s, %s, %s, %s)
             ORDER BY resource_id
             """,
-            (api_request_id, http_request_id, auth_request_id),
+            (api_request_id, export_request_id, http_request_id, auth_request_id),
         ).fetchall()
-        self.assertEqual(3, len(events))
+        self.assertEqual(4, len(events))
+        self.assertIn("access.analysis_api_export", {item[0] for item in events})
         serialized = json.dumps(events, default=str)
         self.assertNotIn("authorization", serialized.lower())
         self.assertNotIn("https://", serialized)

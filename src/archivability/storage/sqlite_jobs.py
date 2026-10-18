@@ -934,7 +934,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
     ) -> None:
         resource_id = request_id
         try:
-            if operation not in {"create", "read"}:
+            if operation not in {"create", "read", "export"}:
                 raise IntegrityViolation("analysis API operation is invalid")
             if result == "success":
                 valid = (
@@ -1014,7 +1014,13 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 (500, "INTERNAL_ERROR"),
             }
             if (
-                route not in {"analyses_collection", "analysis_item", "unmatched"}
+                route
+                not in {
+                    "analyses_collection",
+                    "analysis_item",
+                    "analysis_export",
+                    "unmatched",
+                }
                 or method
                 not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"}
                 or result != "failure"

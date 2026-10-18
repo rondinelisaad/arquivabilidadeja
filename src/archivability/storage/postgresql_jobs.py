@@ -925,7 +925,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
         audit: AuditContext = AuditContext(),
     ) -> None:
         try:
-            if operation not in {"create", "read"}:
+            if operation not in {"create", "read", "export"}:
                 raise IntegrityViolation("analysis API operation is invalid")
             if result == "success":
                 valid = (
@@ -1007,6 +1007,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 route not in {
                     "analyses_collection",
                     "analysis_item",
+                    "analysis_export",
                     "unmatched",
                 }
                 or method

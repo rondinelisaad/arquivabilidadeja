@@ -215,13 +215,35 @@ class AnalysisApiTests(unittest.TestCase):
             created.body["analysis_id"],
             context=self.context("request-6"),
         )
+        exported = self.api.export_analysis(
+            created.body["analysis_id"],
+            context=self.context("request-export-1"),
+        )
 
         self.assertEqual(202, created.status_code)
         self.assertEqual("collection_queued", created.body["status"])
+        self.assertEqual(
+            "/v1/analyses/analysis-api-1/export.json", created.body["export_path"]
+        )
         self.assertEqual(200, report.status_code)
         self.assertEqual("https://example.org/", report.body["target_origin"])
         self.assertEqual("no-store", report.headers["Cache-Control"])
-        serialized = json.dumps([created.to_dict(), report.to_dict()])
+        self.assertEqual(report.body, exported.body)
+        self.assertEqual(
+            'attachment; filename="analysis-analysis-api-1.json"',
+            exported.headers["Content-Disposition"],
+        )
+        event = self.connection.execute(
+            """
+            SELECT action, extra_json FROM audit_events
+            WHERE resource_id = 'request-export-1'
+            """
+        ).fetchone()
+        self.assertEqual("access.analysis_api_export", event[0])
+        self.assertEqual("export", json.loads(event[1])["operation"])
+        serialized = json.dumps(
+            [created.to_dict(), report.to_dict(), exported.to_dict()]
+        )
         self.assertNotIn("private", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
 
