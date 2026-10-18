@@ -290,7 +290,8 @@ class OrchestratorPersistenceTests(unittest.TestCase):
                 ("002_analysis_lifecycle",),
                 ("003_assessment_jobs",),
                 ("004_analysis_ownership",),
-            ("005_collection_jobs",),
+                ("005_collection_jobs",),
+                ("006_browser_jobs",),
             ],
             versions,
         )

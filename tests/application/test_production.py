@@ -150,6 +150,7 @@ class ProductionSettingsTests(unittest.TestCase):
         safe = _Connection()
         validate_runtime_database_role(safe)  # type: ignore[arg-type]
         self.assertIn("rolsuper", safe.query)
+        self.assertIn("archivability.browser_jobs", safe.query)
 
         unsafe = _Connection(
             (False, False, False, False, False, False, False, True, False, False)
