@@ -47,6 +47,16 @@ from archivability.application import (
     run_production_worker,
     validate_runtime_database_role,
 )
+from archivability.browser import (
+    BrowserBudgets,
+    BrowserContractError,
+    BrowserIsolationAttestation,
+    BrowserProfile,
+    BrowserRenderAggregate,
+    BrowserRenderer,
+    BrowserRenderRequest,
+    BrowserRenderResult,
+)
 from archivability.crawler import (
     AuditedBoundedCrawl,
     BoundedCrawlFrontier,
@@ -180,6 +190,14 @@ __all__ = [
     "BearerAuthenticationMiddleware",
     "BearerTokenVerifier",
     "BoundedCrawlFrontier",
+    "BrowserBudgets",
+    "BrowserContractError",
+    "BrowserIsolationAttestation",
+    "BrowserProfile",
+    "BrowserRenderAggregate",
+    "BrowserRenderRequest",
+    "BrowserRenderResult",
+    "BrowserRenderer",
     "CollectionEnqueueOutcome",
     "CollectionJob",
     "CollectionJobRepository",
