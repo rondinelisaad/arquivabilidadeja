@@ -629,6 +629,10 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     self.get_indicator_result(analysis_id, value)
                     for value in indicator_ids
                 )
+                crawl_observations = tuple(
+                    self.get_bounded_crawl_observation(attempt.attempt_id)
+                    for attempt in attempts
+                )
                 if any(value is None for value in (*jobs, *evidence, *results)):
                     raise IntegrityViolation(
                         "analysis report relation disappeared during snapshot"
@@ -644,6 +648,9 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                             value for value in results if value is not None
                         ),
                         evidence=tuple(value for value in evidence if value is not None),
+                        crawl_observations=tuple(
+                            value for value in crawl_observations if value is not None
+                        ),
                     )
                 except ValueError as exc:
                     raise IntegrityViolation(
@@ -666,6 +673,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
         attempt_count: int,
         job_count: int,
         result_count: int,
+        crawl_count: int,
         audit: AuditContext = AuditContext(),
     ) -> None:
         resource_id = analysis_id
@@ -681,7 +689,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise IntegrityViolation("report failure code is invalid")
             if state is not None and state not in {item.value for item in AnalysisState}:
                 raise IntegrityViolation("analysis report state is invalid")
-            counts = (attempt_count, job_count, result_count)
+            counts = (attempt_count, job_count, result_count, crawl_count)
             if any(not isinstance(value, int) or value < 0 for value in counts):
                 raise IntegrityViolation("analysis report counts are invalid")
             with self._transaction():
@@ -697,6 +705,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                         "attempt_count": attempt_count,
                         "job_count": job_count,
                         "result_count": result_count,
+                        "crawl_count": crawl_count,
                     },
                 )
         except sqlite3.IntegrityError as exc:

@@ -540,14 +540,7 @@ def _validate_crawl_payload(
         raise HttpMetadataDerivationError(
             "bounded crawl derivation requires HTTP metadata schema version 1.2"
         )
-    if (
-        crawl_observation.kind != "bounded_crawl"
-        or crawl_observation.payload_schema_version != "1.0"
-        or crawl_observation.error_code is not None
-    ):
-        raise HttpMetadataDerivationError(
-            "crawl derivation requires a successful bounded crawl observation version 1.0"
-        )
+    payload = validate_bounded_crawl_observation(crawl_observation)
     if any(
         getattr(crawl_observation, field) != getattr(http_observation, field)
         for field in (
@@ -562,7 +555,21 @@ def _validate_crawl_payload(
         raise HttpMetadataDerivationError(
             "HTTP metadata and bounded crawl observations do not share provenance"
         )
+    return payload
 
+
+def validate_bounded_crawl_observation(
+    crawl_observation: Observation,
+) -> Mapping[str, Any]:
+    """Validate and return the URL-free aggregate payload of a crawl observation."""
+    if (
+        crawl_observation.kind != "bounded_crawl"
+        or crawl_observation.payload_schema_version != "1.0"
+        or crawl_observation.error_code is not None
+    ):
+        raise HttpMetadataDerivationError(
+            "crawl derivation requires a successful bounded crawl observation version 1.0"
+        )
     payload = crawl_observation.payload
     _mapping_keys(payload, _CRAWL_PAYLOAD_KEYS, "bounded crawl payload")
     limits = payload["limits"]

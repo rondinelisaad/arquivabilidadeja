@@ -25,6 +25,7 @@ from archivability import (  # noqa: E402
     Observation,
     ProbeExecutionService,
     ProbeRunner,
+    ReportError,
     ReportNotFoundError,
     SqliteAssessmentJobRepository,
     SsrfPolicy,
@@ -137,6 +138,63 @@ class AnalysisReportServiceTests(unittest.TestCase):
             clock=lambda: NOW,
         ).run_once(audit=self.audit)
 
+    def _save_crawl_observation(self, *, include_unexpected: bool = False) -> Observation:
+        attempt = self.repository.list_attempts("analysis-report-1")[0]
+        payload: dict[str, object] = {
+            "limits": {
+                "max_depth": 2,
+                "max_urls": 10,
+                "max_response_bytes": 1024,
+                "max_total_bytes": 4096,
+                "max_total_elapsed_milliseconds": 5000,
+                "max_links_per_document": 100,
+            },
+            "robots": {
+                "disposition": "allow",
+                "matched_rule": "allow",
+                "matched_octets": 1,
+                "matched_group_count": 1,
+                "applicable_rule_count": 1,
+                "policy_id": "rfc9309-respect-1",
+                "parser_version": "rfc9309-1",
+                "product_token": "arquivabilidade-ja",
+                "source_state": "parsed",
+            },
+            "summary": {
+                "discovered_references": 4,
+                "discovered_unique_internal": 3,
+                "enqueued": 3,
+                "visited": 3,
+                "successful": 2,
+                "broken_internal": 1,
+                "edge_count": 3,
+                "maximum_depth_reached": 1,
+                "response_bytes": 512,
+                "elapsed_milliseconds": 42.5,
+                "status_classes": {"2xx": 2, "4xx": 1},
+                "failures": {},
+                "discarded": {"external_origin": 1},
+                "termination_reason": "complete",
+            },
+        }
+        if include_unexpected:
+            payload["unexpected"] = SUBJECT
+        observation = Observation.create(
+            observation_id="crawl-report-1",
+            analysis_id=attempt.analysis_id,
+            attempt_id=attempt.attempt_id,
+            kind="bounded_crawl",
+            subject_uri=SUBJECT,
+            observed_at=NOW,
+            probe_id="http-metadata",
+            tool_name="test",
+            tool_version="1",
+            payload_schema_version="1.0",
+            payload=payload,
+        )
+        self.repository.save_observation(observation, audit=self.audit)
+        return observation
+
     def tearDown(self) -> None:
         self.connection.close()
 
@@ -181,9 +239,56 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertTrue(all(item.sources for item in report.evidence))
         serialized = json.dumps(document)
         self.assertNotIn("headers", serialized)
-        self.assertNotIn("payload", serialized)
+        self.assertNotIn('"payload":', serialized)
         self.assertNotIn("private/path", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_report_rejects_unexpected_crawl_fields_without_audit_leakage(self) -> None:
+        self._run_collection()
+        self._save_crawl_observation(include_unexpected=True)
+
+        with self.assertRaisesRegex(
+            ReportError, "crawl observation failed report validation"
+        ):
+            self.service.get_report("analysis-report-1", audit=self.audit)
+
+        event = self.connection.execute(
+            """
+            SELECT result, extra_json FROM audit_events
+            WHERE action = 'access.analysis_report'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual("failure", event[0])
+        self.assertEqual("REPORT_BUILD_FAILED", json.loads(event[1])["error_code"])
+        self.assertNotIn("must-not-be-logged", json.dumps(event))
+
+    def test_report_exposes_only_validated_aggregate_crawl_data(self) -> None:
+        self._run_collection()
+        observation = self._save_crawl_observation()
+
+        report = self.service.get_report("analysis-report-1", audit=self.audit)
+        document = report.to_dict()
+
+        self.assertEqual(1, len(report.crawl_runs))
+        crawl = document["crawl_runs"][0]
+        self.assertEqual(observation.content_hash, crawl["content_hash"])
+        self.assertEqual("attempt-report-1", crawl["attempt_id"])
+        self.assertEqual(3, crawl["summary"]["visited"])
+        self.assertEqual("rfc9309-respect-1", crawl["robots"]["policy_id"])
+        serialized = json.dumps(crawl)
+        self.assertNotIn("private/path", serialized)
+        self.assertNotIn("must-not-be-logged", serialized)
+        self.assertNotIn("subject_uri", serialized)
+        self.assertNotIn('"payload":', serialized)
+        audit_extra = self.connection.execute(
+            """
+            SELECT extra_json FROM audit_events
+            WHERE action = 'access.analysis_report'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual(1, json.loads(audit_extra[0])["crawl_count"])
 
     def test_access_is_audited_without_report_content(self) -> None:
         self.service.get_report("analysis-report-1", audit=self.audit)
@@ -200,6 +305,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         extra = json.loads(event[3])
         self.assertEqual("requested", extra["state"])
         self.assertEqual(0, extra["attempt_count"])
+        self.assertEqual(0, extra["crawl_count"])
         serialized = json.dumps(event)
         self.assertNotIn("example.org", serialized)
         self.assertNotIn("must-not-be-logged", serialized)

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from archivability.evidence.models import Evidence, EvidenceSource
+from archivability.evidence.http_derivation import (
+    HttpMetadataDerivationError,
+    validate_bounded_crawl_observation,
+)
+from archivability.evidence.models import Evidence, EvidenceSource, Observation
 from archivability.jobs.collection import CollectionJob
 from archivability.jobs.models import AssessmentJob, AssessmentJobState
 from archivability.lifecycle.models import (
@@ -36,6 +42,7 @@ class AnalysisReportSnapshot:
     jobs: tuple[AssessmentJob | CollectionJob, ...]
     indicator_results: tuple[IndicatorResult, ...]
     evidence: tuple[Evidence, ...]
+    crawl_observations: tuple[Observation, ...] = ()
 
     def __post_init__(self) -> None:
         analysis_id = self.analysis.analysis_id
@@ -49,6 +56,17 @@ class AnalysisReportSnapshot:
             raise ReportError("report evidence belongs to another analysis")
         if any(item.analysis_id != analysis_id for item in self.indicator_results):
             raise ReportError("report result belongs to another analysis")
+        attempt_ids = {item.attempt_id for item in self.attempts}
+        if any(
+            item.analysis_id != analysis_id
+            or item.attempt_id not in attempt_ids
+            or item.kind != "bounded_crawl"
+            for item in self.crawl_observations
+        ):
+            raise ReportError("report crawl observation is inconsistent")
+        crawl_attempt_ids = tuple(item.attempt_id for item in self.crawl_observations)
+        if len(set(crawl_attempt_ids)) != len(crawl_attempt_ids):
+            raise ReportError("report has multiple crawl observations for an attempt")
         evidence_by_id = {item.evidence_id: item for item in self.evidence}
         if len(evidence_by_id) != len(self.evidence):
             raise ReportError("report evidence identities must be unique")
@@ -76,6 +94,7 @@ class AnalysisReportRepository(Protocol):
         attempt_count: int,
         job_count: int,
         result_count: int,
+        crawl_count: int,
         audit: AuditContext,
     ) -> None: ...
 
@@ -228,6 +247,64 @@ class AnalysisProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class CrawlRunReport:
+    observation_id: str
+    attempt_id: str
+    observed_at: datetime
+    content_hash: str
+    probe_id: str
+    tool_name: str
+    tool_version: str
+    payload_schema_version: str
+    truncated: bool
+    limits: Mapping[str, int | float]
+    robots: Mapping[str, str | int | None]
+    summary: Mapping[str, object]
+
+    @classmethod
+    def from_observation(cls, value: Observation) -> CrawlRunReport:
+        try:
+            payload = validate_bounded_crawl_observation(value)
+        except HttpMetadataDerivationError as exc:
+            raise ReportError("crawl observation failed report validation") from exc
+        return cls(
+            observation_id=value.observation_id,
+            attempt_id=value.attempt_id,
+            observed_at=value.observed_at,
+            content_hash=value.content_hash,
+            probe_id=value.probe_id,
+            tool_name=value.tool_name,
+            tool_version=value.tool_version,
+            payload_schema_version=value.payload_schema_version,
+            truncated=value.truncated,
+            limits=_freeze_report_json(payload["limits"]),
+            robots=_freeze_report_json(payload["robots"]),
+            summary=_freeze_report_json(payload["summary"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "observation_id": self.observation_id,
+            "attempt_id": self.attempt_id,
+            "observed_at": _iso(self.observed_at),
+            "content_hash": self.content_hash,
+            "probe_id": self.probe_id,
+            "tool_name": self.tool_name,
+            "tool_version": self.tool_version,
+            "payload_schema_version": self.payload_schema_version,
+            "truncated": self.truncated,
+            "limits": dict(self.limits),
+            "robots": dict(self.robots),
+            "summary": {
+                **self.summary,
+                "status_classes": dict(self.summary["status_classes"]),
+                "failures": dict(self.summary["failures"]),
+                "discarded": dict(self.summary["discarded"]),
+            },
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisReport:
     analysis_id: str
     target_origin: str
@@ -240,6 +317,7 @@ class AnalysisReport:
     progress: AnalysisProgress
     attempts: tuple[AttemptReport, ...]
     jobs: tuple[JobReport, ...]
+    crawl_runs: tuple[CrawlRunReport, ...]
     indicator_results: tuple[IndicatorReport, ...]
     evidence: tuple[EvidenceReport, ...]
 
@@ -256,6 +334,7 @@ class AnalysisReport:
             "progress": self.progress.to_dict(),
             "attempts": [item.to_dict() for item in self.attempts],
             "jobs": [item.to_dict() for item in self.jobs],
+            "crawl_runs": [item.to_dict() for item in self.crawl_runs],
             "indicator_results": [item.to_dict() for item in self.indicator_results],
             "evidence": [item.to_dict() for item in self.evidence],
         }
@@ -284,6 +363,7 @@ class AnalysisReportService:
                 attempt_count=0,
                 job_count=0,
                 result_count=0,
+                crawl_count=0,
                 audit=audit,
             )
             raise ReportNotFoundError("analysis report was not found")
@@ -298,6 +378,7 @@ class AnalysisReportService:
                 attempt_count=len(snapshot.attempts),
                 job_count=len(snapshot.jobs),
                 result_count=len(snapshot.indicator_results),
+                crawl_count=len(snapshot.crawl_observations),
                 audit=audit,
             )
             raise
@@ -309,6 +390,7 @@ class AnalysisReportService:
             attempt_count=len(report.attempts),
             job_count=len(report.jobs),
             result_count=len(report.indicator_results),
+            crawl_count=len(report.crawl_runs),
             audit=audit,
         )
         return report
@@ -369,6 +451,10 @@ class AnalysisReportService:
             )
             for item in snapshot.evidence
         )
+        crawl_runs = tuple(
+            CrawlRunReport.from_observation(item)
+            for item in snapshot.crawl_observations
+        )
         return AnalysisReport(
             analysis_id=analysis.analysis_id,
             target_origin=_safe_origin(analysis.subject_uri),
@@ -387,6 +473,7 @@ class AnalysisReportService:
             ),
             attempts=attempts,
             jobs=jobs,
+            crawl_runs=crawl_runs,
             indicator_results=results,
             evidence=evidence,
         )
@@ -415,6 +502,16 @@ def _safe_origin(subject_uri: str) -> str:
     default_port = 443 if parsed.scheme == "https" else 80
     authority = display_host if port in {None, default_port} else f"{display_host}:{port}"
     return f"{parsed.scheme}://{authority}/"
+
+
+def _freeze_report_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _freeze_report_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, tuple):
+        return tuple(_freeze_report_json(item) for item in value)
+    return value
 
 
 def _progress_phase(
