@@ -59,6 +59,7 @@ from archivability.browser import (
     BrowserRenderer,
     BrowserRenderRequest,
     BrowserRenderResult,
+    LoopbackBrowserRenderer,
 )
 from archivability.crawler import (
     AuditedBoundedCrawl,
@@ -252,6 +253,7 @@ __all__ = [
     "JobError",
     "LegacyClearPlusInput",
     "LifecycleError",
+    "LoopbackBrowserRenderer",
     "MethodologyConfig",
     "Observation",
     "OidcConfigurationError",

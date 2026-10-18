@@ -1,5 +1,6 @@
 """Contracts for deterministic rendering in an isolated browser worker."""
 
+from archivability.browser.client import LoopbackBrowserRenderer
 from archivability.browser.execution import (
     BrowserExecutionOutcome,
     BrowserExecutionService,
@@ -27,5 +28,6 @@ __all__ = [
     "BrowserRenderRequest",
     "BrowserRenderResult",
     "BrowserRenderer",
+    "LoopbackBrowserRenderer",
 ]
 
