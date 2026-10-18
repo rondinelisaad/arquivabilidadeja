@@ -1,5 +1,14 @@
 """Durable local jobs for deterministic assessment orchestration."""
 
+from archivability.jobs.browser import (
+    BrowserEnqueueOutcome,
+    BrowserJob,
+    BrowserJobRepository,
+    BrowserQueueService,
+    claim_browser_job,
+    fail_browser_job,
+    succeed_browser_job,
+)
 from archivability.jobs.collection import (
     CollectionEnqueueOutcome,
     CollectionJob,
@@ -33,6 +42,10 @@ __all__ = [
     "AssessmentJob",
     "AssessmentJobRepository",
     "AssessmentJobState",
+    "BrowserEnqueueOutcome",
+    "BrowserJob",
+    "BrowserJobRepository",
+    "BrowserQueueService",
     "CollectionEnqueueOutcome",
     "CollectionJob",
     "CollectionJobRepository",
@@ -49,7 +62,10 @@ __all__ = [
     "QueueMetricsSnapshot",
     "WorkerOutcome",
     "claim_assessment_job",
+    "claim_browser_job",
     "fail_assessment_job",
+    "fail_browser_job",
     "render_prometheus_metrics",
     "succeed_assessment_job",
+    "succeed_browser_job",
 ]
