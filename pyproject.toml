@@ -22,6 +22,7 @@ server = ["uvicorn>=0.54,<0.55"]
 [project.scripts]
 archivability-worker = "archivability.worker:main"
 archivability-worker-health = "archivability.worker:health_main"
+archivability-validation = "archivability.validation.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
