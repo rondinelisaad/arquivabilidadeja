@@ -5,6 +5,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from archivability.browser.models import BrowserBudgets, BrowserProfile
+from archivability.jobs.browser import (
+    BrowserJob,
+    claim_browser_job,
+)
 from archivability.jobs.collection import (
     CollectionJob,
     CollectionLimits,
@@ -147,6 +152,164 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 "collection_job", job.job_id, audit, exc,
                 action="job.http_collection_queue_enqueue",
             )
+            self._raise_integrity(exc)
+        except sqlite3.DatabaseError as exc:
+            raise PersistenceError("database write failed") from exc
+
+    def enqueue_browser_job(
+        self,
+        job: BrowserJob,
+        *,
+        audit: AuditContext = AuditContext(),
+    ) -> tuple[BrowserJob, bool]:
+        try:
+            with self._transaction():
+                existing = self._get_browser_job_for_attempt(job.attempt_id)
+                if existing is None:
+                    self._insert_browser_job(job)
+                    stored, created = job, True
+                else:
+                    if (
+                        existing.analysis_id != job.analysis_id
+                        or existing.max_attempts != job.max_attempts
+                        or existing.assessment_max_attempts
+                        != job.assessment_max_attempts
+                        or existing.budgets != job.budgets
+                        or existing.profile != job.profile
+                    ):
+                        raise IntegrityViolation(
+                            "browser job replay conflicts with existing job"
+                        )
+                    stored, created = existing, False
+                self._write_audit(
+                    resource="browser_job",
+                    resource_id=stored.job_id,
+                    result="success",
+                    audit=audit,
+                    action="job.browser_queue_enqueue",
+                    after=self._browser_job_audit_state(stored),
+                    extra={"outcome": "created" if created else "replayed"},
+                )
+            return stored, created
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "browser_job",
+                job.job_id,
+                audit,
+                exc,
+                action="job.browser_queue_enqueue",
+            )
+            self._raise_integrity(exc)
+        except sqlite3.DatabaseError as exc:
+            raise PersistenceError("database write failed") from exc
+
+    def get_browser_job(self, job_id: str) -> BrowserJob | None:
+        row = self._connection.execute(
+            """
+            SELECT document_json, analysis_id, attempt_id, state, revision,
+                   attempt_count, max_attempts, available_at, claimed_by,
+                   lease_expires_at, completed_at, error_code, created_at, updated_at
+            FROM browser_jobs WHERE job_id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        return self._browser_job_from_row(row, expected_job_id=job_id) if row else None
+
+    def claim_next_browser_job(
+        self,
+        *,
+        worker_id: str,
+        occurred_at: datetime,
+        lease_expires_at: datetime,
+        audit: AuditContext = AuditContext(),
+    ) -> BrowserJob | None:
+        try:
+            with self._transaction():
+                timestamp = self._job_timestamp(occurred_at)
+                row = self._connection.execute(
+                    """
+                    SELECT job_id FROM browser_jobs
+                    WHERE attempt_count < max_attempts
+                      AND ((state = 'pending' AND available_at <= ?)
+                        OR (state = 'running' AND lease_expires_at <= ?))
+                    ORDER BY available_at, created_at, job_id
+                    LIMIT 1
+                    """,
+                    (timestamp, timestamp),
+                ).fetchone()
+                if row is None:
+                    return None
+                previous = self.get_browser_job(row[0])
+                if previous is None:
+                    raise IntegrityViolation("claimable browser job disappeared")
+                current = claim_browser_job(
+                    previous,
+                    worker_id=worker_id,
+                    occurred_at=occurred_at,
+                    lease_expires_at=lease_expires_at,
+                )
+                self._update_browser_job(previous, current)
+                self._write_audit(
+                    resource="browser_job",
+                    resource_id=current.job_id,
+                    result="success",
+                    audit=audit,
+                    action="job.browser_queue_claim",
+                    before=self._browser_job_audit_state(previous),
+                    after=self._browser_job_audit_state(current),
+                    extra={
+                        "recovered_expired_lease": (
+                            previous.state is AssessmentJobState.RUNNING
+                        )
+                    },
+                )
+                return current
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "browser_job",
+                "browser_queue",
+                audit,
+                exc,
+                action="job.browser_queue_claim",
+            )
+            self._raise_integrity(exc)
+        except sqlite3.DatabaseError as exc:
+            raise PersistenceError("database write failed") from exc
+
+    def update_browser_job(
+        self,
+        previous: BrowserJob,
+        current: BrowserJob,
+        *,
+        action: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        expected = {
+            "job.browser_queue_succeeded": AssessmentJobState.SUCCEEDED,
+            "job.browser_queue_retry": AssessmentJobState.PENDING,
+            "job.browser_queue_failed": AssessmentJobState.FAILED,
+        }
+        if expected.get(action) is not current.state:
+            raise IntegrityViolation("browser job action does not match state")
+        try:
+            with self._transaction():
+                self._update_browser_job(previous, current)
+                self._write_audit(
+                    resource="browser_job",
+                    resource_id=current.job_id,
+                    result=(
+                        "success"
+                        if current.state is AssessmentJobState.SUCCEEDED
+                        else "failure"
+                    ),
+                    audit=audit,
+                    action=action,
+                    before=self._browser_job_audit_state(previous),
+                    after=self._browser_job_audit_state(current),
+                    extra={"error_code": current.error_code},
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure("browser_job", previous.job_id, audit, exc, action=action)
             self._raise_integrity(exc)
         except sqlite3.DatabaseError as exc:
             raise PersistenceError("database write failed") from exc
@@ -922,6 +1085,133 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
             (analysis_id,),
         ).fetchone()
         return self._collection_job_from_row(row) if row else None
+
+    def _get_browser_job_for_attempt(self, attempt_id: str) -> BrowserJob | None:
+        row = self._connection.execute(
+            """
+            SELECT document_json, analysis_id, attempt_id, state, revision,
+                   attempt_count, max_attempts, available_at, claimed_by,
+                   lease_expires_at, completed_at, error_code, created_at, updated_at
+            FROM browser_jobs WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        return self._browser_job_from_row(row) if row else None
+
+    def _insert_browser_job(self, value: BrowserJob) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO browser_jobs
+                (job_id, analysis_id, attempt_id, state, attempt_count,
+                 max_attempts, revision, available_at, claimed_by,
+                 lease_expires_at, completed_at, error_code, document_json,
+                 created_at, stored_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                value.job_id,
+                value.analysis_id,
+                value.attempt_id,
+                value.state.value,
+                value.attempt_count,
+                value.max_attempts,
+                value.revision,
+                self._job_timestamp(value.available_at),
+                value.claimed_by,
+                self._optional_job_timestamp(value.lease_expires_at),
+                self._optional_job_timestamp(value.completed_at),
+                value.error_code,
+                _dump(value.to_dict()),
+                self._job_timestamp(value.created_at),
+                self._timestamp(),
+                self._job_timestamp(value.updated_at),
+            ),
+        )
+
+    def _update_browser_job(self, previous: BrowserJob, current: BrowserJob) -> None:
+        if (
+            previous.job_id != current.job_id
+            or previous.analysis_id != current.analysis_id
+            or previous.attempt_id != current.attempt_id
+            or previous.max_attempts != current.max_attempts
+            or previous.assessment_max_attempts != current.assessment_max_attempts
+            or previous.budgets != current.budgets
+            or previous.profile != current.profile
+            or previous.created_at != current.created_at
+        ):
+            raise IntegrityViolation("browser job identity cannot change")
+        if current.revision != previous.revision + 1:
+            raise ConcurrencyConflict("browser job revision must increase by one")
+        cursor = self._connection.execute(
+            """
+            UPDATE browser_jobs
+            SET state = ?, attempt_count = ?, revision = ?, available_at = ?,
+                claimed_by = ?, lease_expires_at = ?, completed_at = ?,
+                error_code = ?, document_json = ?, updated_at = ?
+            WHERE job_id = ? AND revision = ? AND state = ? AND claimed_by IS ?
+            """,
+            (
+                current.state.value,
+                current.attempt_count,
+                current.revision,
+                self._job_timestamp(current.available_at),
+                current.claimed_by,
+                self._optional_job_timestamp(current.lease_expires_at),
+                self._optional_job_timestamp(current.completed_at),
+                current.error_code,
+                _dump(current.to_dict()),
+                self._job_timestamp(current.updated_at),
+                previous.job_id,
+                previous.revision,
+                previous.state.value,
+                previous.claimed_by,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ConcurrencyConflict("browser job was changed by another worker")
+
+    def _browser_job_from_row(
+        self, row: tuple[Any, ...], *, expected_job_id: str | None = None
+    ) -> BrowserJob:
+        try:
+            document = json.loads(row[0])
+            value = BrowserJob(
+                job_id=document["job_id"],
+                analysis_id=row[1],
+                attempt_id=row[2],
+                state=AssessmentJobState(row[3]),
+                revision=row[4],
+                attempt_count=row[5],
+                max_attempts=row[6],
+                assessment_max_attempts=document["assessment_max_attempts"],
+                budgets=BrowserBudgets(**document["budgets"]),
+                profile=BrowserProfile(**document["profile"]),
+                available_at=_parse_datetime(row[7]),
+                claimed_by=row[8],
+                lease_expires_at=_parse_datetime(row[9]) if row[9] else None,
+                completed_at=_parse_datetime(row[10]) if row[10] else None,
+                error_code=row[11],
+                created_at=_parse_datetime(row[12]),
+                updated_at=_parse_datetime(row[13]),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError, JobError) as exc:
+            raise IntegrityViolation("stored browser job failed validation") from exc
+        if expected_job_id is not None and value.job_id != expected_job_id:
+            raise IntegrityViolation("stored browser job identity is inconsistent")
+        return value
+
+    @staticmethod
+    def _browser_job_audit_state(value: BrowserJob) -> dict[str, Any]:
+        return {
+            "analysis_id": value.analysis_id,
+            "attempt_id": value.attempt_id,
+            "state": value.state.value,
+            "attempt_count": value.attempt_count,
+            "max_attempts": value.max_attempts,
+            "assessment_max_attempts": value.assessment_max_attempts,
+            "profile_id": value.profile.profile_id,
+            "revision": value.revision,
+        }
 
     def _insert_collection_job(self, value: CollectionJob) -> None:
         self._connection.execute(

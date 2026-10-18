@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -20,12 +22,22 @@ from archivability.jobs import (  # noqa: E402
     fail_browser_job,
     succeed_browser_job,
 )
-from archivability.lifecycle import Analysis, AttemptState  # noqa: E402
+from archivability.lifecycle import (  # noqa: E402
+    Analysis,
+    AnalysisOrchestrator,
+    AttemptState,
+)
 from archivability.lifecycle.state_machine import (  # noqa: E402
     finish_attempt,
     start_attempt,
 )
-from archivability.storage import AuditContext  # noqa: E402
+from archivability.methodology import load_methodology  # noqa: E402
+from archivability.storage import (  # noqa: E402
+    AuditContext,
+    IntegrityViolation,
+    SqliteAssessmentJobRepository,
+    apply_sqlite_migrations,
+)
 
 NOW = datetime(2026, 10, 19, 1, 0, tzinfo=timezone.utc)
 
@@ -175,6 +187,124 @@ class BrowserQueueTests(unittest.TestCase):
 
         with self.assertRaisesRegex(JobError, "successful HTTP attempt"):
             queue.enqueue(analysis.analysis_id, attempt.attempt_id)
+
+
+class DurableBrowserQueueTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.connection = sqlite3.connect(":memory:")
+        apply_sqlite_migrations(self.connection)
+        event_ids = (f"event-browser-{index}" for index in range(100))
+        self.repository = SqliteAssessmentJobRepository(
+            self.connection,
+            clock=lambda: NOW,
+            event_id_factory=event_ids.__next__,
+        )
+        self.orchestrator = AnalysisOrchestrator(
+            self.repository,
+            clock=lambda: NOW,
+            analysis_id_factory=lambda: "analysis-browser-durable",
+            attempt_id_factory=lambda: "attempt-browser-durable",
+        )
+        self.analysis = self.orchestrator.create_analysis(
+            subject_uri="https://example.org/private?token=not-for-audit",
+            methodology=load_methodology(ROOT / "methodology" / "v0.1.0"),
+        )
+        attempt = self.orchestrator.start_attempt(self.analysis.analysis_id)
+        self.attempt = self.orchestrator.finish_attempt(
+            self.analysis.analysis_id,
+            attempt.attempt_id,
+            target=AttemptState.SUCCEEDED,
+        )
+        self.queue = BrowserQueueService(
+            self.repository,
+            clock=lambda: NOW + timedelta(seconds=1),
+            job_id_factory=lambda: "browser-job-durable",
+        )
+
+    def tearDown(self) -> None:
+        self.connection.close()
+
+    def test_round_trip_idempotency_leases_and_audit_are_sanitized(self) -> None:
+        audit = AuditContext(user_id="browser-worker-user")
+        first = self.queue.enqueue(
+            self.analysis.analysis_id,
+            self.attempt.attempt_id,
+            max_attempts=2,
+            audit=audit,
+        )
+        replay = self.queue.enqueue(
+            self.analysis.analysis_id,
+            self.attempt.attempt_id,
+            max_attempts=2,
+            audit=audit,
+        )
+
+        self.assertTrue(first.created)
+        self.assertFalse(replay.created)
+        self.assertEqual(first.job, replay.job)
+        claimed = self.repository.claim_next_browser_job(
+            worker_id="browser-worker-1",
+            occurred_at=NOW + timedelta(seconds=2),
+            lease_expires_at=NOW + timedelta(minutes=1),
+            audit=audit,
+        )
+        assert claimed is not None
+        retry = fail_browser_job(
+            claimed,
+            occurred_at=NOW + timedelta(seconds=3),
+            error_code="BROWSER_RENDER_FAILED",
+            retry_at=NOW + timedelta(seconds=4),
+        )
+        self.repository.update_browser_job(
+            claimed,
+            retry,
+            action="job.browser_queue_retry",
+            audit=audit,
+        )
+        reclaimed = self.repository.claim_next_browser_job(
+            worker_id="browser-worker-2",
+            occurred_at=NOW + timedelta(seconds=4),
+            lease_expires_at=NOW + timedelta(minutes=2),
+            audit=audit,
+        )
+        assert reclaimed is not None
+        succeeded = succeed_browser_job(
+            reclaimed,
+            occurred_at=NOW + timedelta(seconds=5),
+        )
+        self.repository.update_browser_job(
+            reclaimed,
+            succeeded,
+            action="job.browser_queue_succeeded",
+            audit=audit,
+        )
+
+        self.assertEqual(succeeded, self.repository.get_browser_job(first.job.job_id))
+        events = self.connection.execute(
+            """
+            SELECT action, before_json, after_json, extra_json
+            FROM audit_events WHERE resource = 'browser_job'
+            ORDER BY event_id
+            """
+        ).fetchall()
+        serialized = json.dumps(events)
+        self.assertIn("job.browser_queue_enqueue", serialized)
+        self.assertIn("job.browser_queue_claim", serialized)
+        self.assertIn("job.browser_queue_succeeded", serialized)
+        self.assertNotIn("example.org", serialized)
+        self.assertNotIn("not-for-audit", serialized)
+
+    def test_replay_with_changed_contract_is_rejected(self) -> None:
+        self.queue.enqueue(self.analysis.analysis_id, self.attempt.attempt_id)
+
+        with self.assertRaisesRegex(
+            IntegrityViolation, "replay conflicts with existing job"
+        ):
+            self.queue.enqueue(
+                self.analysis.analysis_id,
+                self.attempt.attempt_id,
+                budgets=BrowserBudgets(max_requests=10),
+            )
 
 
 if __name__ == "__main__":

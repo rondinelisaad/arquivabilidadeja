@@ -172,6 +172,22 @@ class BrowserJobRepository(Protocol):
     def enqueue_browser_job(
         self, job: BrowserJob, *, audit: AuditContext
     ) -> tuple[BrowserJob, bool]: ...
+    def claim_next_browser_job(
+        self,
+        *,
+        worker_id: str,
+        occurred_at: datetime,
+        lease_expires_at: datetime,
+        audit: AuditContext,
+    ) -> BrowserJob | None: ...
+    def update_browser_job(
+        self,
+        previous: BrowserJob,
+        current: BrowserJob,
+        *,
+        action: str,
+        audit: AuditContext,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

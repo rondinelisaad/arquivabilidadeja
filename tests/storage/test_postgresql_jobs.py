@@ -21,6 +21,7 @@ from archivability import (  # noqa: E402
     AnalysisReportService,
     AttemptState,
     AuditContext,
+    BrowserQueueService,
     ConcurrencyConflict,
     HttpAssessmentQueueService,
     HttpAssessmentWorkflow,
@@ -36,6 +37,7 @@ from archivability import (  # noqa: E402
 from archivability.jobs import (  # noqa: E402
     fail_assessment_job,
     succeed_assessment_job,
+    succeed_browser_job,
 )
 from archivability.lifecycle import finish_attempt  # noqa: E402
 
@@ -130,6 +132,63 @@ class PostgreSqlAssessmentJobIntegrationTests(unittest.TestCase):
             first.job,
             self.repository.get_collection_job(first.job.job_id),
         )
+
+    def test_browser_queue_is_durable_with_runtime_role(self) -> None:
+        observation = self._successful_observation()
+        queue = BrowserQueueService(
+            self.repository,
+            clock=lambda: T0 + timedelta(seconds=2),
+            job_id_factory=lambda: f"browser-{uuid4().hex}",
+        )
+
+        first = queue.enqueue(
+            observation.analysis_id,
+            observation.attempt_id,
+            audit=self.audit,
+        )
+        replay = queue.enqueue(
+            observation.analysis_id,
+            observation.attempt_id,
+            audit=self.audit,
+        )
+
+        self.assertTrue(first.created)
+        self.assertFalse(replay.created)
+        self.assertEqual(first.job, replay.job)
+        claimed = self.repository.claim_next_browser_job(
+            worker_id="browser-integration-worker",
+            occurred_at=T0 + timedelta(seconds=3),
+            lease_expires_at=T0 + timedelta(minutes=1),
+            audit=self.audit,
+        )
+        assert claimed is not None
+        succeeded = succeed_browser_job(
+            claimed,
+            occurred_at=T0 + timedelta(seconds=4),
+        )
+        self.repository.update_browser_job(
+            claimed,
+            succeeded,
+            action="job.browser_queue_succeeded",
+            audit=self.audit,
+        )
+
+        self.assertEqual(
+            succeeded,
+            self.repository.get_browser_job(first.job.job_id),
+        )
+        events = self.connection.execute(
+            """
+            SELECT action, extra_json
+            FROM archivability.audit_events
+            WHERE resource = 'browser_job' AND resource_id = %s
+            ORDER BY timestamp, event_id
+            """,
+            (first.job.job_id,),
+        ).fetchall()
+        serialized = json.dumps(events, default=str)
+        self.assertIn("job.browser_queue_enqueue", serialized)
+        self.assertNotIn("example.org", serialized)
 
     def test_workflow_atomically_creates_analysis_and_collection(self) -> None:
         identifier = uuid4().hex
