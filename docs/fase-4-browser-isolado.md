@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: incrementos 1 e 2 concluídos em 2026-10-18.
+Status: incrementos 1, 2 e 3a concluídos em 2026-10-18.
 
 ## Contrato inicial
 
@@ -18,9 +18,13 @@ O pacote `archivability.browser` define a fronteira entre o processo principal e
 
 SQLite e PostgreSQL localizam no máximo uma observação de browser por tentativa e validam o estado do ciclo de vida antes da execução. A ação auditável `job.browser_render` registra início, sucesso, reuso ou falha com código estável. Os eventos incluem apenas IDs opacos, budgets, perfil, política de isolamento e contagens; não incluem URL, DOM, hashes do conteúdo, mensagens do console ou corpos de resposta.
 
+## Contrato da fila
+
+`BrowserJob` e `BrowserQueueService` definem enqueue idempotente na fronteira do repositório, perfil e budgets imutáveis, leases, recuperação de lease expirado, retries limitados e estados terminais. Apenas uma tentativa HTTP registrada e bem-sucedida de uma análise em execução pode originar o job. A persistência desse contrato será adicionada em migration separada para permitir revisão explícita dos grants de runtime antes de ativar o worker.
+
 ## Próximos incrementos
 
-1. fila durável e worker de browser separados do worker HTTP;
+1. persistência da fila e worker de browser separados do worker HTTP;
 2. adaptador Playwright/Chromium em container sem privilégios, com política de rede e resolução compartilhadas com a proteção SSRF;
 3. fixtures SPA/API e derivação de `D07`, `C01`, `C05` e `O05`;
 4. exposição sanitizada no relatório público.
