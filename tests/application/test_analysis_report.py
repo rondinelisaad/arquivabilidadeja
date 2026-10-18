@@ -284,7 +284,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual((), report.attempts)
         self.assertEqual("collection", report.jobs[0].stage)
         self.assertEqual("pending", report.jobs[0].state)
-        self.assertEqual("1.0", document["report_schema_version"])
+        self.assertEqual("1.1", document["report_schema_version"])
         self.assertIsNone(report.assessment)
         self.assertEqual([], document["indicator_results"])
         serialized = json.dumps(document)
@@ -325,6 +325,8 @@ class AnalysisReportServiceTests(unittest.TestCase):
             [item.indicator_id for item in report.indicator_results],
         )
         self.assertEqual(6, len(report.evidence))
+        self.assertTrue(all(item.probe_ids for item in report.indicator_results))
+        self.assertTrue(all(item.tool_versions for item in report.indicator_results))
         self.assertTrue(all(item.sources for item in report.evidence))
         self.assertIsNotNone(report.assessment)
         assert report.assessment is not None
@@ -355,9 +357,9 @@ class AnalysisReportServiceTests(unittest.TestCase):
             sort_keys=True,
         ).encode("utf-8")
 
-        self.assertEqual("1.0", report.report_schema_version)
+        self.assertEqual("1.1", report.report_schema_version)
         self.assertEqual(
-            "64c6baa7731260017a41d4b244d0de4a7d3c4db808b55bb6403dcec5fbbb0e54",
+            "f391e45445aa38056cd5f546b6a3d1b0235602c8f0e52fb5009f8ef49a1823db",
             hashlib.sha256(canonical).hexdigest(),
         )
 

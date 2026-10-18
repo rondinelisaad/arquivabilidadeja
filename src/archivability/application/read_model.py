@@ -200,6 +200,8 @@ class IndicatorReport:
     evidence_hashes: tuple[str, ...]
     measured_at: datetime | None
     measurement_method_version: str | None
+    probe_ids: tuple[str, ...]
+    tool_versions: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -211,6 +213,8 @@ class IndicatorReport:
             "evidence_hashes": list(self.evidence_hashes),
             "measured_at": _iso(self.measured_at),
             "measurement_method_version": self.measurement_method_version,
+            "probe_ids": list(self.probe_ids),
+            "tool_versions": list(self.tool_versions),
         }
 
 
@@ -779,6 +783,8 @@ class AnalysisReportService:
                 evidence_hashes=item.evidence_hashes,
                 measured_at=item.measured_at,
                 measurement_method_version=item.measurement_method_version,
+                probe_ids=item.probe_ids,
+                tool_versions=item.tool_versions,
             )
             for item in snapshot.indicator_results
         )
@@ -816,7 +822,7 @@ class AnalysisReportService:
                 applicable_indicator_ids=tuple(self._methodology.indicators),
             )
         return AnalysisReport(
-            report_schema_version="1.0",
+            report_schema_version="1.1",
             analysis_id=analysis.analysis_id,
             target_origin=_safe_origin(analysis.subject_uri),
             methodology_id=analysis.methodology_id,
