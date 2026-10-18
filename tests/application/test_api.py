@@ -79,11 +79,13 @@ class AnalysisApiTests(unittest.TestCase):
             event_id_factory=lambda: next(event_ids),
         )
         self.methodology = load_methodology(METHODOLOGY_PATH)
+        analysis_ids = iter(f"analysis-api-{index}" for index in range(1, 100))
+        attempt_ids = iter(f"attempt-api-{index}" for index in range(1, 100))
         orchestrator = AnalysisOrchestrator(
             self.repository,
             clock=lambda: NOW,
-            analysis_id_factory=lambda: "analysis-api-1",
-            attempt_id_factory=lambda: "attempt-api-1",
+            analysis_id_factory=lambda: next(analysis_ids),
+            attempt_id_factory=lambda: next(attempt_ids),
         )
         runner = ProbeRunner(
             policy=SsrfPolicy(),
@@ -118,6 +120,7 @@ class AnalysisApiTests(unittest.TestCase):
             authorization=self.authorization,
             rate_limiter=self.rate_limiter,
             audit_recorder=self.repository,
+            batch_id_factory=lambda: "batch-api-1",
         )
         self.principal = ApiPrincipal(
             user_id="user-opaque-1",
@@ -258,6 +261,57 @@ class AnalysisApiTests(unittest.TestCase):
         )
         self.assertNotIn("private", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_batch_submits_independent_durable_analyses(self) -> None:
+        response = self.api.create_batch(
+            {
+                "subjects": [
+                    {"subject_uri": "https://one.example/secret"},
+                    {"subject_uri": "https://two.example/private"},
+                ]
+            },
+            context=self.context("request-batch-1"),
+        )
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual("batch-api-1", response.body["batch_id"])
+        self.assertEqual(2, response.body["accepted_count"])
+        self.assertEqual(0, response.body["failed_count"])
+        self.assertEqual(
+            2, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0]
+        )
+        self.assertEqual(
+            2,
+            self.connection.execute("SELECT count(*) FROM collection_jobs").fetchone()[
+                0
+            ],
+        )
+        serialized = json.dumps(response.to_dict())
+        self.assertNotIn("one.example", serialized)
+        self.assertNotIn("two.example", serialized)
+        event = self.connection.execute(
+            "SELECT action, extra_json FROM audit_events WHERE resource_id = ?",
+            ("request-batch-1",),
+        ).fetchone()
+        assert event is not None
+        self.assertEqual("access.analysis_api_batch_create", event[0])
+        self.assertNotIn("subject", event[1])
+
+    def test_invalid_batch_is_rejected_before_any_write(self) -> None:
+        response = self.api.create_batch(
+            {
+                "subjects": [
+                    {"subject_uri": "https://valid.example/"},
+                    {"subject_uri": "file:///etc/passwd"},
+                ]
+            },
+            context=self.context("request-batch-invalid"),
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            0, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0]
+        )
 
     def test_creation_persists_immutable_owner_and_audits_without_duplication(
         self,

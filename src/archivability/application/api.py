@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
+from uuid import uuid4
 
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
@@ -140,6 +142,7 @@ class AnalysisApi:
         authorization: ApiAuthorizationPolicy,
         rate_limiter: ApiRateLimiter,
         audit_recorder: ApiAuditRecorder,
+        batch_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._workflow = workflow
         self._reports = reports
@@ -147,6 +150,9 @@ class AnalysisApi:
         self._authorization = authorization
         self._rate_limiter = rate_limiter
         self._audit_recorder = audit_recorder
+        self._batch_id_factory = batch_id_factory or (
+            lambda: f"batch-{uuid4().hex}"
+        )
 
     def create_analysis(
         self,
@@ -235,6 +241,115 @@ class AnalysisApi:
             body=body,
             result="success",
             analysis_id=outcome.analysis.analysis_id,
+        )
+
+    def create_batch(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        """Submit independent durable analyses through one bounded request."""
+        denied = self._authenticate(context, "batch_create")
+        if denied is not None:
+            return denied
+        principal = context.principal
+        assert principal is not None
+        try:
+            authorized = self._authorization.can_create_analysis(principal)
+        except Exception:
+            return self._error(
+                context,
+                operation="batch_create",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+        if not authorized:
+            return self._error(
+                context,
+                operation="batch_create",
+                status_code=403,
+                code="ACCESS_DENIED",
+                message="Access denied.",
+                result="unauthorized",
+            )
+        try:
+            within_limit = self._rate_limiter.allow(principal, "analysis.batch_create")
+        except Exception:
+            return self._error(
+                context,
+                operation="batch_create",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+        if not within_limit:
+            return self._error(
+                context,
+                operation="batch_create",
+                status_code=429,
+                code="RATE_LIMITED",
+                message="Request limit exceeded.",
+            )
+        try:
+            subjects = self._batch_subjects(payload)
+            batch_id = self._batch_id_factory()
+            if not isinstance(batch_id, str) or not _IDENTIFIER_PATTERN.fullmatch(
+                batch_id
+            ):
+                raise ApiValidationError("batch identifier is invalid")
+        except (ApiValidationError, LifecycleError):
+            return self._error(
+                context,
+                operation="batch_create",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+            )
+
+        items: list[dict[str, Any]] = []
+        accepted = 0
+        for position, subject_uri in enumerate(subjects):
+            try:
+                outcome = self._workflow.start(
+                    subject_uri=subject_uri,
+                    probe=self._probe,
+                    owner_user_id=principal.user_id,
+                    audit=context.audit_context(),
+                )
+            except Exception:
+                items.append(
+                    {
+                        "position": position,
+                        "status": "failed",
+                        "error_code": "SUBMISSION_FAILED",
+                    }
+                )
+                continue
+            accepted += 1
+            items.append(
+                {
+                    "position": position,
+                    "status": outcome.status,
+                    "analysis_id": outcome.analysis.analysis_id,
+                    "report_path": (
+                        f"/v1/analyses/{quote(outcome.analysis.analysis_id, safe='')}"
+                    ),
+                }
+            )
+        return self._response(
+            context,
+            operation="batch_create",
+            status_code=202,
+            body={
+                "batch_schema_version": "1.0",
+                "batch_id": batch_id,
+                "accepted_count": accepted,
+                "failed_count": len(items) - accepted,
+                "items": items,
+            },
+            result="success",
         )
 
     def get_analysis(
@@ -560,6 +675,27 @@ class AnalysisApi:
         if not isinstance(value, str) or not value or len(value) > 2048:
             raise ApiValidationError("subject_uri is invalid")
         return value
+
+    @classmethod
+    def _batch_subjects(cls, payload: Mapping[str, Any]) -> tuple[str, ...]:
+        if not isinstance(payload, Mapping) or set(payload) != {"subjects"}:
+            raise ApiValidationError("batch request body fields are invalid")
+        values = payload["subjects"]
+        if not isinstance(values, list) or not 1 <= len(values) <= 25:
+            raise ApiValidationError("batch subjects must contain 1 to 25 items")
+        subjects = tuple(cls._subject_uri(value) for value in values)
+        if len(set(subjects)) != len(subjects):
+            raise ApiValidationError("batch subjects must be unique")
+        for subject in subjects:
+            parsed = urlsplit(subject)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ApiValidationError("batch subject URI is invalid")
+        return subjects
 
     def _error(
         self,

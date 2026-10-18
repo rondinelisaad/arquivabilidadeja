@@ -39,6 +39,24 @@ class CapturingApi:
             headers={"Cache-Control": "no-store"},
         )
 
+    def create_batch(
+        self, payload: Mapping[str, Any], *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("batch_create", dict(payload), context))
+        if context.principal is None:
+            return self._error(context, 401, "AUTHENTICATION_REQUIRED")
+        return ApiResponse(
+            status_code=202,
+            body={
+                "batch_schema_version": "1.0",
+                "batch_id": "batch-1",
+                "accepted_count": len(payload.get("subjects", [])),
+                "failed_count": 0,
+                "items": [],
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
     def get_analysis(
         self, analysis_id: str, *, context: ApiRequestContext
     ) -> ApiResponse:
@@ -192,6 +210,28 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("https://example.org/", payload["subject_uri"])
         self.assertIs(self.principal, context.principal)
         self.assertEqual([], self.audit.events)
+
+    async def test_batch_route_accepts_bounded_json(self) -> None:
+        state = {
+            "archivability.principal": self.principal,
+            "archivability.request_id": "request-batch-1",
+        }
+        body = b'{"subjects":[{"subject_uri":"https://example.org/"}]}'
+        status, _, response = await self.request(
+            self.scope(
+                path="/v1/batches",
+                headers=[
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+                state=state,
+            ),
+            [{"type": "http.request", "body": body}],
+        )
+
+        self.assertEqual(202, status)
+        self.assertEqual("batch-1", response["batch_id"])
+        self.assertEqual("batch_create", self.api.calls[0][0])
 
     async def test_client_identity_and_request_headers_are_never_trusted(self) -> None:
         status, headers, response = await self.request(

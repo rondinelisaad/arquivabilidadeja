@@ -20,6 +20,7 @@ _ANALYSIS_PATH = re.compile(r"^/v1/analyses/([^/]+)$")
 _ANALYSIS_EXPORT_PATH = re.compile(r"^/v1/analyses/([^/]+)/export\.json$")
 _ANALYSIS_COMPARISON_PATH = re.compile(r"^/v1/analyses/([^/]+)/comparison$")
 _COLLECTION_PATH = "/v1/analyses"
+_BATCH_PATH = "/v1/batches"
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
 _SAFE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
@@ -123,6 +124,20 @@ class AnalysisAsgiApp:
                     raise _RequestFailure(
                         405, "METHOD_NOT_ALLOWED", "Method is not allowed."
                     )
+            elif route == "batches_collection":
+                if method != "POST":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                if context.principal is None:
+                    response = await self._sync_runner.run(
+                        lambda: self._api.create_batch({}, context=context)
+                    )
+                else:
+                    payload = await self._read_json_object(scope, receive)
+                    response = await self._sync_runner.run(
+                        lambda: self._api.create_batch(payload, context=context)
+                    )
             elif route == "analysis_item":
                 if method != "GET":
                     raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
@@ -212,6 +227,8 @@ class AnalysisAsgiApp:
     def _route(path: str) -> tuple[str, str | None]:
         if path == _COLLECTION_PATH:
             return "analyses_collection", None
+        if path == _BATCH_PATH:
+            return "batches_collection", None
         export_match = _ANALYSIS_EXPORT_PATH.fullmatch(path)
         if export_match is not None:
             return "analysis_export", export_match.group(1)

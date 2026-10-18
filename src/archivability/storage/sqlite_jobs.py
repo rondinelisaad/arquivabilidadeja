@@ -1038,13 +1038,24 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
     ) -> None:
         resource_id = request_id
         try:
-            if operation not in {"create", "read", "export", "history", "compare"}:
+            if operation not in {
+                "create",
+                "batch_create",
+                "read",
+                "export",
+                "history",
+                "compare",
+            }:
                 raise IntegrityViolation("analysis API operation is invalid")
             if result == "success":
                 valid = (
                     error_code is None
-                    and (analysis_id is not None or operation == "history")
-                    and status_code == (202 if operation == "create" else 200)
+                    and (
+                        analysis_id is not None
+                        or operation in {"history", "batch_create"}
+                    )
+                    and status_code
+                    == (202 if operation in {"create", "batch_create"} else 200)
                 )
             elif result == "unauthorized":
                 valid = status_code in {401, 403} and error_code in {
