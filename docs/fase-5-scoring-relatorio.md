@@ -1,6 +1,6 @@
 # Fase 5 — scoring e relatório
 
-Status: scoring, exportação canônica, histórico privado e comparação entre execuções implementados.
+Status: scoring, exportação canônica, histórico privado, comparação entre execuções e interface Web implementados.
 
 ## Snapshot versionado
 
@@ -30,6 +30,8 @@ Leituras de histórico e comparação geram `access.analysis_history` e `access.
 
 ## Próximo incremento
 
-1. interface server-rendered para submissão de URL, progresso, relatório, histórico, comparação e download;
-2. snapshots golden do contrato exportável completo;
-3. protocolo e dataset para a validação científica externa.
+1. protocolo e dataset para a validação científica externa;
+2. ativação de gates somente depois da decisão metodológica correspondente;
+3. mapeamento CLEAR+ legado somente depois de validação explícita.
+
+O critério técnico da fase é coberto por golden tests do `ScoringEngine` e por um hash golden do snapshot exportável completo na versão `1.0`.

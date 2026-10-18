@@ -14,6 +14,8 @@ A fundação segura, a análise HTTP/crawl e a etapa de browser isolado estão i
 - [Fase 1 — coleta HTTP assíncrona](docs/fase-1-coleta-http-assincrona.md)
 - [Fase 3 — crawl limitado](docs/fase-3-crawl-limitado.md)
 - [Fase 4 — browser isolado](docs/fase-4-browser-isolado.md)
+- [Fase 5 — scoring e relatório](docs/fase-5-scoring-relatorio.md)
+- [Interface Web](docs/interface-web.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
 ## Validação
@@ -236,6 +238,14 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 `GET /v1/analyses/{analysis_id}/export.json` entrega exatamente esse snapshot como JSON determinístico, com `report_schema_version`, limitações metodológicas e `Content-Disposition` de download. A exportação reutiliza a autorização de leitura, rate limit e sanitização do relatório e registra `access.analysis_api_export` sem copiar o conteúdo exportado para a auditoria. O CLEAR+ legado permanece explicitamente indisponível até existir um mapeamento validado entre as evidências atuais e as facetas originais.
 
 `GET /v1/analyses` lista o histórico sanitizado do proprietário autenticado. `GET /v1/analyses/{analysis_id}/comparison` compara uma avaliação terminal com a anterior mais recente somente quando alvo exato, metodologia e versão coincidem. A classificação é descritiva (`observed_change` ou `no_observed_change`), sem inferência automática de causalidade ou mudança estrutural. As ações `access.analysis_history` e `access.analysis_comparison` registram apenas IDs opacos, contagens, resultado e código estável.
+
+## Interface Web
+
+`GET /` serve uma interface responsiva e sem dependências de frontend. Depois da autenticação, a página inicial pede somente a URL; o navegador cria a análise pelo contrato JSON existente e acompanha coleta, browser e derivação até o relatório terminal. A mesma interface lista histórico, exibe dimensões/cobertura e indicadores, solicita comparação compatível e baixa o snapshot canônico.
+
+HTML, CSS, JavaScript e favicon são assets locais empacotados com a aplicação. A interface usa CSP sem código inline, `textContent` para dados dinâmicos, `Cache-Control: no-store` nas páginas e não renderiza conteúdo coletado. `access.web_ui` registra acesso às páginas com rota lógica e identidade opaca, sem URL submetida ou conteúdo do relatório.
+
+Em produção, um proxy de identidade compatível com OIDC deve autenticar a sessão do navegador e encaminhar o access token como `Authorization: Bearer` para a aplicação. O token precisa conter `analysis:create` e `analysis:read`; a aplicação continua verificando assinatura, emissor, audiência, validade e escopos. O proxy deve remover qualquer `Authorization` recebido do cliente antes de inserir o token autenticado.
 
 `AnalysisApi` define a fronteira Web sem acoplamento a framework. O adaptador externo deve fornecer um `ApiPrincipal` já autenticado; políticas injetadas autorizam criação e leitura por análise e aplicam rate limiting antes da validação ou coleta. A fronteira oferece as operações equivalentes a `POST /v1/analyses` e `GET /v1/analyses/{analysis_id}`, sempre com erros estáveis, `Cache-Control: no-store`, `nosniff` e sem mensagens internas. Ausência de autenticação, negação, limite excedido, sucesso e falha são auditados sem corpo, URL analisada ou credencial. Falhas dos provedores de autorização e limite são fechadas como erro interno, sem bypass.
 
