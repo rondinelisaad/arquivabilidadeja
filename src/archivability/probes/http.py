@@ -186,6 +186,7 @@ class PinnedHttpClient:
                 },
             )
             self._set_remaining_timeout(connection.sock, deadline)
+            network_socket = connection.sock
             response = connection.getresponse()
             location = response.getheader("Location")
             is_redirect = response.status in _REDIRECT_STATUSES and location is not None
@@ -196,7 +197,7 @@ class PinnedHttpClient:
             else:
                 body, truncated = self._read_bounded(
                     response,
-                    connection.sock,
+                    network_socket,
                     context.request.max_response_bytes,
                     deadline,
                 )
@@ -285,6 +286,8 @@ class PinnedHttpClient:
                 break
             chunks.append(chunk)
             total += len(chunk)
+            if response.isclosed():
+                break
         body = b"".join(chunks)
         if len(body) > maximum_bytes:
             return body[:maximum_bytes], True
