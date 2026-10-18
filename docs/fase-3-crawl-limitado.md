@@ -1,10 +1,10 @@
 # Fase 3 — crawl limitado
 
-Status: incrementos 1 e 2 concluídos em 2026-10-18.
+Status: incrementos 1, 2 e 3 concluídos em 2026-10-18.
 
 ## Resultado atual
 
-O pacote `archivability.crawler` fornece uma fronteira FIFO determinística, sequencial e restrita à origem exata da URL inicial. O núcleo não realiza rede: ele recebe resultados de coleta, agenda os próximos alvos e produz somente um resumo agregado.
+O pacote `archivability.crawler` fornece uma fronteira FIFO determinística, sequencial e restrita à origem exata da URL inicial. O núcleo permanece independente da rede: ele recebe resultados de coleta, agenda os próximos alvos e produz somente um resumo agregado. No worker, `HttpMetadataProbe` liga esse núcleo ao cliente HTTP protegido.
 
 Os limites padrão são profundidade 2, 100 URLs, 2 MiB por resposta, 20 MiB no total, 60 segundos no total e 1.000 links por documento. Cada alvo recebe apenas o orçamento restante; bytes ou tempo acima dele são rejeitados, e somente uma URL pode permanecer ativa por fronteira.
 
@@ -16,6 +16,8 @@ O resumo contém contagens de referências, URLs internas únicas, visitas, suce
 
 `AuditedBoundedCrawl` registra o início e exatamente um resultado terminal por meio da ação `job.bounded_crawl`. Os eventos persistem somente IDs opacos, estado, limites, agregados ou um código estável de erro. SQLite e PostgreSQL reutilizam a tabela de auditoria e a role de runtime existente; este incremento não cria migration nem amplia privilégios.
 
+O mesmo job durável de coleta persiste atomicamente a observação HTTP 1.2 e uma segunda observação `bounded_crawl` 1.0. Uma interrupção após essa transação reutiliza a observação HTTP existente e segue para a derivação sem repetir a rede. A nova observação possui schema JSON próprio e contém apenas limites, decisão agregada de robots e resumo do crawl.
+
 ## Política de robots
 
 `RobotsRules` interpreta grupos e regras conforme a RFC 9309 sob a política versionada `rfc9309-respect-1` e o parser `rfc9309-1`. O product token padrão é `arquivabilidade-ja`, contido no User-Agent HTTP já declarado pelo cliente.
@@ -24,12 +26,14 @@ O parser processa até 512 KiB por padrão, exige UTF-8, preserva regras válida
 
 Uma resposta HTTP `4xx` torna o arquivo indisponível e a política permite a coleta; `5xx` ou falha de rede tornam o arquivo inalcançável e bloqueiam a coleta. Redirects precisam ser resolvidos e revalidados pelo broker HTTP antes da decisão. A decisão exportável contém apenas disposição, tipo e tamanho da regra correspondente, contagens, versões e product token; não contém URL, caminho ou padrão de regra.
 
-## Limite desta entrega
+## Integração com o worker
 
-A fronteira ainda não está conectada ao cliente HTTP. Isso evita coletar URLs adicionais antes de interpretar e registrar a política aplicável de `robots.txt`. Os próximos incrementos são:
+O worker limita a homepage ao orçamento por resposta do crawl, usa no máximo 512 KiB para `robots.txt`, reaplica a política SSRF antes de cada URL e restringe redirects do crawl à origem inicial. URLs proibidas por robots não abrem conexão; falhas usam classes estáveis e não persistem mensagens de exceção. A URL submetida continua sendo observada como semente da análise, e a decisão de robots sobre ela é registrada separadamente da expansão recursiva.
 
-1. integração da fronteira e da decisão de robots com o worker e a política SSRF em cada conexão e redirect;
-2. persistência da observação agregada e derivação de `D08` e indicadores relacionados;
-3. fixtures de integração para links quebrados, limites, redirects, robots e recuperação de job.
+Os próximos incrementos são:
+
+1. derivação de `D03`, `D08` e indicadores relacionados a partir da observação agregada;
+2. fixtures adicionais com servidor local controlado para limites, redirects, robots e recuperação de job;
+3. exposição do resumo de crawl no relatório público da análise.
 
 Browser e JavaScript permanecem na Fase 4.
