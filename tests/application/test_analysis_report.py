@@ -16,6 +16,11 @@ from archivability import (  # noqa: E402
     AnalysisOrchestrator,
     AnalysisReportService,
     AuditContext,
+    BrowserBudgets,
+    BrowserIsolationAttestation,
+    BrowserProfile,
+    BrowserQueueService,
+    BrowserRenderAggregate,
     HttpAssessmentQueueService,
     HttpAssessmentWorker,
     HttpAssessmentWorkflow,
@@ -195,6 +200,59 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.repository.save_observation(observation, audit=self.audit)
         return observation
 
+    def _save_browser_observation(self) -> Observation:
+        attempt = self.repository.list_attempts("analysis-report-1")[0]
+        observation = Observation.create(
+            observation_id="browser-report-1",
+            analysis_id=attempt.analysis_id,
+            attempt_id=attempt.attempt_id,
+            kind="browser_render",
+            subject_uri=SUBJECT,
+            observed_at=NOW,
+            probe_id="browser-render",
+            tool_name="chromium",
+            tool_version="140.0.1",
+            payload_schema_version="1.0",
+            payload={
+                "budgets": BrowserBudgets().to_dict(),
+                "profile": BrowserProfile().to_dict(),
+                "isolation": BrowserIsolationAttestation(
+                    policy_id="browser-container-1",
+                    sandbox_enabled=True,
+                    running_as_root=False,
+                    read_only_root_filesystem=True,
+                    ephemeral_profile=True,
+                    host_mounts_present=False,
+                    secrets_available=False,
+                    docker_socket_available=False,
+                ).to_dict(),
+                "aggregate": BrowserRenderAggregate(
+                    raw_dom_hash="a" * 64,
+                    rendered_dom_hash="b" * 64,
+                    raw_url_set_hash="c" * 64,
+                    rendered_url_set_hash="d" * 64,
+                    raw_url_count=1,
+                    rendered_url_count=2,
+                    additional_url_count=1,
+                    request_count=3,
+                    internal_request_count=2,
+                    external_request_count=1,
+                    api_request_count=1,
+                    external_api_request_count=1,
+                    failed_request_count=0,
+                    blocked_request_count=0,
+                    transfer_bytes=1024,
+                    raw_dom_bytes=256,
+                    rendered_dom_bytes=512,
+                    console_event_count=0,
+                    elapsed_milliseconds=1000,
+                    termination_reason="complete",
+                ).to_dict(),
+            },
+        )
+        self.repository.save_observation(observation, audit=self.audit)
+        return observation
+
     def tearDown(self) -> None:
         self.connection.close()
 
@@ -246,6 +304,21 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertNotIn("private/path", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
 
+    def test_report_exposes_browser_queue_stage(self) -> None:
+        self._run_collection()
+        attempt = self.repository.list_attempts("analysis-report-1")[0]
+        BrowserQueueService(
+            self.repository,
+            clock=lambda: NOW,
+            job_id_factory=lambda: "browser-job-report-1",
+        ).enqueue("analysis-report-1", attempt.attempt_id, audit=self.audit)
+
+        report = self.service.get_report("analysis-report-1", audit=self.audit)
+
+        self.assertEqual("browser_queued", report.progress.phase)
+        stages = {item.job_id: item.stage for item in report.jobs}
+        self.assertEqual("browser", stages["browser-job-report-1"])
+
     def test_report_rejects_unexpected_crawl_fields_without_audit_leakage(self) -> None:
         self._run_collection()
         self._save_crawl_observation(include_unexpected=True)
@@ -293,6 +366,34 @@ class AnalysisReportServiceTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(1, json.loads(audit_extra[0])["crawl_count"])
 
+    def test_report_exposes_sanitized_browser_aggregate(self) -> None:
+        self._run_collection()
+        observation = self._save_browser_observation()
+
+        report = self.service.get_report("analysis-report-1", audit=self.audit)
+        document = report.to_dict()
+
+        self.assertEqual(1, len(report.browser_runs))
+        browser = document["browser_runs"][0]
+        self.assertEqual(observation.content_hash, browser["content_hash"])
+        self.assertEqual("chromium-baseline-1", browser["profile_id"])
+        self.assertEqual(3, browser["summary"]["request_count"])
+        serialized = json.dumps(browser)
+        self.assertNotIn("raw_dom_hash", serialized)
+        self.assertNotIn("rendered_dom_hash", serialized)
+        self.assertNotIn("url_set_hash", serialized)
+        self.assertNotIn("isolation", serialized)
+        self.assertNotIn("private/path", serialized)
+        self.assertNotIn("must-not-be-logged", serialized)
+        audit_extra = self.connection.execute(
+            """
+            SELECT extra_json FROM audit_events
+            WHERE action = 'access.analysis_report'
+            ORDER BY event_id DESC LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual(1, json.loads(audit_extra[0])["browser_count"])
+
     def test_access_is_audited_without_report_content(self) -> None:
         self.service.get_report("analysis-report-1", audit=self.audit)
 
@@ -309,6 +410,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual("requested", extra["state"])
         self.assertEqual(0, extra["attempt_count"])
         self.assertEqual(0, extra["crawl_count"])
+        self.assertEqual(0, extra["browser_count"])
         serialized = json.dumps(event)
         self.assertNotIn("example.org", serialized)
         self.assertNotIn("must-not-be-logged", serialized)

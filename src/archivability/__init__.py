@@ -20,6 +20,7 @@ from archivability.application import (
     AuthenticationAuditRecorder,
     BearerAuthenticationMiddleware,
     BearerTokenVerifier,
+    BrowserRunReport,
     CrawlRunReport,
     HttpAssessmentWorkflow,
     HttpWorkflowOutcome,
@@ -91,6 +92,7 @@ from archivability.evidence import (
     derive_browser_indicators,
     derive_http_metadata_indicators,
     derive_indicator_result,
+    validate_browser_render_observation,
 )
 from archivability.jobs import (
     AssessmentJob,
@@ -220,6 +222,7 @@ __all__ = [
     "BrowserRenderRequest",
     "BrowserRenderResult",
     "BrowserRenderer",
+    "BrowserRunReport",
     "BrowserWorker",
     "BrowserWorkerOutcome",
     "CollectionEnqueueOutcome",
@@ -319,5 +322,6 @@ __all__ = [
     "load_methodology",
     "render_prometheus_metrics",
     "run_production_worker",
+    "validate_browser_render_observation",
     "validate_runtime_database_role",
 ]

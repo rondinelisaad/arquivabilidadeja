@@ -51,7 +51,9 @@ def derive_browser_indicators(
         or browser_observation.subject_uri != http_observation.subject_uri
     ):
         raise BrowserDerivationError("browser observation does not match HTTP provenance")
-    budgets, profile, aggregate = _validate_payload(browser_observation)
+    budgets, profile, aggregate = validate_browser_render_observation(
+        browser_observation
+    )
     complete = aggregate.termination_reason == "complete" and not browser_observation.truncated
     rendered_denominator = max(aggregate.rendered_url_count, 1)
     rendered_gain_share = aggregate.additional_url_count / rendered_denominator
@@ -145,7 +147,7 @@ def derive_browser_indicators(
     return BrowserDerivation(evidence, results)
 
 
-def _validate_payload(
+def validate_browser_render_observation(
     observation: Observation,
 ) -> tuple[BrowserBudgets, BrowserProfile, BrowserRenderAggregate]:
     if (

@@ -762,8 +762,20 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         (analysis_id,),
                     ).fetchall()
                 )
+                browser_job_ids = tuple(
+                    row[0]
+                    for row in self._connection.execute(
+                        """
+                        SELECT job_id FROM archivability.browser_jobs
+                        WHERE analysis_id = %s
+                        ORDER BY created_at, job_id
+                        """,
+                        (analysis_id,),
+                    ).fetchall()
+                )
                 jobs = (
                     *(self.get_collection_job(job_id) for job_id in collection_job_ids),
+                    *(self.get_browser_job(job_id) for job_id in browser_job_ids),
                     *(self.get_assessment_job(job_id) for job_id in assessment_job_ids),
                 )
                 evidence_ids = tuple(
@@ -797,6 +809,10 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                     self.get_bounded_crawl_observation(attempt.attempt_id)
                     for attempt in attempts
                 )
+                browser_observations = tuple(
+                    self.get_browser_render_observation(attempt.attempt_id)
+                    for attempt in attempts
+                )
                 if any(value is None for value in (*jobs, *evidence, *results)):
                     raise IntegrityViolation(
                         "analysis report relation disappeared during snapshot"
@@ -817,6 +833,11 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         crawl_observations=tuple(
                             value for value in crawl_observations if value is not None
                         ),
+                        browser_observations=tuple(
+                            value
+                            for value in browser_observations
+                            if value is not None
+                        ),
                     )
                 except ValueError as exc:
                     raise IntegrityViolation(
@@ -836,6 +857,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
         job_count: int,
         result_count: int,
         crawl_count: int,
+        browser_count: int,
         audit: AuditContext = AuditContext(),
     ) -> None:
         try:
@@ -854,7 +876,13 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 item.value for item in AnalysisState
             }:
                 raise IntegrityViolation("analysis report state is invalid")
-            counts = (attempt_count, job_count, result_count, crawl_count)
+            counts = (
+                attempt_count,
+                job_count,
+                result_count,
+                crawl_count,
+                browser_count,
+            )
             if any(not isinstance(value, int) or value < 0 for value in counts):
                 raise IntegrityViolation("analysis report counts are invalid")
             with self._transaction():
@@ -871,6 +899,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         "job_count": job_count,
                         "result_count": result_count,
                         "crawl_count": crawl_count,
+                        "browser_count": browser_count,
                     },
                 )
         except psycopg.IntegrityError as exc:
