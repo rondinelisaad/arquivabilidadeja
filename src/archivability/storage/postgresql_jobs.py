@@ -14,7 +14,7 @@ from archivability.jobs.collection import (
     CollectionLimits,
     claim_collection_job,
 )
-from archivability.jobs.metrics import QueueMetricsSnapshot
+from archivability.jobs.metrics import QueueMetricsSnapshot, QueueStageMetrics
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.state_machine import claim_assessment_job
 from archivability.lifecycle.models import Analysis, AnalysisState
@@ -1331,12 +1331,45 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         UNION ALL
                         SELECT state, available_at, lease_expires_at, created_at
                         FROM archivability.assessment_jobs
+                        UNION ALL
+                        SELECT state, available_at, lease_expires_at, created_at
+                        FROM archivability.browser_jobs
                     ) AS pipeline_jobs
                     """
                 ).fetchone()
                 if row is None:
                     raise IntegrityViolation("queue metrics query returned no row")
                 try:
+                    stage_rows = self._connection.execute(
+                        """
+                        SELECT stage,
+                               count(*) FILTER (WHERE state = 'pending'),
+                               count(*) FILTER (WHERE state = 'running'),
+                               count(*) FILTER (WHERE state = 'succeeded'),
+                               count(*) FILTER (WHERE state = 'failed')
+                        FROM (
+                            SELECT 'collection' AS stage, state
+                            FROM archivability.collection_jobs
+                            UNION ALL
+                            SELECT 'browser' AS stage, state
+                            FROM archivability.browser_jobs
+                            UNION ALL
+                            SELECT 'assessment' AS stage, state
+                            FROM archivability.assessment_jobs
+                        ) AS staged_jobs
+                        GROUP BY stage
+                        ORDER BY stage
+                        """
+                    ).fetchall()
+                    stages = {
+                        str(item[0]): QueueStageMetrics(
+                            pending=int(item[1]),
+                            running=int(item[2]),
+                            succeeded=int(item[3]),
+                            failed=int(item[4]),
+                        )
+                        for item in stage_rows
+                    }
                     snapshot = QueueMetricsSnapshot(
                         pending=int(row[0]),
                         running=int(row[1]),
@@ -1345,6 +1378,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         available=int(row[4]),
                         expired_leases=int(row[5]),
                         oldest_pending_seconds=float(row[6]),
+                        stages=stages,
                     )
                 except (TypeError, ValueError) as exc:
                     raise IntegrityViolation(

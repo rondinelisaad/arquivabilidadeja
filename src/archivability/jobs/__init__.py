@@ -24,6 +24,7 @@ from archivability.jobs.metrics import (
     QueueMetricsRepository,
     QueueMetricsService,
     QueueMetricsSnapshot,
+    QueueStageMetrics,
     render_prometheus_metrics,
 )
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
@@ -64,6 +65,7 @@ __all__ = [
     "QueueMetricsRepository",
     "QueueMetricsService",
     "QueueMetricsSnapshot",
+    "QueueStageMetrics",
     "WorkerOutcome",
     "claim_assessment_job",
     "claim_browser_job",

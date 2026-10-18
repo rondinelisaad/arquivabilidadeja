@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 
 from archivability.jobs import (  # noqa: E402
     QueueMetricsSnapshot,
+    QueueStageMetrics,
     render_prometheus_metrics,
 )
 
@@ -34,6 +35,42 @@ class QueueMetricsTests(unittest.TestCase):
         self.assertIn("archivability_queue_oldest_pending_seconds 12.346", rendered)
         self.assertNotIn("user", rendered)
         self.assertTrue(rendered.endswith("\n"))
+
+    def test_prometheus_output_stratifies_fixed_pipeline_stages(self) -> None:
+        snapshot = QueueMetricsSnapshot(
+            pending=3,
+            running=2,
+            succeeded=5,
+            failed=1,
+            available=2,
+            expired_leases=1,
+            oldest_pending_seconds=12,
+            stages={
+                "collection": QueueStageMetrics(1, 1, 2, 0),
+                "browser": QueueStageMetrics(1, 0, 1, 1),
+                "assessment": QueueStageMetrics(1, 1, 2, 0),
+            },
+        )
+
+        rendered = render_prometheus_metrics(snapshot).decode("ascii")
+
+        self.assertIn(
+            'archivability_queue_stage_jobs{stage="browser",state="failed"} 1',
+            rendered,
+        )
+
+    def test_stage_totals_must_match_aggregate(self) -> None:
+        with self.assertRaisesRegex(ValueError, "equal aggregate"):
+            QueueMetricsSnapshot(
+                pending=1,
+                running=0,
+                succeeded=0,
+                failed=0,
+                available=0,
+                expired_leases=0,
+                oldest_pending_seconds=0,
+                stages={"collection": QueueStageMetrics(0, 0, 0, 0)},
+            )
 
     def test_negative_metric_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-negative"):
