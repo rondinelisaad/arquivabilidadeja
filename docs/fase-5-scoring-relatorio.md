@@ -1,6 +1,6 @@
 # Fase 5 — scoring e relatório
 
-Status: scoring e exportação canônica implementados; histórico e comparação entre execuções permanecem no próximo incremento desta fase.
+Status: scoring, exportação canônica, histórico privado e comparação entre execuções implementados.
 
 ## Snapshot versionado
 
@@ -20,8 +20,16 @@ A ação `access.analysis_api_export` registra request, ator/sessão opacos, IP,
 
 O arquivo declara que pesos e thresholds ainda são hipótese versionada, que gates candidatos não estão ativos e que a comparação CLEAR+ não está disponível. Essas limitações fazem parte do contrato público e não dependem de documentação externa à exportação.
 
+## Histórico e comparação
+
+`GET /v1/analyses` lista até 20 análises do proprietário autenticado em ordem decrescente de atualização. Cada item contém somente origem normalizada, versão metodológica, estado, tempos e resumo dimensional; caminho, query string, payloads e URLs descobertas não são expostos.
+
+`GET /v1/analyses/{analysis_id}/comparison` procura a execução anterior mais recente do mesmo proprietário, alvo exato, metodologia e versão. Somente avaliações terminais são comparáveis. A saída enumera alterações de estado ou score por indicador e usa apenas `observed_change` ou `no_observed_change`. Uma execução isolada nunca é promovida automaticamente a “mudança estrutural”, e a resposta declara que não estabelece causalidade.
+
+Leituras de histórico e comparação geram `access.analysis_history` e `access.analysis_comparison`, contendo apenas operação, análise opaca quando aplicável, contagens e código estável de erro.
+
 ## Próximo incremento
 
-1. histórico privado por proprietário e origem normalizada;
-2. comparação somente entre metodologia, escopo e configuração compatíveis;
-3. interface server-rendered para submissão de URL, progresso, relatório e download.
+1. interface server-rendered para submissão de URL, progresso, relatório, histórico, comparação e download;
+2. snapshots golden do contrato exportável completo;
+3. protocolo e dataset para a validação científica externa.
