@@ -3,11 +3,18 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import uuid4
 
-from archivability.browser.models import BrowserBudgets, BrowserProfile
+from archivability.browser.execution import BrowserExecutionService
+from archivability.browser.models import (
+    BrowserBudgets,
+    BrowserContractError,
+    BrowserProfile,
+    BrowserRenderRequest,
+)
+from archivability.evidence.models import Observation
 from archivability.jobs.models import AssessmentJobState, JobError
 from archivability.lifecycle.models import (
     Analysis,
@@ -16,6 +23,7 @@ from archivability.lifecycle.models import (
     AttemptState,
 )
 from archivability.storage.audit import AuditContext
+from archivability.storage.errors import PersistenceError
 
 Clock = Callable[[], datetime]
 _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -169,6 +177,7 @@ class BrowserJob:
 class BrowserJobRepository(Protocol):
     def get_analysis(self, analysis_id: str) -> Analysis | None: ...
     def get_attempt(self, attempt_id: str) -> Attempt | None: ...
+    def get_http_metadata_observation(self, attempt_id: str) -> Observation | None: ...
     def enqueue_browser_job(
         self, job: BrowserJob, *, audit: AuditContext
     ) -> tuple[BrowserJob, bool]: ...
@@ -194,6 +203,18 @@ class BrowserJobRepository(Protocol):
 class BrowserEnqueueOutcome:
     job: BrowserJob
     created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BrowserWorkerOutcome:
+    status: str
+    job: BrowserJob | None
+
+    def __post_init__(self) -> None:
+        if self.status not in {"idle", "succeeded", "retry_scheduled", "failed"}:
+            raise JobError("browser worker status is invalid")
+        if (self.status == "idle") != (self.job is None):
+            raise JobError("browser worker outcome is inconsistent")
 
 
 class BrowserQueueService:
@@ -247,6 +268,159 @@ class BrowserQueueService:
         value = self._clock()
         if value.tzinfo is None or value.utcoffset() is None:
             raise JobError("browser queue clock must include a timezone")
+        return value
+
+
+class AssessmentEnqueuer(Protocol):
+    def enqueue(
+        self,
+        observation_id: str,
+        *,
+        max_attempts: int,
+        audit: AuditContext,
+    ): ...
+
+
+class BrowserWorker:
+    """Run one durable isolated-render job and hand HTTP evidence to assessment."""
+
+    def __init__(
+        self,
+        *,
+        worker_id: str,
+        repository: BrowserJobRepository,
+        execution: BrowserExecutionService,
+        assessment_queue: AssessmentEnqueuer,
+        clock: Clock = lambda: datetime.now(UTC),
+        lease_duration: timedelta = timedelta(minutes=5),
+        retry_base_delay: timedelta = timedelta(seconds=30),
+    ) -> None:
+        if not isinstance(worker_id, str) or _WORKER_ID.fullmatch(worker_id) is None:
+            raise JobError("browser worker ID is invalid")
+        if not timedelta(seconds=1) <= lease_duration <= timedelta(minutes=15):
+            raise JobError("browser lease duration is invalid")
+        if not timedelta(seconds=1) <= retry_base_delay <= timedelta(minutes=15):
+            raise JobError("browser retry delay is invalid")
+        self._worker_id = worker_id
+        self._repository = repository
+        self._execution = execution
+        self._assessment_queue = assessment_queue
+        self._clock = clock
+        self._lease_duration = lease_duration
+        self._retry_base_delay = retry_base_delay
+
+    def run_once(
+        self, *, audit: AuditContext = _DEFAULT_AUDIT
+    ) -> BrowserWorkerOutcome:
+        claimed_at = self._now()
+        job = self._repository.claim_next_browser_job(
+            worker_id=self._worker_id,
+            occurred_at=claimed_at,
+            lease_expires_at=claimed_at + self._lease_duration,
+            audit=audit,
+        )
+        if job is None:
+            return BrowserWorkerOutcome("idle", None)
+        analysis = self._repository.get_analysis(job.analysis_id)
+        attempt = self._repository.get_attempt(job.attempt_id)
+        source = self._repository.get_http_metadata_observation(job.attempt_id)
+        if (
+            analysis is None
+            or analysis.state is not AnalysisState.RUNNING
+            or attempt is None
+            or attempt.analysis_id != job.analysis_id
+            or attempt.state is not AttemptState.SUCCEEDED
+            or source is None
+            or source.analysis_id != job.analysis_id
+        ):
+            return self._fail(job, audit, "BROWSER_STATE_INVALID", source=None)
+        try:
+            self._execution.execute(
+                BrowserRenderRequest(
+                    analysis_id=job.analysis_id,
+                    attempt_id=job.attempt_id,
+                    subject_uri=analysis.subject_uri,
+                    requested_at=self._now(),
+                    budgets=job.budgets,
+                    profile=job.profile,
+                ),
+                audit=audit,
+            )
+        except BrowserContractError:
+            return self._fail(job, audit, "BROWSER_CONTRACT_FAILED", source=source)
+        except PersistenceError:
+            return self._fail(job, audit, "BROWSER_PERSISTENCE_FAILED", source=source)
+        except Exception:
+            return self._fail(job, audit, "BROWSER_RENDER_FAILED", source=source)
+        try:
+            self._assessment_queue.enqueue(
+                source.observation_id,
+                max_attempts=job.assessment_max_attempts,
+                audit=audit,
+            )
+        except PersistenceError:
+            return self._fail(job, audit, "BROWSER_PIPELINE_FAILED", source=source)
+        except Exception:
+            return self._fail(job, audit, "BROWSER_PIPELINE_FAILED", source=source)
+        return self._succeed(job, audit)
+
+    def _succeed(
+        self, job: BrowserJob, audit: AuditContext
+    ) -> BrowserWorkerOutcome:
+        current = succeed_browser_job(job, occurred_at=self._now())
+        self._repository.update_browser_job(
+            job,
+            current,
+            action="job.browser_queue_succeeded",
+            audit=audit,
+        )
+        return BrowserWorkerOutcome("succeeded", current)
+
+    def _fail(
+        self,
+        job: BrowserJob,
+        audit: AuditContext,
+        error_code: str,
+        *,
+        source: Observation | None,
+    ) -> BrowserWorkerOutcome:
+        now = self._now()
+        delay = self._retry_base_delay * (2 ** max(0, job.attempt_count - 1))
+        current = fail_browser_job(
+            job,
+            occurred_at=now,
+            error_code=error_code,
+            retry_at=now + min(delay, timedelta(hours=1)),
+        )
+        terminal = current.state is AssessmentJobState.FAILED
+        if terminal and source is not None:
+            try:
+                self._assessment_queue.enqueue(
+                    source.observation_id,
+                    max_attempts=job.assessment_max_attempts,
+                    audit=audit,
+                )
+            except Exception:
+                pass
+        self._repository.update_browser_job(
+            job,
+            current,
+            action=(
+                "job.browser_queue_failed"
+                if terminal
+                else "job.browser_queue_retry"
+            ),
+            audit=audit,
+        )
+        return BrowserWorkerOutcome(
+            "failed" if terminal else "retry_scheduled",
+            current,
+        )
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise JobError("browser worker clock must include a timezone")
         return value
 
 

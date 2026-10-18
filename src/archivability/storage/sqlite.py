@@ -260,6 +260,24 @@ class SqliteEvidenceRepository:
             raise IntegrityViolation("attempt has multiple bounded crawl observations")
         return self.get_observation(rows[0][0]) if rows else None
 
+    def get_http_metadata_observation(self, attempt_id: str) -> Observation | None:
+        rows = self._connection.execute(
+            """
+            SELECT observation_id FROM observations
+            WHERE json_extract(document_json, '$.attempt_id') = ?
+              AND json_extract(document_json, '$.kind') = 'http_metadata'
+              AND json_extract(document_json, '$.error_code') IS NULL
+            ORDER BY observation_id
+            LIMIT 2
+            """,
+            (attempt_id,),
+        ).fetchall()
+        if len(rows) > 1:
+            raise IntegrityViolation(
+                "attempt has multiple successful HTTP metadata observations"
+            )
+        return self.get_observation(rows[0][0]) if rows else None
+
     def get_browser_render_observation(self, attempt_id: str) -> Observation | None:
         rows = self._connection.execute(
             """
