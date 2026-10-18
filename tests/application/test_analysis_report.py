@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -343,6 +344,22 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertNotIn('"payload":', serialized)
         self.assertNotIn("private/path", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_completed_export_matches_versioned_golden_snapshot(self) -> None:
+        report = self._complete_analysis()
+        canonical = json.dumps(
+            report.to_dict(),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+        self.assertEqual("1.0", report.report_schema_version)
+        self.assertEqual(
+            "64c6baa7731260017a41d4b244d0de4a7d3c4db808b55bb6403dcec5fbbb0e54",
+            hashlib.sha256(canonical).hexdigest(),
+        )
 
     def test_comparison_requires_compatible_earlier_baseline(self) -> None:
         self._complete_analysis()
