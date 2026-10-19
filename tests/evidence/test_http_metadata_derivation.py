@@ -110,6 +110,64 @@ def discovery_observation() -> Observation:
     )
 
 
+def latency_observation() -> Observation:
+    base = discovery_observation()
+    payload = dict(base.payload)
+    sample = {
+        "outcome": "success",
+        "status_code": 200,
+        "total_milliseconds": 40.0,
+        "dns_milliseconds": None,
+        "tcp_milliseconds": 5.0,
+        "tls_milliseconds": 10.0,
+        "ttfb_milliseconds": 30.0,
+        "null_reasons": {
+            "dns": "resolution_precedes_transport_timer",
+            "tcp": None,
+            "tls": None,
+            "ttfb": None,
+        },
+        "address_family": "ipv4",
+        "redirect_exchanges": 1,
+    }
+    payload["latency"] = {
+        "primary": sample,
+        "profile": {
+            "method": "GET",
+            "response_byte_limit": 1,
+            "cache_state": "unknown",
+            "connection_reuse": False,
+            "interval_milliseconds": 200.0,
+        },
+        "requested_samples": 5,
+        "samples": [sample] * 5,
+        "summary": {
+            "sample_size": 5,
+            "success_rate": 1.0,
+            "minimum_milliseconds": 40.0,
+            "maximum_milliseconds": 40.0,
+            "median_milliseconds": 40.0,
+            "sample_standard_deviation_milliseconds": 0.0,
+            "sample_standard_deviation_null_reason": None,
+            "p95_milliseconds": None,
+            "p95_null_reason": "minimum_20_successful_samples_required",
+        },
+    }
+    return Observation.create(
+        observation_id=base.observation_id,
+        analysis_id=base.analysis_id,
+        attempt_id=base.attempt_id,
+        kind=base.kind,
+        subject_uri=base.subject_uri,
+        observed_at=base.observed_at,
+        probe_id=base.probe_id,
+        tool_name=base.tool_name,
+        tool_version="0.3.0",
+        payload_schema_version="1.3",
+        payload=payload,
+    )
+
+
 def crawl_observation(
     *,
     robots: dict[str, object] | None = None,
@@ -236,6 +294,23 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         self.assertEqual(ResultState.CONTEXT, by_id["N01"].state)
         serialized = json.dumps([item.to_dict() for item in derived.evidence])
         self.assertNotIn("discovered_urls", serialized)
+
+    def test_latency_contract_derives_phase_and_distribution_context(self) -> None:
+        derived = derive_http_metadata_indicators(
+            self.methodology, latency_observation()
+        )
+
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        evidence = {item.indicator_id: item for item in derived.evidence}
+        self.assertEqual(ResultState.CONTEXT, by_id["N01"].state)
+        self.assertEqual(ResultState.CONTEXT, by_id["N02"].state)
+        self.assertEqual(5.0, evidence["N01"].data["timings"]["tcp_milliseconds"])
+        self.assertEqual(5, evidence["N02"].data["sample_size"])
+        self.assertIsNone(evidence["N02"].data["statistics"]["p95_milliseconds"])
+        self.assertEqual(
+            "minimum_20_successful_samples_required",
+            evidence["N02"].data["null_reasons"]["p95"],
+        )
 
     def test_crawl_contract_derives_d03_d08_and_r03_without_urls(self) -> None:
         derived = derive_http_metadata_indicators(

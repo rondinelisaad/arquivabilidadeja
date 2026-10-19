@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import ssl
+import statistics
 import time
 import uuid
 import xml.etree.ElementTree as ElementTree
@@ -45,6 +46,7 @@ class CrawlHttpFetcher(HttpFetcher, Protocol):
 Clock = Callable[[], datetime]
 MonotonicClock = Callable[[], float]
 IdentifierFactory = Callable[[], str]
+Sleeper = Callable[[float], None]
 _MAX_DISCOVERED_LINKS = 1000
 _MAX_XML_LOCATIONS = 1000
 _PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
@@ -126,6 +128,9 @@ class HttpMetadataProbe:
         crawl_event_recorder: CrawlEventRecorder | None = None,
         crawl_audit: AuditContext = AuditContext(),
         probe_id: str = "http-metadata",
+        latency_sample_count: int = 5,
+        latency_sample_interval_seconds: float = 0.2,
+        sleeper: Sleeper = time.sleep,
     ) -> None:
         if not isinstance(probe_id, str) or not _PROBE_ID_PATTERN.fullmatch(probe_id):
             raise ProbeValidationError("probe_id is invalid")
@@ -137,6 +142,23 @@ class HttpMetadataProbe:
         self._crawl_limits = crawl_limits
         self._crawl_event_recorder = crawl_event_recorder
         self._crawl_audit = crawl_audit
+        if (
+            isinstance(latency_sample_count, bool)
+            or not isinstance(latency_sample_count, int)
+            or not 1 <= latency_sample_count <= 20
+        ):
+            raise ProbeValidationError("latency_sample_count must be between 1 and 20")
+        if (
+            isinstance(latency_sample_interval_seconds, bool)
+            or not isinstance(latency_sample_interval_seconds, (int, float))
+            or not 0 <= latency_sample_interval_seconds <= 5
+        ):
+            raise ProbeValidationError(
+                "latency_sample_interval_seconds must be between 0 and 5"
+            )
+        self._latency_sample_count = latency_sample_count
+        self._latency_sample_interval_seconds = latency_sample_interval_seconds
+        self._sleeper = sleeper
         if crawl_event_recorder is not None and not callable(
             getattr(self._client, "fetch_same_origin", None)
         ):
@@ -157,6 +179,7 @@ class HttpMetadataProbe:
             headers.setdefault(name, []).append(value)
         content_type = self._content_type(headers)
         html, homepage_links = self._html_analysis(homepage, content_type)
+        latency = self._collect_latency(context, homepage)
         robots_fetch = self._optional_fetch(context, "/robots.txt", kind="robots")
         sitemap_fetch = self._optional_fetch(context, "/sitemap.xml", kind="sitemap")
         payload = {
@@ -168,6 +191,7 @@ class HttpMetadataProbe:
             "redirect_count": homepage.redirect_count,
             "final_transport_secure": homepage.target.scheme == "https",
             "elapsed_milliseconds": round(homepage.elapsed_milliseconds, 3),
+            "latency": latency,
             "content_type": content_type,
             "format_family": self._format_family(content_type),
             "html": html,
@@ -184,7 +208,7 @@ class HttpMetadataProbe:
             probe_id=self.probe_id,
             tool_name=self.tool_name,
             tool_version=self.tool_version,
-            payload_schema_version="1.2",
+            payload_schema_version="1.3",
             payload=payload,
             truncated=response.truncated or html["truncated"],
         )
@@ -197,6 +221,149 @@ class HttpMetadataProbe:
             robots_fetch,
         )
         return (observation, crawl_observation)
+
+    def _collect_latency(
+        self,
+        context: ProbeContext,
+        homepage: HttpFetchResult,
+    ) -> dict[str, object]:
+        primary = self._latency_sample(homepage)
+        samples: list[dict[str, object]] = []
+        sample_request = replace(
+            context.request,
+            timeout_seconds=min(context.request.timeout_seconds, 3.0),
+            max_response_bytes=1,
+        )
+        sample_context = ProbeContext(
+            request=sample_request,
+            target=context.target,
+            policy=context.policy,
+            resolver=context.resolver,
+        )
+        for index in range(self._latency_sample_count):
+            if index:
+                self._sleeper(self._latency_sample_interval_seconds)
+            try:
+                samples.append(self._latency_sample(self._client.fetch(sample_context)))
+            except (HttpTransportError, ProbeValidationError, TimeoutError) as exc:
+                samples.append(self._failed_latency_sample(self._failure_class(exc)))
+
+        totals = [
+            float(sample["total_milliseconds"])
+            for sample in samples
+            if sample["outcome"] == "success"
+            and sample["total_milliseconds"] is not None
+        ]
+        sample_size = len(totals)
+        p95 = None
+        p95_null_reason = "minimum_20_successful_samples_required"
+        if sample_size >= 20:
+            ordered = sorted(totals)
+            p95 = ordered[max(0, int(0.95 * sample_size + 0.999999) - 1)]
+            p95_null_reason = None
+        return {
+            "primary": primary,
+            "profile": {
+                "method": "GET",
+                "response_byte_limit": 1,
+                "cache_state": "unknown",
+                "connection_reuse": False,
+                "interval_milliseconds": round(
+                    self._latency_sample_interval_seconds * 1000, 3
+                ),
+            },
+            "requested_samples": self._latency_sample_count,
+            "samples": samples,
+            "summary": {
+                "sample_size": sample_size,
+                "success_rate": round(sample_size / self._latency_sample_count, 6),
+                "minimum_milliseconds": round(min(totals), 3) if totals else None,
+                "maximum_milliseconds": round(max(totals), 3) if totals else None,
+                "median_milliseconds": round(statistics.median(totals), 3)
+                if totals
+                else None,
+                "sample_standard_deviation_milliseconds": (
+                    round(statistics.stdev(totals), 3) if sample_size >= 2 else None
+                ),
+                "sample_standard_deviation_null_reason": (
+                    None
+                    if sample_size >= 2
+                    else "minimum_2_successful_samples_required"
+                ),
+                "p95_milliseconds": round(p95, 3) if p95 is not None else None,
+                "p95_null_reason": p95_null_reason,
+            },
+        }
+
+    @staticmethod
+    def _latency_sample(result: HttpFetchResult) -> dict[str, object]:
+        timings = result.timings
+
+        def phase(name: str) -> tuple[float | None, str | None]:
+            values = [getattr(item, f"{name}_milliseconds") for item in timings]
+            if timings and all(value is not None for value in values):
+                return round(sum(float(value) for value in values), 3), None
+            reasons = {
+                getattr(item, f"{name}_null_reason")
+                for item in timings
+                if getattr(item, f"{name}_null_reason") is not None
+            }
+            return None, (
+                sorted(reasons)[0]
+                if reasons
+                else "fetcher_did_not_expose_phase_timing"
+            )
+
+        tcp, tcp_reason = phase("tcp")
+        tls, tls_reason = phase("tls")
+        ttfb, ttfb_reason = phase("ttfb")
+        families = sorted(
+            {item.address_family for item in timings if item.address_family is not None}
+        )
+        return {
+            "outcome": "success",
+            "status_code": result.response.status_code,
+            "total_milliseconds": round(result.elapsed_milliseconds, 3),
+            "dns_milliseconds": None,
+            "tcp_milliseconds": tcp,
+            "tls_milliseconds": tls,
+            "ttfb_milliseconds": ttfb,
+            "null_reasons": {
+                "dns": "resolution_precedes_transport_timer",
+                "tcp": tcp_reason,
+                "tls": tls_reason,
+                "ttfb": ttfb_reason,
+            },
+            "address_family": families[0] if len(families) == 1 else (
+                "mixed" if families else None
+            ),
+            "redirect_exchanges": (
+                len(timings) if timings else result.redirect_count + 1
+            ),
+        }
+
+    @staticmethod
+    def _failed_latency_sample(failure_class: str) -> dict[str, object]:
+        reason = f"sample_failed_{failure_class}"
+        return {
+            "outcome": "failure",
+            "failure_class": failure_class,
+            "status_code": None,
+            "total_milliseconds": None,
+            "dns_milliseconds": None,
+            "tcp_milliseconds": None,
+            "tls_milliseconds": None,
+            "ttfb_milliseconds": None,
+            "null_reasons": {
+                "total": reason,
+                "dns": reason,
+                "tcp": reason,
+                "tls": reason,
+                "ttfb": reason,
+            },
+            "address_family": None,
+            "redirect_exchanges": 0,
+        }
 
     def _optional_fetch(
         self, context: ProbeContext, path: str, *, kind: str

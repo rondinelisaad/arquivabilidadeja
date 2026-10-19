@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,7 @@ _DISCOVERY_PAYLOAD_KEYS = _EXPECTED_PAYLOAD_KEYS | {
     "robots",
     "sitemap",
 }
+_DISCOVERY_13_PAYLOAD_KEYS = _DISCOVERY_PAYLOAD_KEYS | {"latency"}
 _CONTENT_LENGTH_PATTERN = re.compile(r"^[0-9]{1,20}$")
 _MAX_CONTENT_LENGTH = (1 << 63) - 1
 _ALLOWED_HEADERS = frozenset(
@@ -219,7 +221,7 @@ def derive_http_metadata_indicators(
         ),
     ]
 
-    if observation.payload_schema_version == "1.2":
+    if observation.payload_schema_version in {"1.2", "1.3"}:
         html = payload["html"]
         robots = payload["robots"]
         sitemap = payload["sitemap"]
@@ -384,20 +386,82 @@ def derive_http_metadata_indicators(
             },
             "Context-only format inventory for the homepage response.",
         )
-        add(
-            "N01",
-            ResultState.CONTEXT,
-            "http-total-elapsed-time",
-            {
-                "total_milliseconds": payload["elapsed_milliseconds"],
-                "dns_milliseconds": None,
-                "tcp_milliseconds": None,
-                "tls_milliseconds": None,
-                "ttfb_milliseconds": None,
-                "sample_size": 1,
-            },
-            "Context-only total elapsed time for one bounded HTTP attempt.",
-        )
+        if observation.payload_schema_version == "1.3":
+            latency = payload["latency"]
+            primary = latency["primary"]
+            add(
+                "N01",
+                ResultState.CONTEXT,
+                "http-phase-timings",
+                {
+                    "timings": {
+                        "total_milliseconds": primary["total_milliseconds"],
+                        "dns_milliseconds": primary["dns_milliseconds"],
+                        "tcp_milliseconds": primary["tcp_milliseconds"],
+                        "tls_milliseconds": primary["tls_milliseconds"],
+                        "ttfb_milliseconds": primary["ttfb_milliseconds"],
+                    },
+                    "null_reasons": primary["null_reasons"],
+                    "connection_reuse": False,
+                    "probe_id": observation.probe_id,
+                    "address_family": primary["address_family"],
+                    "redirect_exchanges": primary["redirect_exchanges"],
+                },
+                "Context-only phase timings for the primary bounded HTTP attempt.",
+            )
+            summary = latency["summary"]
+            add(
+                "N02",
+                ResultState.CONTEXT
+                if summary["sample_size"] > 0
+                else ResultState.UNKNOWN,
+                "homogeneous-http-latency-distribution",
+                {
+                    "sample_size": summary["sample_size"],
+                    "requested_samples": latency["requested_samples"],
+                    "success_rate": summary["success_rate"],
+                    "statistics": {
+                        "minimum_milliseconds": summary["minimum_milliseconds"],
+                        "maximum_milliseconds": summary["maximum_milliseconds"],
+                        "median_milliseconds": summary["median_milliseconds"],
+                        "sample_standard_deviation_milliseconds": summary[
+                            "sample_standard_deviation_milliseconds"
+                        ],
+                        "p95_milliseconds": summary["p95_milliseconds"],
+                    },
+                    "null_reasons": {
+                        "sample_standard_deviation": summary[
+                            "sample_standard_deviation_null_reason"
+                        ],
+                        "p95": summary["p95_null_reason"],
+                    },
+                    "grouping_key": {
+                        "probe_id": observation.probe_id,
+                        "method": latency["profile"]["method"],
+                        "response_byte_limit": latency["profile"][
+                            "response_byte_limit"
+                        ],
+                        "cache_state": latency["profile"]["cache_state"],
+                        "connection_reuse": latency["profile"]["connection_reuse"],
+                    },
+                },
+                "Latency distribution for a bounded homogeneous sampling profile.",
+            )
+        else:
+            add(
+                "N01",
+                ResultState.CONTEXT,
+                "http-total-elapsed-time",
+                {
+                    "total_milliseconds": payload["elapsed_milliseconds"],
+                    "dns_milliseconds": None,
+                    "tcp_milliseconds": None,
+                    "tls_milliseconds": None,
+                    "ttfb_milliseconds": None,
+                    "sample_size": 1,
+                },
+                "Context-only total elapsed time for one bounded HTTP attempt.",
+            )
 
     if crawl_observation is not None:
         crawl_derivation = _derive_bounded_crawl_indicators(
@@ -536,9 +600,9 @@ def _validate_crawl_payload(
     http_observation: Observation,
     crawl_observation: Observation,
 ) -> Mapping[str, Any]:
-    if http_observation.payload_schema_version != "1.2":
+    if http_observation.payload_schema_version not in {"1.2", "1.3"}:
         raise HttpMetadataDerivationError(
-            "bounded crawl derivation requires HTTP metadata schema version 1.2"
+            "bounded crawl derivation requires HTTP metadata schema version 1.2 or 1.3"
         )
     payload = validate_bounded_crawl_observation(crawl_observation)
     if any(
@@ -752,12 +816,22 @@ def _printable_identifier(value: Any, field: str) -> None:
 
 
 def _validate_payload(observation: Observation) -> Mapping[str, Any]:
-    if observation.kind != "http_metadata" or observation.payload_schema_version not in {"1.1", "1.2"}:
+    if (
+        observation.kind != "http_metadata"
+        or observation.payload_schema_version not in {"1.1", "1.2", "1.3"}
+    ):
         raise HttpMetadataDerivationError(
-            "derivation requires an HTTP metadata observation with schema version 1.1 or 1.2"
+            "derivation requires an HTTP metadata observation with schema version "
+            "1.1, 1.2 or 1.3"
         )
     payload = observation.payload
-    expected = _DISCOVERY_PAYLOAD_KEYS if observation.payload_schema_version == "1.2" else _EXPECTED_PAYLOAD_KEYS
+    expected = (
+        _DISCOVERY_13_PAYLOAD_KEYS
+        if observation.payload_schema_version == "1.3"
+        else _DISCOVERY_PAYLOAD_KEYS
+        if observation.payload_schema_version == "1.2"
+        else _EXPECTED_PAYLOAD_KEYS
+    )
     if set(payload) != expected:
         raise HttpMetadataDerivationError("HTTP metadata payload fields are invalid")
     _integer(payload["status_code"], "status_code", 100, 599)
@@ -798,8 +872,10 @@ def _validate_payload(observation: Observation) -> Mapping[str, Any]:
             not isinstance(value, str) or len(value) > 8192 for value in values
         ):
             raise HttpMetadataDerivationError("header values must be immutable strings")
-    if observation.payload_schema_version == "1.2":
+    if observation.payload_schema_version in {"1.2", "1.3"}:
         _validate_discovery_payload(payload)
+    if observation.payload_schema_version == "1.3":
+        _validate_latency_payload(payload["latency"])
     return payload
 
 
@@ -840,6 +916,174 @@ def _validate_discovery_payload(payload: Mapping[str, Any]) -> None:
         _integer(value["item_count"], f"{name}.item_count", 0, 1000)
         if value["parseable"] not in {True, False, None} or not isinstance(value["truncated"], bool):
             raise HttpMetadataDerivationError(f"{name} flags are invalid")
+
+
+def _validate_latency_payload(value: Any) -> None:
+    if not isinstance(value, Mapping) or set(value) != {
+        "primary",
+        "profile",
+        "requested_samples",
+        "samples",
+        "summary",
+    }:
+        raise HttpMetadataDerivationError("latency payload is invalid")
+    profile = value["profile"]
+    if not isinstance(profile, Mapping) or set(profile) != {
+        "method",
+        "response_byte_limit",
+        "cache_state",
+        "connection_reuse",
+        "interval_milliseconds",
+    }:
+        raise HttpMetadataDerivationError("latency profile is invalid")
+    if (
+        profile["method"] != "GET"
+        or profile["cache_state"] != "unknown"
+        or profile["connection_reuse"] is not False
+    ):
+        raise HttpMetadataDerivationError("latency profile is unsupported")
+    _integer(profile["response_byte_limit"], "response_byte_limit", 1, 1024)
+    _number(profile["interval_milliseconds"], "interval_milliseconds", 0, 5000)
+    _integer(value["requested_samples"], "requested_samples", 1, 20)
+    samples = value["samples"]
+    if not isinstance(samples, tuple) or len(samples) != value["requested_samples"]:
+        raise HttpMetadataDerivationError("latency samples are inconsistent")
+    _validate_latency_sample(value["primary"], allow_failure=False)
+    successful_totals: list[float] = []
+    for sample in samples:
+        _validate_latency_sample(sample, allow_failure=True)
+        if sample["outcome"] == "success":
+            successful_totals.append(float(sample["total_milliseconds"]))
+    summary = value["summary"]
+    if not isinstance(summary, Mapping) or set(summary) != {
+        "sample_size",
+        "success_rate",
+        "minimum_milliseconds",
+        "maximum_milliseconds",
+        "median_milliseconds",
+        "sample_standard_deviation_milliseconds",
+        "sample_standard_deviation_null_reason",
+        "p95_milliseconds",
+        "p95_null_reason",
+    }:
+        raise HttpMetadataDerivationError("latency summary is invalid")
+    _integer(summary["sample_size"], "sample_size", 0, 20)
+    _number(summary["success_rate"], "success_rate", 0, 1)
+    if summary["sample_size"] != len(successful_totals):
+        raise HttpMetadataDerivationError("latency sample size is inconsistent")
+    expected_rate = round(len(successful_totals) / value["requested_samples"], 6)
+    if summary["success_rate"] != expected_rate:
+        raise HttpMetadataDerivationError("latency success rate is inconsistent")
+    for field in (
+        "minimum_milliseconds", "maximum_milliseconds", "median_milliseconds",
+        "sample_standard_deviation_milliseconds", "p95_milliseconds",
+    ):
+        if summary[field] is not None:
+            _number(summary[field], field, 0, 120_000)
+    expected_minimum = round(min(successful_totals), 3) if successful_totals else None
+    expected_maximum = round(max(successful_totals), 3) if successful_totals else None
+    expected_median = (
+        round(statistics.median(successful_totals), 3)
+        if successful_totals
+        else None
+    )
+    expected_deviation = (
+        round(statistics.stdev(successful_totals), 3)
+        if len(successful_totals) >= 2
+        else None
+    )
+    if (
+        summary["minimum_milliseconds"] != expected_minimum
+        or summary["maximum_milliseconds"] != expected_maximum
+        or summary["median_milliseconds"] != expected_median
+        or summary["sample_standard_deviation_milliseconds"]
+        != expected_deviation
+    ):
+        raise HttpMetadataDerivationError("latency statistics are inconsistent")
+    expected_deviation_reason = (
+        None
+        if len(successful_totals) >= 2
+        else "minimum_2_successful_samples_required"
+    )
+    if (
+        summary["sample_standard_deviation_null_reason"]
+        != expected_deviation_reason
+    ):
+        raise HttpMetadataDerivationError("latency deviation policy is inconsistent")
+    if len(successful_totals) < 20:
+        if (
+            summary["p95_milliseconds"] is not None
+            or summary["p95_null_reason"]
+            != "minimum_20_successful_samples_required"
+        ):
+            raise HttpMetadataDerivationError("latency p95 policy is inconsistent")
+    else:
+        ordered = sorted(successful_totals)
+        expected_p95 = round(
+            ordered[max(0, int(0.95 * len(ordered) + 0.999999) - 1)],
+            3,
+        )
+        if (
+            summary["p95_milliseconds"] != expected_p95
+            or summary["p95_null_reason"] is not None
+        ):
+            raise HttpMetadataDerivationError("latency p95 is inconsistent")
+
+
+def _validate_latency_sample(value: Any, *, allow_failure: bool) -> None:
+    if not isinstance(value, Mapping):
+        raise HttpMetadataDerivationError("latency sample is invalid")
+    common = {
+        "outcome",
+        "status_code",
+        "total_milliseconds",
+        "dns_milliseconds",
+        "tcp_milliseconds",
+        "tls_milliseconds",
+        "ttfb_milliseconds",
+        "null_reasons",
+        "address_family",
+        "redirect_exchanges",
+    }
+    outcome = value.get("outcome")
+    expected = common | ({"failure_class"} if outcome == "failure" else set())
+    if set(value) != expected or outcome not in {"success", "failure"}:
+        raise HttpMetadataDerivationError("latency sample fields are invalid")
+    if outcome == "failure" and not allow_failure:
+        raise HttpMetadataDerivationError("primary latency sample must succeed")
+    if outcome == "success":
+        _integer(value["status_code"], "status_code", 100, 599)
+        _number(value["total_milliseconds"], "total_milliseconds", 0, 120_000)
+    else:
+        if value["status_code"] is not None or value["total_milliseconds"] is not None:
+            raise HttpMetadataDerivationError("failed latency sample is inconsistent")
+        if value["failure_class"] not in {
+            "dns", "network", "policy", "timeout", "tls", "tool"
+        }:
+            raise HttpMetadataDerivationError("latency failure class is invalid")
+    for field in (
+        "dns_milliseconds",
+        "tcp_milliseconds",
+        "tls_milliseconds",
+        "ttfb_milliseconds",
+    ):
+        if value[field] is not None:
+            _number(value[field], field, 0, 120_000)
+    if value["address_family"] not in {None, "ipv4", "ipv6", "mixed"}:
+        raise HttpMetadataDerivationError("latency address family is invalid")
+    _integer(value["redirect_exchanges"], "redirect_exchanges", 0, 6)
+    reasons = value["null_reasons"]
+    if not isinstance(reasons, Mapping):
+        raise HttpMetadataDerivationError("latency null reasons are invalid")
+    for phase, timing_field in (
+        ("dns", "dns_milliseconds"),
+        ("tcp", "tcp_milliseconds"),
+        ("tls", "tls_milliseconds"),
+        ("ttfb", "ttfb_milliseconds"),
+    ):
+        reason = reasons.get(phase)
+        if (value[timing_field] is None) != (isinstance(reason, str) and bool(reason)):
+            raise HttpMetadataDerivationError("latency null reason is inconsistent")
 
 
 def _auxiliary_state(
@@ -912,9 +1156,11 @@ def _evidence(
     data: Mapping[str, Any],
     summary: str,
 ) -> Evidence:
-    method_version = (
-        "1.1.0" if observation.payload_schema_version == "1.2" else "1.0.0"
-    )
+    method_version = {
+        "1.1": "1.0.0",
+        "1.2": "1.1.0",
+        "1.3": "1.2.0",
+    }[observation.payload_schema_version]
     identifier_version = method_version.replace(".", "-")
     return Evidence.create(
         evidence_id=(

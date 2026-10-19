@@ -7,6 +7,7 @@ from archivability.probes.execution import (
 from archivability.probes.http import (
     HttpFetchResult,
     HttpResponse,
+    HttpTiming,
     HttpTransportError,
     PinnedHttpClient,
 )
@@ -15,7 +16,6 @@ from archivability.probes.http_metadata import (
     HttpFetcher,
     HttpMetadataProbe,
 )
-
 from archivability.probes.models import (
     ApprovedTarget,
     ProbeContext,
@@ -30,8 +30,8 @@ from archivability.probes.ports import (
     ProbeExecutionRepository,
     ProbeRequestAuthorizer,
 )
-from archivability.probes.runner import ProbeRunner
 from archivability.probes.resolver import SystemAddressResolver
+from archivability.probes.runner import ProbeRunner
 from archivability.probes.security import SsrfPolicy
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "HttpFetcher",
     "HttpMetadataProbe",
     "HttpResponse",
+    "HttpTiming",
     "HttpTransportError",
     "PinnedHttpClient",
     "Probe",

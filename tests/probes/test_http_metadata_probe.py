@@ -208,12 +208,12 @@ class HttpMetadataProbeTests(unittest.TestCase):
 
         result = self.runner.run(self.request, probe)
 
-        self.assertEqual(3, len(fetcher.contexts))
+        self.assertEqual(8, len(fetcher.contexts))
         observation = result.observations[0]
         self.assertEqual("observation-http-1", observation.observation_id)
         self.assertEqual("http_metadata", observation.kind)
         self.assertEqual("probe-br-sp-http", observation.probe_id)
-        self.assertEqual("1.2", observation.payload_schema_version)
+        self.assertEqual("1.3", observation.payload_schema_version)
         self.assertEqual(200, observation.payload["status_code"])
         self.assertEqual(5 * 1024 * 1024, observation.payload["response_byte_limit"])
         self.assertEqual(1, observation.payload["redirect_count"])
@@ -222,6 +222,12 @@ class HttpMetadataProbeTests(unittest.TestCase):
         self.assertEqual("html", observation.payload["format_family"])
         self.assertIn("robots", observation.payload)
         self.assertIn("sitemap", observation.payload)
+        self.assertEqual(5, observation.payload["latency"]["requested_samples"])
+        self.assertEqual(5, observation.payload["latency"]["summary"]["sample_size"])
+        self.assertEqual(
+            "minimum_20_successful_samples_required",
+            observation.payload["latency"]["summary"]["p95_null_reason"],
+        )
         self.assertTrue(observation.truncated)
         serialized = json.dumps(observation.to_dict())
         self.assertNotIn("body-must-not-be-persisted", serialized)
@@ -233,7 +239,7 @@ class HttpMetadataProbeTests(unittest.TestCase):
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted(directory.glob("*.schema.json"))
         ]
-        self.assertEqual(4, len(documents))
+        self.assertEqual(5, len(documents))
         self.assertTrue(all(document["type"] == "object" for document in documents))
         self.assertTrue(
             all(document["additionalProperties"] is False for document in documents)

@@ -228,13 +228,33 @@ class PinnedHttpClientTests(unittest.TestCase):
                 b"HTTP/1.1 302 Found\r\nLocation: http://redirect.example/final\r\nContent-Length: 0\r\n\r\n"
             ]
         )
-        times = iter((0.0, 0.1, 0.2, 2.1))
+        times = iter((0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 2.2))
 
         with self.assertRaisesRegex(HttpTransportError, "TimeoutError"):
             PinnedHttpClient(socket_factory=sockets, clock=lambda: next(times)).fetch(
                 context
             )
         self.assertEqual(1, len(sockets.calls))
+
+    def test_records_transport_phases_without_retaining_connected_ip(self) -> None:
+        resolver = StaticResolver({"example.org": (PUBLIC_V4,)})
+        context = make_context("http://example.org/", resolver)
+        sockets = FakeSocketFactory(
+            [b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"]
+        )
+        ticks = iter(index / 1000 for index in range(20))
+
+        result = PinnedHttpClient(
+            socket_factory=sockets,
+            clock=lambda: next(ticks),
+        ).fetch(context)
+
+        self.assertEqual(1, len(result.timings))
+        timing = result.timings[0]
+        self.assertEqual("ipv4", timing.address_family)
+        self.assertIsNotNone(timing.tcp_milliseconds)
+        self.assertEqual("not_applicable_plain_http", timing.tls_null_reason)
+        self.assertNotIn(PUBLIC_V4, repr(timing))
 
     def test_rejects_private_redirect_before_connecting_to_it(self) -> None:
         resolver = StaticResolver({"example.org": (PUBLIC_V4,)})

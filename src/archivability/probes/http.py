@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import re
 import socket
 import ssl
@@ -70,11 +71,50 @@ class HttpResponse:
 
 
 @dataclass(frozen=True, slots=True)
+class HttpTiming:
+    """Timing for one network exchange without retaining the connected address."""
+
+    total_milliseconds: float
+    tcp_milliseconds: float | None
+    tls_milliseconds: float | None
+    ttfb_milliseconds: float | None
+    address_family: str | None
+    tcp_null_reason: str | None = None
+    tls_null_reason: str | None = None
+    ttfb_null_reason: str | None = None
+    connection_reused: bool = False
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("total", self.total_milliseconds),
+            ("tcp", self.tcp_milliseconds),
+            ("tls", self.tls_milliseconds),
+            ("ttfb", self.ttfb_milliseconds),
+        ):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0 <= value <= 120_000
+            ):
+                raise HttpTransportError(f"HTTP {field} timing is invalid")
+        if self.address_family not in {None, "ipv4", "ipv6"}:
+            raise HttpTransportError("HTTP address family is invalid")
+        for value, reason in (
+            (self.tcp_milliseconds, self.tcp_null_reason),
+            (self.tls_milliseconds, self.tls_null_reason),
+            (self.ttfb_milliseconds, self.ttfb_null_reason),
+        ):
+            if (value is None) != (reason is not None):
+                raise HttpTransportError("HTTP timing null reason is inconsistent")
+
+
+@dataclass(frozen=True, slots=True)
 class HttpFetchResult:
     target: ApprovedTarget
     response: HttpResponse
     redirect_count: int
     elapsed_milliseconds: float = 0.0
+    timings: tuple[HttpTiming, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.redirect_count, int) or self.redirect_count < 0:
@@ -85,6 +125,10 @@ class HttpFetchResult:
             or not 0 <= self.elapsed_milliseconds <= 120_000
         ):
             raise HttpTransportError("HTTP elapsed time is invalid")
+        if not isinstance(self.timings, tuple) or any(
+            not isinstance(item, HttpTiming) for item in self.timings
+        ):
+            raise HttpTransportError("HTTP timings must be an immutable tuple")
 
 
 SocketFactory = Callable[..., socket.socket]
@@ -95,6 +139,7 @@ Clock = Callable[[], float]
 class _ExchangeResult:
     response: HttpResponse
     redirect_location: str | None
+    timing: HttpTiming
 
 
 class PinnedHttpClient:
@@ -135,8 +180,10 @@ class PinnedHttpClient:
         started_at = self._clock()
         current = context
         deadline = self._clock() + context.request.timeout_seconds
+        timings: list[HttpTiming] = []
         while True:
             exchange = self._exchange(current, deadline)
+            timings.append(exchange.timing)
             if exchange.redirect_location is None:
                 return HttpFetchResult(
                     target=current.target,
@@ -145,6 +192,7 @@ class PinnedHttpClient:
                     elapsed_milliseconds=max(
                         0.0, (self._clock() - started_at) * 1000
                     ),
+                    timings=tuple(timings),
                 )
             redirected = current.redirect(exchange.redirect_location)
             if required_origin is not None and self._origin(redirected.target) != required_origin:
@@ -166,12 +214,16 @@ class PinnedHttpClient:
 
     def _exchange(self, context: ProbeContext, deadline: float) -> _ExchangeResult:
         target = context.target
+        exchange_started_at = self._clock()
+        metrics: dict[str, object] = {}
         connection = http.client.HTTPConnection(
             target.hostname,
             target.port,
             timeout=context.request.timeout_seconds,
         )
-        connection._create_connection = self._connector(target, deadline)  # type: ignore[attr-defined]
+        connection._create_connection = self._connector(  # type: ignore[attr-defined]
+            target, deadline, metrics
+        )
         response: http.client.HTTPResponse | None = None
         try:
             request_target = self._request_target(target)
@@ -188,6 +240,7 @@ class PinnedHttpClient:
             self._set_remaining_timeout(connection.sock, deadline)
             network_socket = connection.sock
             response = connection.getresponse()
+            headers_received_at = self._clock()
             location = response.getheader("Location")
             is_redirect = response.status in _REDIRECT_STATUSES and location is not None
             headers = self._safe_headers(response.getheaders())
@@ -201,6 +254,8 @@ class PinnedHttpClient:
                     context.request.max_response_bytes,
                     deadline,
                 )
+            completed_at = self._clock()
+            tls_milliseconds = metrics.get("tls_milliseconds")
             return _ExchangeResult(
                 response=HttpResponse(
                     status_code=response.status,
@@ -210,6 +265,32 @@ class PinnedHttpClient:
                     truncated=truncated,
                 ),
                 redirect_location=location if is_redirect else None,
+                timing=HttpTiming(
+                    total_milliseconds=max(
+                        0.0, (completed_at - exchange_started_at) * 1000
+                    ),
+                    tcp_milliseconds=self._metric(metrics, "tcp_milliseconds"),
+                    tls_milliseconds=self._metric(metrics, "tls_milliseconds"),
+                    ttfb_milliseconds=max(
+                        0.0, (headers_received_at - exchange_started_at) * 1000
+                    ),
+                    address_family=self._string_metric(metrics, "address_family"),
+                    tcp_null_reason=(
+                        None
+                        if "tcp_milliseconds" in metrics
+                        else "connection_phase_not_observed"
+                    ),
+                    tls_null_reason=(
+                        None
+                        if tls_milliseconds is not None
+                        else (
+                            "not_applicable_plain_http"
+                            if target.scheme == "http"
+                            else "tls_phase_not_observed"
+                        )
+                    ),
+                    ttfb_null_reason=None,
+                ),
             )
         except (OSError, ssl.SSLError, http.client.HTTPException, UnicodeError) as exc:
             raise HttpTransportError(type(exc).__name__) from exc
@@ -222,6 +303,7 @@ class PinnedHttpClient:
         self,
         target: ApprovedTarget,
         deadline: float,
+        metrics: dict[str, object],
     ) -> Callable[..., socket.socket]:
         def connect(
             _authority: tuple[str, int],
@@ -232,6 +314,7 @@ class PinnedHttpClient:
             last_error: OSError | None = None
             for address in target.addresses:
                 remaining = self._remaining(deadline)
+                connect_started_at = self._clock()
                 try:
                     raw_socket = self._socket_factory(
                         (address, target.port),
@@ -241,9 +324,22 @@ class PinnedHttpClient:
                 except OSError as exc:
                     last_error = exc
                     continue
+                metrics["tcp_milliseconds"] = max(
+                    0.0, (self._clock() - connect_started_at) * 1000
+                )
+                metrics["address_family"] = (
+                    "ipv4"
+                    if ipaddress.ip_address(address).version == 4
+                    else "ipv6"
+                )
                 if target.scheme == "https":
                     try:
-                        return self._wrap_tls(raw_socket, target.hostname)
+                        tls_started_at = self._clock()
+                        wrapped = self._wrap_tls(raw_socket, target.hostname)
+                        metrics["tls_milliseconds"] = max(
+                            0.0, (self._clock() - tls_started_at) * 1000
+                        )
+                        return wrapped
                     except Exception:
                         raw_socket.close()
                         raise
@@ -251,6 +347,16 @@ class PinnedHttpClient:
             raise HttpTransportError("all approved addresses failed") from last_error
 
         return connect
+
+    @staticmethod
+    def _metric(metrics: dict[str, object], name: str) -> float | None:
+        value = metrics.get(name)
+        return float(value) if isinstance(value, (int, float)) else None
+
+    @staticmethod
+    def _string_metric(metrics: dict[str, object], name: str) -> str | None:
+        value = metrics.get(name)
+        return value if isinstance(value, str) else None
 
     def _wrap_tls(self, raw_socket: socket.socket, hostname: str) -> socket.socket:
         return self._ssl_context.wrap_socket(raw_socket, server_hostname=hostname)

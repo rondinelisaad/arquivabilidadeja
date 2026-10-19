@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arquivabilidade.ja/schemas/probes/v1/http-metadata-1.3.schema.json",
+  "title": "Bounded HTTP discovery and latency observation payload 1.3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status_code", "headers", "response_bytes_observed", "response_byte_limit",
+    "response_truncated", "redirect_count", "final_transport_secure",
+    "elapsed_milliseconds", "latency", "content_type", "format_family", "html",
+    "robots", "sitemap"
+  ],
+  "properties": {
+    "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+    "headers": {"type": "object"},
+    "response_bytes_observed": {"type": "integer", "minimum": 0, "maximum": 10485760},
+    "response_byte_limit": {"type": "integer", "minimum": 1, "maximum": 10485760},
+    "response_truncated": {"type": "boolean"},
+    "redirect_count": {"type": "integer", "minimum": 0, "maximum": 5},
+    "final_transport_secure": {"type": "boolean"},
+    "elapsed_milliseconds": {"type": "number", "minimum": 0, "maximum": 120000},
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "profile", "requested_samples", "samples", "summary"],
+      "properties": {
+        "primary": {"$ref": "#/$defs/successSample"},
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "response_byte_limit", "cache_state", "connection_reuse", "interval_milliseconds"],
+          "properties": {
+            "method": {"const": "GET"},
+            "response_byte_limit": {"type": "integer", "minimum": 1, "maximum": 1024},
+            "cache_state": {"const": "unknown"},
+            "connection_reuse": {"const": false},
+            "interval_milliseconds": {"type": "number", "minimum": 0, "maximum": 5000}
+          }
+        },
+        "requested_samples": {"type": "integer", "minimum": 1, "maximum": 20},
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {"oneOf": [{"$ref": "#/$defs/successSample"}, {"$ref": "#/$defs/failureSample"}]}
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sample_size", "success_rate", "minimum_milliseconds", "maximum_milliseconds",
+            "median_milliseconds", "sample_standard_deviation_milliseconds",
+            "sample_standard_deviation_null_reason", "p95_milliseconds", "p95_null_reason"
+          ],
+          "properties": {
+            "sample_size": {"type": "integer", "minimum": 0, "maximum": 20},
+            "success_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "minimum_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+            "maximum_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+            "median_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+            "sample_standard_deviation_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+            "sample_standard_deviation_null_reason": {"type": ["string", "null"]},
+            "p95_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+            "p95_null_reason": {"type": ["string", "null"]}
+          }
+        }
+      }
+    },
+    "content_type": {"type": ["string", "null"], "maxLength": 255},
+    "format_family": {"enum": ["html", "xml", "css", "javascript", "image", "pdf", "audio", "video", "font", "other", "unknown"]},
+    "html": {"$ref": "http-metadata-1.2.schema.json#/properties/html"},
+    "robots": {"$ref": "http-metadata-1.2.schema.json#/$defs/auxiliary"},
+    "sitemap": {"$ref": "http-metadata-1.2.schema.json#/$defs/auxiliary"}
+  },
+  "$defs": {
+    "phaseNullReasons": {
+      "type": "object",
+      "properties": {
+        "total": {"type": ["string", "null"]},
+        "dns": {"type": ["string", "null"]},
+        "tcp": {"type": ["string", "null"]},
+        "tls": {"type": ["string", "null"]},
+        "ttfb": {"type": ["string", "null"]}
+      },
+      "required": ["dns", "tcp", "tls", "ttfb"],
+      "additionalProperties": false
+    },
+    "sampleBase": {
+      "type": "object",
+      "required": [
+        "outcome", "status_code", "total_milliseconds", "dns_milliseconds",
+        "tcp_milliseconds", "tls_milliseconds", "ttfb_milliseconds", "null_reasons",
+        "address_family", "redirect_exchanges"
+      ],
+      "properties": {
+        "status_code": {"type": ["integer", "null"], "minimum": 100, "maximum": 599},
+        "total_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+        "dns_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+        "tcp_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+        "tls_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+        "ttfb_milliseconds": {"type": ["number", "null"], "minimum": 0, "maximum": 120000},
+        "null_reasons": {"$ref": "#/$defs/phaseNullReasons"},
+        "address_family": {"enum": ["ipv4", "ipv6", "mixed", null]},
+        "redirect_exchanges": {"type": "integer", "minimum": 0, "maximum": 6}
+      }
+    },
+    "successSample": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/sampleBase"},
+        {"type": "object", "properties": {"outcome": {"const": "success"}}, "required": ["outcome"]}
+      ]
+    },
+    "failureSample": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/sampleBase"},
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {"const": "failure"},
+            "failure_class": {"enum": ["dns", "network", "policy", "timeout", "tls", "tool"]}
+          },
+          "required": ["outcome", "failure_class"]
+        }
+      ]
+    }
+  }
+}
