@@ -469,6 +469,7 @@ class AnalysisHistoryEntry:
     finished_at: datetime | None
     overall_state: str | None
     dimensions: Mapping[str, Mapping[str, Any]]
+    probe_ids: tuple[str, ...]
 
     @classmethod
     def from_report(cls, report: AnalysisReport) -> AnalysisHistoryEntry:
@@ -491,6 +492,15 @@ class AnalysisHistoryEntry:
             finished_at=report.finished_at,
             overall_state=(assessment.overall_state.value if assessment else None),
             dimensions=_freeze_report_json(dimensions),
+            probe_ids=tuple(
+                sorted(
+                    {
+                        probe_id
+                        for result in report.indicator_results
+                        for probe_id in result.probe_ids
+                    }
+                )
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -506,6 +516,7 @@ class AnalysisHistoryEntry:
             "dimensions": {
                 key: dict(value) for key, value in self.dimensions.items()
             },
+            "probe_ids": list(self.probe_ids),
         }
 
 
@@ -688,6 +699,8 @@ class AnalysisReportService:
                     == current_snapshot.analysis.methodology_id
                     and candidate.analysis.methodology_version
                     == current_snapshot.analysis.methodology_version
+                    and self._snapshot_probe_ids(candidate)
+                    == self._snapshot_probe_ids(current_snapshot)
                     and candidate.analysis.state
                     in {
                         AnalysisState.COMPLETED,
@@ -881,7 +894,7 @@ class AnalysisReportService:
             )
         )
         return AnalysisComparison(
-            comparison_schema_version="1.0",
+            comparison_schema_version="1.1",
             baseline=AnalysisHistoryEntry.from_report(baseline),
             current=AnalysisHistoryEntry.from_report(current),
             classification="observed_change" if changes else "no_observed_change",
@@ -891,6 +904,14 @@ class AnalysisReportService:
                 "Only analyses with identical target, methodology and version are compared.",
                 "A single changed run is not classified as a structural website change.",
             ),
+        )
+
+    @staticmethod
+    def _snapshot_probe_ids(snapshot: AnalysisReportSnapshot) -> frozenset[str]:
+        return frozenset(
+            probe_id
+            for result in snapshot.indicator_results
+            for probe_id in result.probe_ids
         )
 
     @staticmethod

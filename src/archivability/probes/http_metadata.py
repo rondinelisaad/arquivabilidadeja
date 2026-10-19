@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import ssl
 import time
 import uuid
@@ -46,6 +47,7 @@ MonotonicClock = Callable[[], float]
 IdentifierFactory = Callable[[], str]
 _MAX_DISCOVERED_LINKS = 1000
 _MAX_XML_LOCATIONS = 1000
+_PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +125,11 @@ class HttpMetadataProbe:
         crawl_limits: CrawlLimits = CrawlLimits(),
         crawl_event_recorder: CrawlEventRecorder | None = None,
         crawl_audit: AuditContext = AuditContext(),
+        probe_id: str = "http-metadata",
     ) -> None:
+        if not isinstance(probe_id, str) or not _PROBE_ID_PATTERN.fullmatch(probe_id):
+            raise ProbeValidationError("probe_id is invalid")
+        self.probe_id = probe_id
         self._client = client if client is not None else PinnedHttpClient()
         self._clock = clock
         self._monotonic_clock = monotonic_clock

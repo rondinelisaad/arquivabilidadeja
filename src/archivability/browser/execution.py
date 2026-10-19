@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from archivability.storage.audit import AuditContext
 from archivability.storage.errors import PersistenceError
 
 IdentifierFactory = Callable[[], str]
+_PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,10 +34,14 @@ class BrowserExecutionService:
         renderer: BrowserRenderer,
         repository: BrowserExecutionRepository,
         observation_id_factory: IdentifierFactory = lambda: str(uuid.uuid4()),
+        probe_id: str = "browser-render",
     ) -> None:
+        if not isinstance(probe_id, str) or not _PROBE_ID_PATTERN.fullmatch(probe_id):
+            raise BrowserContractError("probe_id is invalid")
         self._renderer = renderer
         self._repository = repository
         self._observation_id_factory = observation_id_factory
+        self._probe_id = probe_id
 
     def execute(
         self,
@@ -127,7 +133,7 @@ class BrowserExecutionService:
             kind="browser_render",
             subject_uri=request.subject_uri,
             observed_at=result.finished_at,
-            probe_id="browser-render",
+            probe_id=self._probe_id,
             tool_name=result.engine_name,
             tool_version=result.engine_version,
             payload_schema_version="1.0",

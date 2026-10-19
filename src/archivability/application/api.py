@@ -427,7 +427,7 @@ class AnalysisApi:
             operation="history",
             status_code=200,
             body={
-                "history_schema_version": "1.0",
+                "history_schema_version": "1.1",
                 "items": [item.to_dict() for item in history],
             },
             result="success",

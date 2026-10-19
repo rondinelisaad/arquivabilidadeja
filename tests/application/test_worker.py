@@ -68,6 +68,7 @@ class WorkerSettingsTests(unittest.TestCase):
 
         self.assertEqual(250, settings.poll_interval_milliseconds)
         self.assertTrue(settings.worker_id)
+        self.assertEqual("probe-local", settings.probe_id)
         self.assertNotIn(settings.database_dsn, repr(settings))
 
     def test_invalid_worker_limits_are_rejected(self) -> None:

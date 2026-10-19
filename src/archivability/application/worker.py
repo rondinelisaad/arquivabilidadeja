@@ -40,6 +40,7 @@ from archivability.storage.audit import AuditContext
 from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobRepository
 
 _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,117}$")
 
 
 class WorkerLifecycleRecorder(Protocol):
@@ -82,6 +83,7 @@ class WorkerSettings:
     database_dsn: str = field(repr=False)
     methodology_path: Path
     worker_id: str
+    probe_id: str = "probe-local"
     poll_interval_milliseconds: int = 500
     lease_seconds: int = 300
     retry_base_seconds: int = 30
@@ -106,6 +108,10 @@ class WorkerSettings:
             self.worker_id
         ):
             raise RuntimeConfigurationError("worker ID is invalid")
+        if not isinstance(self.probe_id, str) or not _PROBE_ID_PATTERN.fullmatch(
+            self.probe_id
+        ):
+            raise RuntimeConfigurationError("probe ID is invalid")
         ProductionSettings._bounded_int(
             "poll_interval_milliseconds",
             self.poll_interval_milliseconds,
@@ -143,6 +149,7 @@ class WorkerSettings:
                 ProductionSettings._required(values, "ARCHIVABILITY_METHODOLOGY_PATH")
             ),
             worker_id=worker_id,
+            probe_id=values.get("ARCHIVABILITY_PROBE_ID", "probe-local"),
             poll_interval_milliseconds=ProductionSettings._optional_int(
                 values, "ARCHIVABILITY_WORKER_POLL_MILLISECONDS", 500
             ),
@@ -294,6 +301,7 @@ def run_production_worker(
             probe=HttpMetadataProbe(
                 crawl_event_recorder=repository,
                 crawl_audit=AuditContext(user_id=settings.worker_id),
+                probe_id=f"{settings.probe_id}-http",
             ),
             browser_queue=BrowserQueueService(repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
@@ -305,6 +313,7 @@ def run_production_worker(
             execution=BrowserExecutionService(
                 renderer=LoopbackBrowserRenderer(settings.browser_renderer_endpoint),
                 repository=repository,
+                probe_id=f"{settings.probe_id}-browser",
             ),
             assessment_queue=HttpAssessmentQueueService(repository=repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
