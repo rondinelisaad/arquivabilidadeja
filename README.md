@@ -17,6 +17,7 @@ A fundação segura, a análise HTTP/crawl e a etapa de browser isolado estão i
 - [Fase 5 — scoring e relatório](docs/fase-5-scoring-relatorio.md)
 - [Fase 6 — protocolo de validação científica](docs/fase-6-validacao-cientifica.md)
 - [Fase 7 — escala operacional e probes](docs/fase-7-escala-probes.md)
+- [Estado de entrega e bloqueios de release](docs/estado-entrega.md)
 - [Interface Web](docs/interface-web.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
