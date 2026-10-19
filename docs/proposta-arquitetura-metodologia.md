@@ -507,6 +507,8 @@ Atualização de encerramento técnico em 2026-10-18: a Fase 6 possui protocolo,
 
 Atualização do contrato público em 2026-10-18: metodologia e as 45 definições possuem projeções API e Web derivadas da mesma fonte versionada. A série `GET /v1/sites/{domain}/history` foi implementada como consulta privada por hostname normalizado exato, estratificada por metodologia e conjunto de probes, sem agregação implícita de subdomínios nem registro do domínio na auditoria.
 
+O contrato operacional também está publicado em `GET /openapi.json` como OpenAPI 3.1, com autenticação Bearer JWT, schemas fechados para escrita e teste automatizado de correspondência das rotas implementadas.
+
 ### 16.1 Estratégia de testes
 
 - Testes unitários para normalização, classificação de IP, parsing, derivação, cobertura e fórmulas.

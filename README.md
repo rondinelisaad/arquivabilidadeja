@@ -251,6 +251,8 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `GET /v1/methodology` publica a identidade, versão, hash da fonte, dimensões, regras de scoring, gates e limitações da mesma configuração carregada pelo motor. `GET /v1/indicators` publica as 45 definições e aceita filtros exatos `version`, `dimension` e `classification`; `GET /v1/indicators/{id-ou-slug}` entrega a documentação individual. Essas leituras exigem `analysis:read` ou `analysis:read:any`, têm rate limit próprio e geram auditoria sem copiar o conteúdo metodológico.
 
+`GET /openapi.json` publica o contrato OpenAPI 3.1 das operações efetivamente implementadas. A especificação declara autenticação Bearer JWT, schemas fechados e limites das entradas de criação unitária e em lote. A leitura exige permissão de análise, compartilha o rate limit metodológico e gera `access.analysis_api_openapi_read`.
+
 ## Interface Web
 
 `GET /` serve uma interface responsiva e sem dependências de frontend. Depois da autenticação, a página inicial pede somente a URL; o navegador cria a análise pelo contrato JSON existente e acompanha coleta, browser e derivação até o relatório terminal. A mesma interface lista histórico, exibe dimensões/cobertura e indicadores, solicita comparação compatível e baixa o snapshot canônico.
