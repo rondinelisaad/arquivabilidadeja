@@ -561,6 +561,17 @@ def _derive_bounded_crawl_indicators(
     else:
         retrieval_state = ResultState.FAIL
 
+    enqueued = summary["enqueued"]
+    campaign_success_rate = successful / enqueued if enqueued else None
+    if campaign_success_rate is None:
+        campaign_state = ResultState.UNKNOWN
+    elif campaign_success_rate == 1:
+        campaign_state = ResultState.PASS
+    elif campaign_success_rate >= 0.8:
+        campaign_state = ResultState.WARNING
+    else:
+        campaign_state = ResultState.FAIL
+
     items = (
         (
             "D03",
@@ -639,6 +650,24 @@ def _derive_bounded_crawl_indicators(
                 "threshold_basis": "project_hypothesis_v1",
             },
             "Retrieval success rate for one bounded same-origin crawl attempt.",
+        ),
+        (
+            "O07",
+            campaign_state,
+            "bounded-crawl-campaign-success",
+            {
+                "success_rate": campaign_success_rate,
+                "successful": successful,
+                "enqueued": enqueued,
+                "resource_classes": {"same_origin_url": enqueued},
+                "scope": "same_origin_bounded",
+                "budgets": dict(limits),
+                "termination_reason": summary["termination_reason"],
+                "discard_reasons": dict(discarded),
+                "attempt_count": 1,
+                "threshold_basis": "project_hypothesis_v1",
+            },
+            "Campaign success rate including every bounded frontier item.",
         ),
     )
     evidence = tuple(

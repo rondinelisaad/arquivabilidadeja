@@ -328,6 +328,7 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
         self.assertEqual("pass", by_id["D08"].state.value)
         self.assertEqual("fail", by_id["R01"].state.value)
         self.assertEqual("warning", by_id["R03"].state.value)
+        self.assertEqual("fail", by_id["O07"].state.value)
         events = self.connection.execute(
             """
             SELECT extra_json FROM audit_events
