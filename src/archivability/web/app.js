@@ -27,6 +27,7 @@
     operational_harvestability: "Operação de coleta",
   };
   let pendingSubmission = null;
+  let indicatorCatalogPromise = null;
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
@@ -268,7 +269,7 @@
     });
   };
 
-  const renderIndicators = (results) => {
+  const renderIndicators = (results, catalogById) => {
     const section = $("#findings-section");
     section.hidden = !results.length;
     const list = $("#indicator-list");
@@ -278,7 +279,11 @@
       row.className = "indicator-row";
       const id = document.createElement("span");
       id.className = "indicator-id";
-      id.textContent = result.indicator_id;
+      const definition = catalogById.get(result.indicator_id);
+      const indicatorLink = document.createElement("a");
+      indicatorLink.href = definition?.path || `/methodology/indicators/${encodeURIComponent(result.indicator_id)}`;
+      indicatorLink.textContent = result.indicator_id;
+      id.append(indicatorLink);
       const confidence = document.createElement("span");
       confidence.textContent = `Confiança ${Math.round((result.confidence || 0) * 100)}%`;
       const state = document.createElement("span");
@@ -289,14 +294,167 @@
     });
   };
 
-  const renderReport = (report) => {
+  const findingCard = (eyebrow, titleText, descriptionText) => {
+    const card = document.createElement("article");
+    card.className = "finding-card";
+    const label = document.createElement("span");
+    label.className = "eyebrow";
+    label.textContent = eyebrow;
+    const title = document.createElement("h3");
+    title.textContent = titleText;
+    const description = document.createElement("p");
+    description.textContent = descriptionText;
+    card.append(label, title, description);
+    return card;
+  };
+
+  const renderCriticalFindings = (report, catalogById) => {
+    const findings = (report.indicator_results || []).filter((result) => {
+      const severity = catalogById.get(result.indicator_id)?.severity;
+      return ["fail", "warning"].includes(result.state) && ["critical", "high"].includes(severity);
+    });
+    const section = $("#critical-section");
+    section.hidden = !findings.length;
+    const container = $("#critical-findings");
+    container.replaceChildren(...findings.map((result) => {
+      const definition = catalogById.get(result.indicator_id);
+      return findingCard(
+        `${result.indicator_id} · ${definition?.severity || "prioridade"}`,
+        definition?.name || result.indicator_id,
+        `${stateLabel(result.state)} com confiança de ${Math.round((result.confidence || 0) * 100)}%.`,
+      );
+    }));
+  };
+
+  const renderBlockingConditions = (assessment) => {
+    const section = $("#blocking-section");
+    section.hidden = !assessment;
+    if (!assessment) return;
+    const container = $("#blocking-conditions");
+    const gates = Object.entries(assessment.gates || {});
+    const triggered = gates.filter(([, gate]) => gate.state === "triggered");
+    container.replaceChildren();
+    if (!triggered.length) {
+      const note = document.createElement("p");
+      note.textContent = "Nenhuma condição impeditiva ativa foi acionada. Nesta versão candidata, os gates permanecem inativos e não alteram o resultado.";
+      container.append(note);
+      return;
+    }
+    triggered.forEach(([gateId, gate]) => {
+      container.append(findingCard(gateId, "Condição impeditiva acionada", gate.reason));
+    });
+  };
+
+  const renderLegacyComparison = (assessment) => {
+    const section = $("#legacy-section");
+    section.hidden = !assessment;
+    if (!assessment) return;
+    const container = $("#legacy-content");
+    container.replaceChildren();
+    const paragraph = document.createElement("p");
+    if (!assessment.legacy_clear_plus) {
+      paragraph.textContent = "Legacy CLEAR+ Flat e Weighted permanecem indisponíveis nesta versão: ainda não existe mapeamento cientificamente validado entre as evidências atuais e as quatro facetas originais.";
+    } else {
+      paragraph.textContent = `Flat ${assessment.legacy_clear_plus.flat}; Weighted ${assessment.legacy_clear_plus.fixed_max}. Estes valores servem apenas para comparação histórica.`;
+    }
+    container.append(paragraph);
+  };
+
+  const renderNetworkContext = (report, catalogById) => {
+    const contextual = (report.indicator_results || []).filter(
+      (result) => catalogById.get(result.indicator_id)?.classification === "observation_context",
+    );
+    const probes = new Set((report.indicator_results || []).flatMap((result) => result.probe_ids || []));
+    const section = $("#network-section");
+    section.hidden = !contextual.length && !probes.size;
+    const container = $("#network-content");
+    const cards = [];
+    probes.forEach((probe) => cards.push(findingCard("Probe", probe, "Identidade de implantação; localização precisa não é inferida.")));
+    contextual.forEach((result) => {
+      const definition = catalogById.get(result.indicator_id);
+      cards.push(findingCard(result.indicator_id, definition?.name || result.indicator_id, `${stateLabel(result.state)}; dado contextual, sem penalização automática do website.`));
+    });
+    container.replaceChildren(...cards);
+  };
+
+  const renderDependencies = (report) => {
+    const run = (report.browser_runs || []).at(-1);
+    const section = $("#dependency-section");
+    section.hidden = !run;
+    if (!run) return;
+    const summary = run.summary || {};
+    const container = $("#dependency-content");
+    container.replaceChildren(
+      findingCard("Requisições", String(summary.request_count ?? "—"), `${summary.external_request_count ?? 0} externas; ${summary.failed_request_count ?? 0} falharam.`),
+      findingCard("APIs", String(summary.api_request_count ?? "—"), `${summary.external_api_request_count ?? 0} APIs externas observadas.`),
+      findingCard("URLs dinâmicas", String(summary.additional_url_count ?? "—"), "URLs adicionais após renderização, sem persistir endereços brutos."),
+    );
+  };
+
+  const renderTechnicalDetails = (report) => {
+    const cards = [];
+    (report.crawl_runs || []).forEach((run) => cards.push(findingCard(
+      `Crawl · ${run.probe_id}`,
+      `${run.summary.visited ?? 0} URL(s) visitadas`,
+      `Término: ${run.summary.termination_reason}; bytes observados: ${run.summary.response_bytes ?? 0}.`,
+    )));
+    (report.browser_runs || []).forEach((run) => cards.push(findingCard(
+      `Browser · ${run.probe_id}`,
+      run.profile_id,
+      `Término: ${run.summary.termination_reason}; duração: ${run.summary.elapsed_milliseconds ?? 0} ms.`,
+    )));
+    const section = $("#technical-section");
+    section.hidden = !cards.length;
+    $("#technical-content").replaceChildren(...cards);
+  };
+
+  const renderRecommendations = (report, catalogById) => {
+    const actionable = (report.indicator_results || []).filter((result) => ["fail", "warning"].includes(result.state));
+    const section = $("#recommendations-section");
+    section.hidden = !actionable.length;
+    const container = $("#recommendations-content");
+    container.replaceChildren(...actionable.map((result) => {
+      const definition = catalogById.get(result.indicator_id) || {};
+      const card = document.createElement("article");
+      card.className = "recommendation-card";
+      const title = document.createElement("h3");
+      title.textContent = `${result.indicator_id} — ${definition.name || "Condição observada"}`;
+      const details = document.createElement("dl");
+      const rows = [
+        ["Problema", stateLabel(result.state)],
+        ["Evidência", `${(result.evidence_ids || []).length} evidência(s); confiança ${Math.round((result.confidence || 0) * 100)}%.`],
+        ["Impacto", definition.description || "Pode afetar a captura ou a interpretação do resultado."],
+        ["Possível correção", `Revisar a condição pelo método: ${definition.measurement || "consulte a documentação do indicador"}.`],
+        ["Responsabilidade", definition.classification === "intrinsic" ? "Depende principalmente do administrador do site." : definition.classification === "observation_context" ? "Depende principalmente do contexto/probe de coleta." : "Pode depender do site e da configuração do coletor."],
+      ];
+      rows.forEach(([term, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = term;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        details.append(dt, dd);
+      });
+      card.append(title, details);
+      return card;
+    }));
+  };
+
+  const renderReport = (report, catalog) => {
+    const catalogById = new Map((catalog.items || []).map((item) => [item.id, item]));
     $("#report-origin").textContent = report.target_origin;
     $("#report-title").textContent = terminalStates.has(report.state) ? "Relatório de arquivabilidade" : "Avaliação em andamento";
     $("#report-updated").textContent = `Atualizado em ${formatDate(report.updated_at)}`;
     $("#cancel-button").hidden = terminalStates.has(report.state);
     renderProgress(report);
     renderAssessment(report);
-    renderIndicators(report.indicator_results || []);
+    renderIndicators(report.indicator_results || [], catalogById);
+    renderCriticalFindings(report, catalogById);
+    renderBlockingConditions(report.assessment);
+    renderLegacyComparison(report.assessment);
+    renderNetworkContext(report, catalogById);
+    renderDependencies(report);
+    renderTechnicalDetails(report);
+    renderRecommendations(report, catalogById);
     const limitations = $("#limitations");
     limitations.hidden = !(report.limitations || []).length;
     const list = limitations.querySelector("ul");
@@ -311,8 +469,12 @@
   const loadReport = async (analysisId) => {
     const status = $("#report-status");
     try {
-      const report = await request(`/v1/analyses/${encodeURIComponent(analysisId)}`);
-      renderReport(report);
+      indicatorCatalogPromise ||= request("/v1/indicators").catch(() => ({ items: [] }));
+      const [report, catalog] = await Promise.all([
+        request(`/v1/analyses/${encodeURIComponent(analysisId)}`),
+        indicatorCatalogPromise,
+      ]);
+      renderReport(report, catalog);
       status.textContent = "";
       if (!terminalStates.has(report.state)) window.setTimeout(() => loadReport(analysisId), 2200);
     } catch (error) {

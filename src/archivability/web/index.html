@@ -93,9 +93,44 @@
           <div id="dimension-grid" class="dimension-grid"></div>
         </section>
 
+        <section id="critical-section" class="section-shell" hidden aria-labelledby="critical-title">
+          <div class="section-heading"><div><p class="eyebrow">Prioridade de revisão</p><h2 id="critical-title">Achados críticos</h2></div></div>
+          <div id="critical-findings" class="finding-grid"></div>
+        </section>
+
+        <section id="blocking-section" class="section-shell" hidden aria-labelledby="blocking-title">
+          <div class="section-heading"><div><p class="eyebrow">Condições declarativas</p><h2 id="blocking-title">Condições impeditivas</h2></div></div>
+          <div id="blocking-conditions"></div>
+        </section>
+
+        <section id="legacy-section" class="section-shell" hidden aria-labelledby="legacy-title">
+          <div class="section-heading"><div><p class="eyebrow">Comparabilidade histórica</p><h2 id="legacy-title">Comparação CLEAR+</h2></div></div>
+          <div id="legacy-content"></div>
+        </section>
+
         <section id="findings-section" class="section-shell" hidden aria-labelledby="findings-title">
           <div class="section-heading"><div><p class="eyebrow">Evidências derivadas</p><h2 id="findings-title">Indicadores</h2></div></div>
           <div id="indicator-list" class="indicator-list"></div>
+        </section>
+
+        <section id="network-section" class="section-shell" hidden aria-labelledby="network-title">
+          <div class="section-heading"><div><p class="eyebrow">Sem penalização geográfica automática</p><h2 id="network-title">Contexto de rede e probes</h2></div></div>
+          <div id="network-content" class="finding-grid"></div>
+        </section>
+
+        <section id="dependency-section" class="section-shell" hidden aria-labelledby="dependency-title">
+          <div class="section-heading"><div><p class="eyebrow">Visão agregada</p><h2 id="dependency-title">Dependências observadas</h2></div></div>
+          <div id="dependency-content" class="finding-grid"></div>
+        </section>
+
+        <section id="technical-section" class="section-shell" hidden aria-labelledby="technical-title">
+          <div class="section-heading"><div><p class="eyebrow">Execução reproduzível</p><h2 id="technical-title">Detalhes técnicos</h2></div></div>
+          <div id="technical-content" class="finding-grid"></div>
+        </section>
+
+        <section id="recommendations-section" class="section-shell" hidden aria-labelledby="recommendations-title">
+          <div class="section-heading"><div><p class="eyebrow">Ações orientadas por evidência</p><h2 id="recommendations-title">Recomendações</h2></div></div>
+          <div id="recommendations-content" class="recommendation-list"></div>
         </section>
 
         <section id="comparison-section" class="section-shell" hidden aria-labelledby="comparison-title">
@@ -104,6 +139,7 @@
         </section>
 
         <aside id="limitations" class="limitations" hidden><h2>Como interpretar</h2><ul></ul></aside>
+        <aside class="methodology-callout"><h2>Metodologia</h2><p>Consulte definições, fórmulas, classificações, gates e limitações da versão usada nesta análise.</p><a class="quiet-button" href="/methodology">Abrir metodologia</a></aside>
         <p id="report-status" class="status-message" role="status" aria-live="polite"></p>
       </section>
 

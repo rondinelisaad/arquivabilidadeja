@@ -94,6 +94,18 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.7rem); }
 .methodology-indicator-card:hover { border-color: var(--teal); }
 .methodology-indicator-card h3 { margin: .35rem 0; font: 500 1.2rem Georgia, serif; }
 .methodology-indicator-card p { margin: .45rem 0 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.finding-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; margin-top: 1.5rem; }
+.finding-card { padding: 1rem; border: 1px solid var(--line); background: var(--white); }
+.finding-card h3 { margin: .3rem 0; font: 500 1.15rem Georgia, serif; }
+.finding-card p { margin: .4rem 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.recommendation-list { display: grid; gap: .8rem; margin-top: 1.5rem; }
+.recommendation-card { padding: 1.2rem; border-left: 4px solid var(--amber); background: var(--white); }
+.recommendation-card h3 { margin: 0 0 .6rem; font-family: Georgia, serif; }
+.recommendation-card dl { display: grid; grid-template-columns: 9rem 1fr; gap: .45rem 1rem; margin: 0; font-size: .88rem; line-height: 1.5; }
+.recommendation-card dt { font-weight: 800; }
+.recommendation-card dd { margin: 0; color: var(--muted); }
+.methodology-callout { margin: 2rem 0; padding: 1.5rem 2rem; border: 1px solid var(--teal); background: var(--teal-soft); }
+.methodology-callout h2 { font-size: 1.5rem; }
 .documentation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 2rem 0; }
 .documentation-card { padding: 1.5rem; border: 1px solid var(--line); background: rgb(255 253 247 / 72%); }
 .documentation-card h2 { font-size: 1.45rem; }
@@ -104,7 +116,7 @@ footer { max-width: 1240px; margin: 0 auto; padding: 2rem; border-top: 1px solid
 
 @media (max-width: 850px) {
   .hero { grid-template-columns: 1fr; gap: 2rem; min-height: auto; padding: 4rem 0; }
-  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid { grid-template-columns: 1fr 1fr; }
+  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid, .finding-grid { grid-template-columns: 1fr 1fr; }
   .report-header { align-items: flex-start; flex-direction: column; }
 }
 
@@ -113,7 +125,8 @@ footer { max-width: 1240px; margin: 0 auto; padding: 2rem; border-top: 1px solid
   .method-badge { display: none; }
   h1 { font-size: 3.1rem; }
   .url-row { display: grid; }
-  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid { grid-template-columns: 1fr; }
+  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid, .finding-grid { grid-template-columns: 1fr; }
+  .recommendation-card dl { grid-template-columns: 1fr; }
   .stage-list { grid-template-columns: 1fr 1fr; }
   .indicator-row { grid-template-columns: 4rem 1fr; }
   .indicator-state { grid-column: 2; text-align: left; }
