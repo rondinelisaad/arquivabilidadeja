@@ -503,6 +503,8 @@ Estado de implementação em 2026-10-18: as Fases 1, 2 e 3 estão concluídas no
 
 Atualização posterior em 2026-10-18: as Fases 4 e 5 também possuem implementação funcional. O browser isolado, sua fila e derivação estão ligados ao pipeline; scoring, cobertura, gates declarativos inativos, exportação JSON 1.0, histórico privado, comparação compatível e interface Web estão cobertos por testes. A validação operacional da imagem Chromium ainda depende do daemon Docker local, e a Fase 6 continua dependente de dataset e revisão científica externos.
 
+Atualização de encerramento técnico em 2026-10-18: a Fase 6 possui protocolo, contrato desidentificado e analisador reproduzível de sensibilidade/concordância, mas a validação científica continua corretamente pendente de dataset real e especialistas independentes. A Fase 7 entrega submissão limitada em lote, identidade configurável e estratificação por probe, comparação compatível por probe, métricas por estágio e Docker Compose com separação entre migration/runtime e browser loopback. Object storage não é ativado porque o escopo atual não persiste artefatos binários; os pré-requisitos para uma futura ativação estão documentados. A metodologia `0.1.0` permanece candidata, sem gates ativos.
+
 ### 16.1 Estratégia de testes
 
 - Testes unitários para normalização, classificação de IP, parsing, derivação, cobertura e fórmulas.

@@ -16,6 +16,7 @@ A fundação segura, a análise HTTP/crawl e a etapa de browser isolado estão i
 - [Fase 4 — browser isolado](docs/fase-4-browser-isolado.md)
 - [Fase 5 — scoring e relatório](docs/fase-5-scoring-relatorio.md)
 - [Fase 6 — protocolo de validação científica](docs/fase-6-validacao-cientifica.md)
+- [Fase 7 — escala operacional e probes](docs/fase-7-escala-probes.md)
 - [Interface Web](docs/interface-web.md)
 - [Metodologia executável candidata 0.1.0](methodology/v0.1.0/README.md)
 
@@ -26,6 +27,10 @@ Os arquivos da metodologia usam o subconjunto JSON do YAML 1.2 e os golden tests
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
+
+O ambiente local completo está em `compose.yaml`. Copie
+`deploy/compose/.env.example` para `deploy/compose/.env`, substitua todos os valores e
+execute `docker compose --env-file deploy/compose/.env up --build`.
 
 ## Scoring engine
 
@@ -238,7 +243,9 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `GET /v1/analyses/{analysis_id}/export.json` entrega exatamente esse snapshot como JSON determinístico, com `report_schema_version`, limitações metodológicas e `Content-Disposition` de download. A exportação reutiliza a autorização de leitura, rate limit e sanitização do relatório e registra `access.analysis_api_export` sem copiar o conteúdo exportado para a auditoria. O CLEAR+ legado permanece explicitamente indisponível até existir um mapeamento validado entre as evidências atuais e as facetas originais.
 
-`GET /v1/analyses` lista o histórico sanitizado do proprietário autenticado. `GET /v1/analyses/{analysis_id}/comparison` compara uma avaliação terminal com a anterior mais recente somente quando alvo exato, metodologia e versão coincidem. A classificação é descritiva (`observed_change` ou `no_observed_change`), sem inferência automática de causalidade ou mudança estrutural. As ações `access.analysis_history` e `access.analysis_comparison` registram apenas IDs opacos, contagens, resultado e código estável.
+`GET /v1/analyses` lista o histórico sanitizado do proprietário autenticado. `GET /v1/analyses/{analysis_id}/comparison` compara uma avaliação terminal com a anterior mais recente somente quando alvo exato, metodologia, versão e conjunto de probes coincidem. A classificação é descritiva (`observed_change` ou `no_observed_change`), sem inferência automática de causalidade ou mudança estrutural. As ações `access.analysis_history` e `access.analysis_comparison` registram apenas IDs opacos, contagens, resultado e código estável.
+
+`POST /v1/batches` aceita de 1 a 25 URLs previamente validadas e cria análises duráveis independentes. A resposta preserva a posição e os IDs sem repetir os alvos; falhas por item são explícitas e o acesso gera `access.analysis_api_batch_create`. O bucket de rate limit é separado da criação unitária.
 
 ## Interface Web
 
@@ -248,9 +255,9 @@ HTML, CSS, JavaScript e favicon são assets locais empacotados com a aplicação
 
 Em produção, um proxy de identidade compatível com OIDC deve autenticar a sessão do navegador e encaminhar o access token como `Authorization: Bearer` para a aplicação. O token precisa conter `analysis:create` e `analysis:read`; a aplicação continua verificando assinatura, emissor, audiência, validade e escopos. O proxy deve remover qualquer `Authorization` recebido do cliente antes de inserir o token autenticado.
 
-`AnalysisApi` define a fronteira Web sem acoplamento a framework. O adaptador externo deve fornecer um `ApiPrincipal` já autenticado; políticas injetadas autorizam criação e leitura por análise e aplicam rate limiting antes da validação ou coleta. A fronteira oferece as operações equivalentes a `POST /v1/analyses` e `GET /v1/analyses/{analysis_id}`, sempre com erros estáveis, `Cache-Control: no-store`, `nosniff` e sem mensagens internas. Ausência de autenticação, negação, limite excedido, sucesso e falha são auditados sem corpo, URL analisada ou credencial. Falhas dos provedores de autorização e limite são fechadas como erro interno, sem bypass.
+`AnalysisApi` define a fronteira Web sem acoplamento a framework. O adaptador externo deve fornecer um `ApiPrincipal` já autenticado; políticas injetadas autorizam criação e leitura por análise e aplicam rate limiting antes da validação ou coleta. A fronteira oferece criação unitária e em lote, histórico, leitura, comparação e exportação, sempre com erros estáveis, `Cache-Control: no-store`, `nosniff` e sem mensagens internas. Ausência de autenticação, negação, limite excedido, sucesso e falha são auditados sem corpo, URL analisada ou credencial. Falhas dos provedores de autorização e limite são fechadas como erro interno, sem bypass.
 
-`AnalysisAsgiApp` materializa esse contrato como aplicação ASGI 3 sem dependências externas. Ele aceita somente as duas rotas previstas, limita o corpo a 4 KiB por padrão, exige JSON UTF-8, trata corpos fragmentados e emite cabeçalhos defensivos. Rejeições de transporte são auditadas com rota lógica, método, status e código estável; caminhos, query strings, cabeçalhos e corpos não entram no log.
+`AnalysisAsgiApp` materializa esse contrato como aplicação ASGI 3 sem dependências externas. Ele mantém uma allowlist explícita de rotas, limita o corpo a 4 KiB por padrão, exige JSON UTF-8, trata corpos fragmentados e emite cabeçalhos defensivos. Rejeições de transporte são auditadas com rota lógica, método, status e código estável; caminhos, query strings, cabeçalhos e corpos não entram no log.
 
 A autenticação continua deliberadamente fora do núcleo. `BearerAuthenticationMiddleware` aceita exclusivamente um cabeçalho `Authorization: Bearer`, limita seu tamanho e entrega o valor opaco a um `BearerTokenVerifier` injetado. Claims não verificados nunca são interpretados pelo middleware; tokens, cabeçalhos e detalhes do provedor nunca entram na auditoria.
 
@@ -304,7 +311,7 @@ scope["state"]["archivability.request_id"] = "request-id-confiavel"
 
 Sucesso e falha de autenticação produzem eventos `auth.bearer_token` com identidade opaca, sessão, IP e correlação quando disponíveis, mas sem o token. Credencial malformada, duplicada ou rejeitada falha fechada com `401` e `WWW-Authenticate`; falha da auditoria impede a autenticação e retorna erro interno sanitizado.
 
-O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. A fronteira e a decisão versionada de robots da Fase 3 estão integradas ao cliente HTTP e à fila durável; `D03`, `D08` e `R03` são derivados da observação agregada. Fixtures HTTP locais exercitam o transporte real, robots, redirects e quotas sem afrouxar a política SSRF. O relatório público expõe `crawl_runs` validado e sanitizado, sem URLs ou payloads coletados. A Fase 3 está concluída; o próximo incremento inicia o contrato do browser isolado da Fase 4.
+O runner da API executa apenas persistência e enqueue fora do event loop por meio de `ThreadedAsgiSyncRunner`; a coleta externa pertence ao worker. A implantação deve restringir o egress HTTPS da API ao JWKS e o egress HTTP/HTTPS público do worker aos destinos permitidos pelo ambiente. A fronteira e a decisão versionada de robots da Fase 3 estão integradas ao cliente HTTP e à fila durável; `D03`, `D08` e `R03` são derivados da observação agregada. Fixtures HTTP locais exercitam o transporte real, robots, redirects e quotas sem afrouxar a política SSRF. O relatório público expõe `crawl_runs` validado e sanitizado, sem URLs ou payloads coletados.
 
 A Fase 4 possui contratos determinísticos, fila/worker duráveis, sidecar Playwright isolado, derivação inicial e exposição sanitizada em `browser_runs`. A imagem-base e as dependências são fixadas; o build operacional ainda deve ser repetido quando o daemon Docker local estiver disponível.
 

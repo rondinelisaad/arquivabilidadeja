@@ -4,7 +4,7 @@ Status: scoring, exportação canônica, histórico privado, comparação entre 
 
 ## Snapshot versionado
 
-O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começa em `1.0`; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
+O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começou em `1.0` e passou a `1.1` ao expor `probe_ids` e `tool_versions` por resultado; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
 
 Análises ainda em execução retornam `assessment: null`. Quando a análise termina com resultado completo ou parcial, o `ScoringEngine` avalia todos os indicadores declarados aplicáveis pela versão da metodologia. Resultados ausentes reduzem cobertura e permanecem desconhecidos, sem receber zero. O relatório inclui dimensões, cobertura, estado geral, gates, resultados e proveniência por hash.
 
@@ -34,4 +34,4 @@ Leituras de histórico e comparação geram `access.analysis_history` e `access.
 2. ativação de gates somente depois da decisão metodológica correspondente;
 3. mapeamento CLEAR+ legado somente depois de validação explícita.
 
-O critério técnico da fase é coberto por golden tests do `ScoringEngine` e por um hash golden do snapshot exportável completo na versão `1.0`.
+O critério técnico da fase é coberto por golden tests do `ScoringEngine` e por um hash golden do snapshot exportável completo na versão `1.1`.
