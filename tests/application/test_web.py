@@ -111,7 +111,7 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"indicator-dimension-filter", report[2])
         self.assertIn(b"Cobertura da avalia", report[2])
         self.assertIn(b'data-locale="pt"', report[2])
-        self.assertIn(b'/assets/i18n.js?v=10', report[2])
+        self.assertIn(b'/assets/i18n.js?v=12', report[2])
         self.assertEqual(200, methodology[0])
         self.assertIn(b"methodology-view", methodology[2])
         self.assertEqual(200, catalog[0])
@@ -150,6 +150,14 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(418, delegated[0])
         self.assertEqual(["/v1/analyses"], self.delegate.paths)
+
+    async def test_report_script_explains_explicit_result_evidence(self) -> None:
+        script = await self.request(self.scope("/assets/app.js"))
+
+        self.assertEqual(200, script[0])
+        self.assertIn("Evidência explícita do resultado".encode(), script[2])
+        self.assertIn("Links internos quebrados".encode(), script[2])
+        self.assertIn("HTML antes do JavaScript".encode(), script[2])
 
     async def test_unsafe_page_method_is_rejected_and_persistently_audited(self) -> None:
         connection = sqlite3.connect(":memory:")

@@ -365,6 +365,11 @@
     dom_delta_share: ["Variação do conteúdo após renderização", "Rendered content change"],
     elapsed_milliseconds: ["Duração observada", "Observed duration"],
     sample_size: ["Tamanho da amostra", "Sample size"],
+    denominator: ["Links internos verificados", "Checked internal links"],
+    success_rate: ["Taxa de sucesso", "Success rate"],
+    status_classes: ["Classes de status HTTP", "HTTP status classes"],
+    failure_classes: ["Classes de falha", "Failure classes"],
+    outcome_distribution: ["Distribuição dos resultados", "Outcome distribution"],
     reason: ["Motivo", "Reason"],
   };
 
@@ -387,7 +392,7 @@
     if (value === null || value === undefined) return localized("Não disponível", "Unavailable");
     if (typeof value === "boolean") return value ? localized("Sim", "Yes") : localized("Não", "No");
     const key = path.split(".").at(-1);
-    if (typeof value === "number" && key.endsWith("_share")) {
+    if (typeof value === "number" && (key.endsWith("_share") || key.endsWith("_rate"))) {
       return new Intl.NumberFormat(isPortuguese ? "pt-BR" : "en", { style: "percent", maximumFractionDigits: 1 }).format(value);
     }
     if (typeof value === "number" && key.includes("milliseconds")) return `${new Intl.NumberFormat(isPortuguese ? "pt-BR" : "en").format(value)} ms`;
@@ -424,10 +429,107 @@
         `The browser made ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), across ${data.external_origin_count || 0} ${origins}. Paths, parameters, and fragments are not stored.`,
       );
     }
+    if (indicatorId === "R01" && Number.isFinite(data.sample_size)) {
+      const rate = formatEvidenceValue("success_rate", Number(data.success_rate || 0));
+      return localized(
+        `${data.success_count || 0} de ${data.sample_size} recuperações observadas tiveram resultado de sucesso (${rate}). A evidência abaixo também explicita a distribuição das respostas e falhas da amostra.`,
+        `${data.success_count || 0} of ${data.sample_size} observed retrievals succeeded (${rate}). The evidence below also shows the response and failure distribution for the sample.`,
+      );
+    }
+    if (indicatorId === "R03" && Number.isFinite(data.denominator)) {
+      return localized(
+        `${data.broken_count || 0} de ${data.denominator} links internos verificados foram classificados como quebrados. A coleta preserva as contagens e classes de resultado, mas não os endereços individuais dos links.`,
+        `${data.broken_count || 0} of ${data.denominator} checked internal links were classified as broken. The collection preserves result counts and classes, but not individual link addresses.`,
+      );
+    }
+    if (indicatorId === "O05" && Number.isFinite(data.raw_dom_bytes) && Number.isFinite(data.rendered_dom_bytes)) {
+      const delta = formatEvidenceValue("dom_delta_share", Number(data.dom_delta_share || 0));
+      const additionalUrls = Number(data.additional_url_count || 0);
+      const apiRequests = Number(data.api_request_count || 0);
+      return localized(
+        `O conteúdo passou de ${formatEvidenceValue("raw_dom_bytes", data.raw_dom_bytes)} para ${formatEvidenceValue("rendered_dom_bytes", data.rendered_dom_bytes)} bytes após a execução de JavaScript, uma variação de ${delta}. Também foram observadas ${additionalUrls} ${additionalUrls === 1 ? "URL adicional" : "URLs adicionais"} e ${apiRequests} ${apiRequests === 1 ? "requisição de API" : "requisições de API"}.`,
+        `Content changed from ${formatEvidenceValue("raw_dom_bytes", data.raw_dom_bytes)} to ${formatEvidenceValue("rendered_dom_bytes", data.rendered_dom_bytes)} bytes after JavaScript ran, a ${delta} change. The browser also observed ${additionalUrls} additional ${additionalUrls === 1 ? "URL" : "URLs"} and ${apiRequests} API ${apiRequests === 1 ? "request" : "requests"}.`,
+      );
+    }
     return localized(
       "A conclusão foi calculada a partir dos valores agregados observados abaixo. Nenhum corpo de página, cookie ou endereço individual faz parte desta evidência.",
       "The conclusion was calculated from the aggregate values observed below. No page body, cookie, or individual address is included in this evidence.",
     );
+  };
+
+  const formatEvidenceNumber = (value) => new Intl.NumberFormat(isPortuguese ? "pt-BR" : "en").format(Number(value || 0));
+
+  const formatDistribution = (distribution) => {
+    const entries = Object.entries(distribution || {}).filter(([, count]) => Number(count) > 0);
+    return entries.length
+      ? entries.map(([label, count]) => `${label}: ${formatEvidenceNumber(count)}`).join(" · ")
+      : localized("Nenhuma", "None");
+  };
+
+  const renderExplicitMeasurements = (indicatorId, evidence) => {
+    if (!["R01", "R03", "O05"].includes(indicatorId)) return null;
+    const data = evidence?.data || {};
+    const block = document.createElement("div");
+    block.className = "explicit-measurement-evidence";
+    const title = document.createElement("h5");
+    title.textContent = localized("Evidência explícita do resultado", "Explicit result evidence");
+    const values = document.createElement("dl");
+    const appendValue = (ptLabel, enLabel, value) => {
+      const term = document.createElement("dt");
+      term.textContent = localized(ptLabel, enLabel);
+      const description = document.createElement("dd");
+      description.textContent = value;
+      values.append(term, description);
+    };
+    block.append(title, values);
+
+    if (indicatorId === "R01") {
+      appendValue(
+        "Recuperações bem-sucedidas",
+        "Successful retrievals",
+        `${formatEvidenceNumber(data.success_count)} / ${formatEvidenceNumber(data.sample_size)} (${formatEvidenceValue("success_rate", Number(data.success_rate || 0))})`,
+      );
+      appendValue("Respostas HTTP observadas", "Observed HTTP responses", formatDistribution(data.outcome_distribution?.status_classes));
+      appendValue("Falhas de transporte ou ferramenta", "Transport or tool failures", formatDistribution(data.outcome_distribution?.failure_classes));
+      appendValue("Tentativas de coleta", "Collection attempts", formatEvidenceNumber(data.attempt_count));
+    }
+
+    if (indicatorId === "R03") {
+      appendValue(
+        "Links internos quebrados",
+        "Broken internal links",
+        `${formatEvidenceNumber(data.broken_count)} / ${formatEvidenceNumber(data.denominator)}`,
+      );
+      appendValue("Respostas HTTP na coleta", "HTTP responses in the crawl", formatDistribution(data.status_classes));
+      appendValue("Falhas de transporte ou ferramenta", "Transport or tool failures", formatDistribution(data.failure_classes));
+      const note = document.createElement("p");
+      note.className = "explicit-evidence-note";
+      note.textContent = localized(
+        "Limitação: esta versão não persiste as URLs individuais dos links quebrados. Portanto, a evidência explícita disponível é agregada por quantidade e classe de resultado.",
+        "Limitation: this version does not persist the individual URLs of broken links. The available explicit evidence is therefore aggregated by count and result class.",
+      );
+      block.append(note);
+    }
+
+    if (indicatorId === "O05") {
+      const rawBytes = Number(data.raw_dom_bytes || 0);
+      const renderedBytes = Number(data.rendered_dom_bytes || 0);
+      const byteDifference = renderedBytes - rawBytes;
+      const signedDifference = `${byteDifference >= 0 ? "+" : "−"}${formatEvidenceNumber(Math.abs(byteDifference))}`;
+      appendValue("HTML antes do JavaScript", "HTML before JavaScript", `${formatEvidenceNumber(rawBytes)} bytes`);
+      appendValue("Conteúdo após renderização", "Content after rendering", `${formatEvidenceNumber(renderedBytes)} bytes`);
+      appendValue("Variação observada", "Observed change", `${formatEvidenceValue("dom_delta_share", Number(data.dom_delta_share || 0))} (${signedDifference} bytes)`);
+      appendValue("URLs adicionais", "Additional URLs", formatEvidenceNumber(data.additional_url_count));
+      appendValue("Requisições de API", "API requests", formatEvidenceNumber(data.api_request_count));
+      const note = document.createElement("p");
+      note.className = "explicit-evidence-note";
+      note.textContent = localized(
+        "Interpretação: a mudança foi observada após executar JavaScript. Isso indica dependência dinâmica, mas não prova, isoladamente, que todo o conteúdo dependa de JavaScript.",
+        "Interpretation: the change was observed after JavaScript ran. This indicates dynamic dependency, but does not by itself prove that all content depends on JavaScript.",
+      );
+      block.append(note);
+    }
+    return block;
   };
 
   const renderExplicitOrigins = (indicatorId, evidence) => {
@@ -530,6 +632,8 @@
       panel.append(narrative);
       const explicitOrigins = renderExplicitOrigins(result.indicator_id, evidence);
       if (explicitOrigins) panel.append(explicitOrigins);
+      const explicitMeasurements = renderExplicitMeasurements(result.indicator_id, evidence);
+      if (explicitMeasurements) panel.append(explicitMeasurements);
       const facts = flattenEvidenceData(evidence.data).slice(0, 12);
       if (facts.length) {
         const values = document.createElement("dl");
