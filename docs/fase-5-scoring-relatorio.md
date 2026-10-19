@@ -4,7 +4,7 @@ Status: scoring, exportação canônica, histórico privado, comparação entre 
 
 ## Snapshot versionado
 
-O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começou em `1.0` e passou a `1.1` ao expor `probe_ids` e `tool_versions` por resultado; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
+O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começou em `1.0`, passou a `1.1` ao expor `probe_ids` e `tool_versions` por resultado e a `1.2` ao incluir país/região declarados, janela observada e ferramentas por probe; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
 
 Análises ainda em execução retornam `assessment: null`. Quando a análise termina com resultado completo ou parcial, o `ScoringEngine` avalia todos os indicadores declarados aplicáveis pela versão da metodologia. Resultados ausentes reduzem cobertura e permanecem desconhecidos, sem receber zero. O relatório inclui dimensões, cobertura, estado geral, gates, resultados e proveniência por hash.
 

@@ -29,12 +29,18 @@ não um agregado persistente, e não deve ser usado como garantia transacional.
 ### Identidade e estratificação de probes
 
 Cada implantação de worker define `ARCHIVABILITY_PROBE_ID`, um identificador estável,
-opaco e sem localização precisa. As observações HTTP e de browser recebem os sufixos
-`-http` e `-browser`. O relatório `1.1` expõe `probe_ids` e `tool_versions` em cada
-resultado; o histórico também lista os probes usados.
+opaco e sem localização precisa, além de `ARCHIVABILITY_PROBE_COUNTRY` e
+`ARCHIVABILITY_PROBE_REGION`. País aceita código ISO 3166-1 alfa-2 ou `unknown`; região
+é um rótulo operacional aproximado, como `sao-paulo`, e não coordenada ou endereço.
+As observações HTTP e de browser recebem os sufixos `-http` e `-browser`.
+
+País, região, `probe_id` e timestamp integram a proveniência imutável de observações e
+evidências. O relatório `1.2` agrega os probes com primeira/última medição e versões de
+ferramenta, e mantém esses campos em cada fonte de evidência. Documentos anteriores,
+sem localização, continuam válidos e são apresentados como `unknown`.
 
 Comparações automáticas só escolhem baseline com o mesmo alvo, metodologia, versão e
-conjunto de probes. Diferenças entre probes permanecem contexto de observação — não
+conjunto de identidades/localizações de probes. Diferenças entre probes permanecem contexto de observação — não
 são convertidas em defeito intrínseco nem em causalidade geográfica.
 
 Para operar mais de um probe, implante stacks independentes com IDs e redes distintas.
@@ -60,6 +66,7 @@ necessário para o renderer loopback.
 ```bash
 cp deploy/compose/.env.example deploy/compose/.env
 # substitua senhas e parâmetros OIDC
+# defina ARCHIVABILITY_PROBE_COUNTRY e ARCHIVABILITY_PROBE_REGION
 docker compose --env-file deploy/compose/.env up --build
 ```
 

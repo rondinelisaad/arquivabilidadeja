@@ -148,7 +148,7 @@ As respostas não incluem configuração, DSN, IDs de análise, URLs ou payloads
 
 ## Worker de avaliação
 
-O comando `archivability-worker` consome primeiro a fila PostgreSQL de coleta externa e depois a fila de derivação. A coleta usa resolução validada, IP fixado, TLS verificado, redirects revalidados e limites de tempo, bytes e quantidade. O processo valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa eventos distintos de job para enqueue, claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; interrupções abruptas são recuperadas pelo lease.
+O comando `archivability-worker` consome primeiro a fila PostgreSQL de coleta externa e depois a fila de derivação. A coleta usa resolução validada, IP fixado, TLS verificado, redirects revalidados e limites de tempo, bytes e quantidade. `ARCHIVABILITY_PROBE_ID`, `ARCHIVABILITY_PROBE_COUNTRY` e `ARCHIVABILITY_PROBE_REGION` fixam identidade e localização aproximada declarada na proveniência; omissões de país/região ficam explicitamente como `unknown`. O processo valida a mesma role restrita do servidor, registra `system.assessment_worker_lifecycle` e usa eventos distintos de job para enqueue, claim, retry, falha e sucesso. Ao receber `SIGTERM` ou `SIGINT`, termina o job em andamento e não reivindica outro; interrupções abruptas são recuperadas pelo lease.
 
 Além das variáveis de banco, ambiente e metodologia usadas pelo servidor, o processo aceita limites estritos opcionais:
 
