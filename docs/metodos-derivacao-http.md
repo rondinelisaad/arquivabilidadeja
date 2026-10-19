@@ -54,10 +54,11 @@ A ausência de `Content-Length` é válida e não reduz o resultado. O limite de
 |---|---|---|
 | `D03` | `bounded-robots-scope-policy@1.0.0` | `fail` quando a regra aplicável proíbe a URL inicial; `warning` quando permite a semente, mas exclui parte da fronteira; `pass` quando a política parseada permite todo o escopo observado; `not_applicable` para robots ausente (`4xx`); `unknown` quando robots está inalcançável ou inválido |
 | `D08` | `bounded-crawl-frontier-coverage@1.0.0` | `pass` quando a fronteira termina completamente; `warning` quando termina por orçamento de URLs, bytes ou tempo |
+| `R01` | `bounded-crawl-retrieval-success@1.0.0` | `pass` com 100% das visitas recuperadas; `warning` entre 80% e menos de 100%; `fail` abaixo de 80%; `unknown` quando nenhuma URL chegou a ser visitada. Os limiares são hipótese de projeto, não resultado científico validado |
 | `R03` | `bounded-internal-link-retrieval@1.0.0` | `not_applicable` sem URL interna efetivamente verificada; `pass` sem quebra; `warning` quando parte da amostra quebra; `fail` quando toda a amostra interna verificada quebra |
 
 As evidências preservam apenas escopo, budgets, contagens, classes de falha, decisão sanitizada de robots e motivos de descarte. URLs descobertas, padrões de regras e mensagens de exceção não são persistidos.
 
 ## Indicadores não derivados nesta camada
 
-`R01`, `R07`, `R08`, `S02` e os demais indicadores exigem recursos adicionais, detecção por assinatura, requisição condicional, validação especializada, browser ou repetição temporal. Eles permanecem sem resultado; ausência de evidência não é convertida em aprovação ou reprovação.
+`R07`, `R08`, `S02` e os demais indicadores exigem recursos adicionais, detecção por assinatura, requisição condicional, validação especializada, browser ou repetição temporal. Em análises terminais eles permanecem explicitamente `UNKNOWN`; ausência de evidência não é convertida em aprovação ou reprovação.
