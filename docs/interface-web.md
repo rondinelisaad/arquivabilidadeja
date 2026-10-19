@@ -16,6 +16,12 @@ A rota `/methodology` apresenta versão, estado candidato, hash da fonte, dimens
 
 As páginas metodológicas usam o mesmo shell protegido, CSP e auditoria das páginas de análise. Conteúdo vindo da API é inserido com `textContent`, nunca como HTML interpretável.
 
+## Internacionalização
+
+A interface oferece português e inglês no mesmo shell, com português como idioma padrão. O seletor `PT / EN` grava somente a preferência `archivability.locale` no armazenamento local do navegador e também aceita `?lang=pt` ou `?lang=en`; nenhuma preferência de idioma é enviada à API ou incluída na auditoria.
+
+A metodologia executável e o JSON exportado permanecem canônicos em inglês para preservar hashes, reprodutibilidade e comparabilidade. A camada Web localiza títulos, explicações, métodos e limitações dos 45 indicadores apenas na apresentação. Conteúdo dinâmico continua sendo inserido exclusivamente com `textContent`, inclusive após a tradução.
+
 ## Segurança da fronteira
 
 - assets próprios, sem CDN ou script de terceiro;
