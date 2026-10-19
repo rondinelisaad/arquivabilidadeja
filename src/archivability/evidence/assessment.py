@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from archivability.evidence.browser_derivation import derive_browser_indicators
+from archivability.evidence.derivation import derive_indicator_result
 from archivability.evidence.http_derivation import (
     HttpMetadataDerivation,
     derive_http_metadata_indicators,
@@ -20,7 +21,11 @@ from archivability.lifecycle.models import (
     LifecycleError,
 )
 from archivability.lifecycle.state_machine import finalize_analysis
-from archivability.methodology.models import IndicatorResult, MethodologyConfig
+from archivability.methodology.models import (
+    IndicatorResult,
+    MethodologyConfig,
+    ResultState,
+)
 from archivability.storage.audit import AuditContext
 
 Clock = Callable[[], datetime]
@@ -124,12 +129,15 @@ class HttpMetadataAssessmentService:
             observation,
             self._repository.get_browser_render_observation(observation.attempt_id),
         )
-        derivation = HttpMetadataDerivation(
-            evidence=http_derivation.evidence + browser_derivation.evidence,
-            indicator_results=(
-                http_derivation.indicator_results
-                + browser_derivation.indicator_results
+        derivation = self._complete_derivation(
+            HttpMetadataDerivation(
+                evidence=http_derivation.evidence + browser_derivation.evidence,
+                indicator_results=(
+                    http_derivation.indicator_results
+                    + browser_derivation.indicator_results
+                ),
             ),
+            observation,
         )
         if analysis.state is AnalysisState.RUNNING:
             completed = finalize_analysis(
@@ -156,6 +164,57 @@ class HttpMetadataAssessmentService:
             analysis=completed or analysis,
             derivation=derivation,
             persistence=persistence,
+        )
+
+    def _complete_derivation(
+        self,
+        derivation: HttpMetadataDerivation,
+        observation: Observation,
+    ) -> HttpMetadataDerivation:
+        evidence_by_indicator = {
+            item.indicator_id: item for item in derivation.evidence
+        }
+        results_by_indicator = {
+            item.indicator_id: item for item in derivation.indicator_results
+        }
+        for indicator_id in self._methodology.indicators:
+            if indicator_id in results_by_indicator:
+                continue
+            evidence = Evidence.create(
+                evidence_id=(
+                    f"measurement-unavailable-{indicator_id.lower()}-v1-0-0-"
+                    f"{observation.content_hash}"
+                ),
+                analysis_id=observation.analysis_id,
+                indicator_id=indicator_id,
+                kind="measurement_unavailable",
+                subject_uri=observation.subject_uri,
+                method_id="measurement-availability",
+                method_version="1.0.0",
+                created_at=observation.observed_at,
+                confidence=0.0,
+                observations=(observation,),
+                data={
+                    "reason": "measurement_not_implemented",
+                    "methodology_version": self._methodology.version,
+                },
+                summary=(
+                    "No executable measurement is implemented for this indicator; "
+                    "the result remains unknown."
+                ),
+            )
+            evidence_by_indicator[indicator_id] = evidence
+            results_by_indicator[indicator_id] = derive_indicator_result(
+                self._methodology,
+                indicator_id=indicator_id,
+                state=ResultState.UNKNOWN,
+                evidence=(evidence,),
+                confidence=0.0,
+            )
+        order = tuple(self._methodology.indicators)
+        return HttpMetadataDerivation(
+            evidence=tuple(evidence_by_indicator[item] for item in order),
+            indicator_results=tuple(results_by_indicator[item] for item in order),
         )
 
     def _validate_methodology(self, analysis: Analysis) -> None:

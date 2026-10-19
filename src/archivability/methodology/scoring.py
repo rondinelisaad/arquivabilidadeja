@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable, Mapping
 from types import MappingProxyType
-from typing import Collection, Iterable, Mapping
 
 from archivability.methodology.models import (
     AssessmentResult,
@@ -62,9 +62,14 @@ class ScoringEngine:
             if result.indicator_id in output:
                 raise ScoringInputError(f"duplicate indicator result: {result.indicator_id}")
             definition = self.methodology.indicators[result.indicator_id]
-            if not definition.score_enabled and result.state is not ResultState.CONTEXT:
+            if not definition.score_enabled and result.state not in {
+                ResultState.CONTEXT,
+                ResultState.UNKNOWN,
+                ResultState.NOT_APPLICABLE,
+            }:
                 raise ScoringInputError(
-                    f"unscored indicator {result.indicator_id} must use context state"
+                    f"unscored indicator {result.indicator_id} must use a "
+                    "non-scored state"
                 )
             output[result.indicator_id] = result
         return output

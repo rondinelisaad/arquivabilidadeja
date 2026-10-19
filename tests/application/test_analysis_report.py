@@ -361,10 +361,18 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual("completed", report.state)
         self.assertEqual("completed", report.progress.phase)
         self.assertEqual(
-            ["C01", "C04", "C05", "D01", "D07", "O05", "R06"],
+            sorted(self.methodology.indicators),
             [item.indicator_id for item in report.indicator_results],
         )
-        self.assertEqual(7, len(report.evidence))
+        self.assertEqual(45, len(report.evidence))
+        by_id = {item.indicator_id: item for item in report.indicator_results}
+        self.assertEqual("pass", by_id["D01"].state)
+        self.assertEqual("unknown", by_id["D02"].state)
+        unavailable = next(
+            item for item in report.evidence if item.indicator_id == "D02"
+        )
+        self.assertEqual("measurement_unavailable", unavailable.kind)
+        self.assertEqual(0.0, unavailable.confidence)
         self.assertTrue(all(item.probe_ids for item in report.indicator_results))
         self.assertTrue(all(item.tool_versions for item in report.indicator_results))
         self.assertTrue(all(item.sources for item in report.evidence))
@@ -402,7 +410,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
 
         self.assertEqual("1.2", report.report_schema_version)
         self.assertEqual(
-            "c2c728ad8f88910228d1d28b12231109ffe182fbad1a8c53b51d7afcda9312f1",
+            "16c9c2ca55ed93622a0c37e746b0aa9febd4ba489182a83bd44ee96c47cc6ced",
             hashlib.sha256(canonical).hexdigest(),
         )
 

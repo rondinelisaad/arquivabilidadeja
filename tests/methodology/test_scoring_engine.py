@@ -148,6 +148,13 @@ class ProductionScoringEngineGoldenTests(unittest.TestCase):
         self.assertEqual("indeterminate", result.overall_state.value)
         self.assertEqual({}, dict(result.dimensions))
 
+    def test_unavailable_context_indicator_can_be_unknown(self) -> None:
+        result = self.engine.evaluate(
+            [IndicatorResult("N01", ResultState.UNKNOWN, 0.0)], ["N01"]
+        )
+        self.assertEqual("indeterminate", result.overall_state.value)
+        self.assertEqual({}, dict(result.dimensions))
+
     def test_unknown_gate_activation_is_rejected(self) -> None:
         with self.assertRaises(ScoringInputError):
             self.engine.evaluate([], [], activated_gate_ids=["HG99"])

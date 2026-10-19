@@ -23,7 +23,7 @@ from archivability.lifecycle import (  # noqa: E402
     AttemptState,
     finish_attempt,
 )
-from archivability.methodology import load_methodology  # noqa: E402
+from archivability.methodology import ResultState, load_methodology  # noqa: E402
 from archivability.storage import (  # noqa: E402
     AuditContext,
     IntegrityViolation,
@@ -215,11 +215,23 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
         self.assertEqual("created", outcome.persistence.outcome)
         self.assertEqual(AnalysisState.COMPLETED, outcome.analysis.state)
         self.assertEqual(outcome.analysis, self.repository.get_analysis("analysis-1"))
-        self.assertEqual(7, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
+        self.assertEqual(45, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
         self.assertEqual(
-            7,
+            45,
             self.connection.execute("SELECT count(*) FROM indicator_results").fetchone()[0],
         )
+        unavailable = next(
+            item for item in outcome.derivation.evidence if item.indicator_id == "D02"
+        )
+        self.assertEqual("measurement_unavailable", unavailable.kind)
+        self.assertEqual("measurement_not_implemented", unavailable.data["reason"])
+        result = next(
+            item
+            for item in outcome.derivation.indicator_results
+            if item.indicator_id == "D02"
+        )
+        self.assertEqual(ResultState.UNKNOWN, result.state)
+        self.assertEqual(0.0, result.confidence)
         events = self.connection.execute(
             "SELECT action, result, extra_json FROM audit_events ORDER BY event_id"
         ).fetchall()
@@ -238,7 +250,7 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
         self.assertEqual("created", first.persistence.outcome)
         self.assertEqual("replayed", second.persistence.outcome)
         self.assertEqual(first.analysis, second.analysis)
-        self.assertEqual(7, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
+        self.assertEqual(45, self.connection.execute("SELECT count(*) FROM evidence").fetchone()[0])
         outcomes = [
             json.loads(row[0])["outcome"]
             for row in self.connection.execute(
@@ -307,8 +319,8 @@ class HttpMetadataAssessmentServiceTests(unittest.TestCase):
 
         self.assertEqual("created", first.persistence.outcome)
         self.assertEqual("replayed", second.persistence.outcome)
-        self.assertEqual(21, first.persistence.evidence_count)
-        self.assertEqual(21, first.persistence.indicator_result_count)
+        self.assertEqual(45, first.persistence.evidence_count)
+        self.assertEqual(45, first.persistence.indicator_result_count)
         by_id = {
             item.indicator_id: item for item in first.derivation.indicator_results
         }
