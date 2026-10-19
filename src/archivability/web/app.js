@@ -26,8 +26,20 @@
     metadata_context: "Metadados",
     operational_harvestability: "Operação de coleta",
   };
+  const resultStateLabels = {
+    pass: "Atende",
+    warning: "Atenção",
+    fail: "Não atende",
+    unknown: "Inconclusivo",
+    not_applicable: "Não se aplica",
+    context: "Contexto",
+    assessable: "Avaliável",
+    partially_assessable: "Parcialmente avaliável",
+    not_assessable: "Não avaliável",
+  };
   let pendingSubmission = null;
   let indicatorCatalogPromise = null;
+  let activeIndicatorFilter = "all";
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
@@ -52,7 +64,7 @@
     return "Não foi possível concluir a solicitação agora.";
   };
 
-  const stateLabel = (state) => phaseLabels[state] || String(state || "indisponível").replaceAll("_", " ");
+  const stateLabel = (state) => phaseLabels[state] || resultStateLabels[state] || String(state || "indisponível").replaceAll("_", " ");
   const formatDate = (value) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
   const hidePrimaryViews = () => {
@@ -246,6 +258,11 @@
     if (!report.assessment) { section.hidden = true; return; }
     section.hidden = false;
     $("#overall-state").textContent = stateLabel(report.assessment.overall_state);
+    const results = report.indicator_results || [];
+    const assessed = results.filter((result) => ["pass", "warning", "fail"].includes(result.state)).length;
+    const coverage = results.length ? Math.round((assessed / results.length) * 100) : 0;
+    $("#coverage-value").textContent = `${coverage}%`;
+    $("#coverage-detail").textContent = `${assessed} de ${results.length} indicadores produziram resultado avaliável.`;
     const grid = $("#dimension-grid");
     grid.replaceChildren();
     Object.entries(report.assessment.dimensions || {}).forEach(([id, value]) => {
@@ -269,29 +286,92 @@
     });
   };
 
+  const indicatorMatchesFilter = (row, filter, dimension) => {
+    const stateMatches = filter === "all"
+      || (filter === "attention" && ["fail", "warning"].includes(row.dataset.state))
+      || (filter === "pass" && row.dataset.state === "pass")
+      || (filter === "unknown" && ["unknown", "not_applicable", "context"].includes(row.dataset.state));
+    return stateMatches && (dimension === "all" || row.dataset.dimension === dimension);
+  };
+
+  const applyIndicatorFilters = () => {
+    const dimension = $("#indicator-dimension-filter").value;
+    const rows = [...$("#indicator-list").children];
+    let visible = 0;
+    rows.forEach((row) => {
+      row.hidden = !indicatorMatchesFilter(row, activeIndicatorFilter, dimension);
+      if (!row.hidden) visible += 1;
+    });
+    $("#indicator-result-count").textContent = `${visible} de ${rows.length}`;
+    $("#indicator-empty").hidden = visible !== 0;
+  };
+
   const renderIndicators = (results, catalogById) => {
     const section = $("#findings-section");
     section.hidden = !results.length;
     const list = $("#indicator-list");
     list.replaceChildren();
+    $("#nav-indicator-count").textContent = results.length;
+    $("#filter-all-count").textContent = results.length;
+    $("#filter-attention-count").textContent = results.filter((result) => ["fail", "warning"].includes(result.state)).length;
+    $("#filter-pass-count").textContent = results.filter((result) => result.state === "pass").length;
+    $("#filter-unknown-count").textContent = results.filter((result) => ["unknown", "not_applicable", "context"].includes(result.state)).length;
+
+    const dimensionSelect = $("#indicator-dimension-filter");
+    const selectedDimension = dimensionSelect.value || "all";
+    const dimensions = [...new Set(results.map((result) => catalogById.get(result.indicator_id)?.dimension || "cross_cutting"))];
+    dimensionSelect.replaceChildren();
+    const allOption = document.createElement("option");
+    allOption.value = "all";
+    allOption.textContent = "Todas";
+    dimensionSelect.append(allOption);
+    dimensions.sort((left, right) => (dimensionNames[left] || left).localeCompare(dimensionNames[right] || right, "pt-BR")).forEach((dimension) => {
+      const option = document.createElement("option");
+      option.value = dimension;
+      option.textContent = dimension === "cross_cutting" ? "Contexto transversal" : dimensionNames[dimension] || dimension;
+      dimensionSelect.append(option);
+    });
+    dimensionSelect.value = dimensions.includes(selectedDimension) ? selectedDimension : "all";
+
     results.forEach((result) => {
-      const row = document.createElement("div");
+      const row = document.createElement("details");
       row.className = "indicator-row";
+      row.dataset.state = result.state;
       const id = document.createElement("span");
       id.className = "indicator-id";
       const definition = catalogById.get(result.indicator_id);
-      const indicatorLink = document.createElement("a");
-      indicatorLink.href = definition?.path || `/methodology/indicators/${encodeURIComponent(result.indicator_id)}`;
-      indicatorLink.textContent = result.indicator_id;
-      id.append(indicatorLink);
-      const confidence = document.createElement("span");
-      confidence.textContent = `Confiança ${Math.round((result.confidence || 0) * 100)}%`;
+      const dimension = definition?.dimension || "cross_cutting";
+      row.dataset.dimension = dimension;
+      id.textContent = result.indicator_id;
+      const summary = document.createElement("summary");
+      summary.className = "indicator-summary";
+      const heading = document.createElement("span");
+      heading.className = "indicator-heading";
+      const name = document.createElement("strong");
+      name.textContent = definition?.name || "Indicador metodológico";
+      const meta = document.createElement("small");
+      meta.textContent = `${dimension === "cross_cutting" ? "Contexto transversal" : dimensionNames[dimension] || dimension} · Confiança ${Math.round((result.confidence || 0) * 100)}%`;
+      heading.append(name, meta);
       const state = document.createElement("span");
       state.className = `indicator-state state-${result.state}`;
       state.textContent = stateLabel(result.state);
-      row.append(id, confidence, state);
+      summary.append(id, heading, state);
+      const detail = document.createElement("div");
+      detail.className = "indicator-detail";
+      const description = document.createElement("p");
+      description.textContent = definition?.description || "Consulte a documentação metodológica para interpretar este indicador.";
+      const evidence = document.createElement("p");
+      evidence.className = "muted";
+      evidence.textContent = `${(result.evidence_ids || []).length} evidência(s) derivada(s) · ${definition?.measurement || "Medição documentada na metodologia."}`;
+      const indicatorLink = document.createElement("a");
+      indicatorLink.className = "indicator-method-link";
+      indicatorLink.href = definition?.path || `/methodology/indicators/${encodeURIComponent(result.indicator_id)}`;
+      indicatorLink.textContent = "Ver definição e método";
+      detail.append(description, evidence, indicatorLink);
+      row.append(summary, detail);
       list.append(row);
     });
+    applyIndicatorFilters();
   };
 
   const findingCard = (eyebrow, titleText, descriptionText) => {
@@ -430,13 +510,20 @@
     const actionable = (report.indicator_results || []).filter((result) => ["fail", "warning"].includes(result.state));
     const section = $("#recommendations-section");
     section.hidden = !actionable.length;
+    $("#nav-recommendation-count").textContent = actionable.length;
     const container = $("#recommendations-content");
     container.replaceChildren(...actionable.map((result) => {
       const definition = catalogById.get(result.indicator_id) || {};
-      const card = document.createElement("article");
+      const card = document.createElement("details");
       card.className = "recommendation-card";
+      const summary = document.createElement("summary");
+      summary.className = "recommendation-summary";
       const title = document.createElement("h3");
       title.textContent = `${result.indicator_id} — ${definition.name || "Condição observada"}`;
+      const state = document.createElement("span");
+      state.className = `indicator-state state-${result.state}`;
+      state.textContent = stateLabel(result.state);
+      summary.append(title, state);
       const details = document.createElement("dl");
       const rows = [
         ["Problema", stateLabel(result.state)],
@@ -452,7 +539,7 @@
         dd.textContent = value;
         details.append(dt, dd);
       });
-      card.append(title, details);
+      card.append(summary, details);
       return card;
     }));
   };
@@ -557,6 +644,18 @@
       $("#export-link").href = `/v1/analyses/${encodeURIComponent(analysisId)}/export.json`;
       $("#compare-button").addEventListener("click", () => loadComparison(analysisId));
       $("#cancel-button").addEventListener("click", () => cancelAnalysis(analysisId));
+      document.querySelectorAll("[data-indicator-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          activeIndicatorFilter = button.dataset.indicatorFilter;
+          document.querySelectorAll("[data-indicator-filter]").forEach((candidate) => {
+            const active = candidate === button;
+            candidate.classList.toggle("active", active);
+            candidate.setAttribute("aria-pressed", String(active));
+          });
+          applyIndicatorFilters();
+        });
+      });
+      $("#indicator-dimension-filter").addEventListener("change", applyIndicatorFilters);
       loadReport(analysisId);
       return;
     }

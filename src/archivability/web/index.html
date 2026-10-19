@@ -6,8 +6,8 @@
     <meta name="description" content="Avaliação transparente e reproduzível da arquivabilidade de websites.">
     <title>Arquivabilidade Já</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/assets/app.css">
-    <script src="/assets/app.js" defer></script>
+    <link rel="stylesheet" href="/assets/app.css?v=3">
+    <script src="/assets/app.js?v=3" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
@@ -70,11 +70,20 @@
             <p id="report-updated" class="muted"></p>
           </div>
           <div class="report-actions">
+            <a class="quiet-button" href="/">Nova avaliação</a>
             <a id="export-link" class="quiet-button" href="#">Baixar JSON</a>
             <button id="compare-button" class="quiet-button" type="button">Comparar anterior</button>
             <button id="cancel-button" class="danger-button" type="button">Cancelar avaliação</button>
           </div>
         </div>
+
+        <nav id="report-navigation" class="report-navigation" aria-label="Seções do relatório">
+          <a href="#assessment-section">Resumo</a>
+          <a href="#findings-section">Indicadores <span id="nav-indicator-count" class="nav-count">0</span></a>
+          <a href="#recommendations-section">Recomendações <span id="nav-recommendation-count" class="nav-count">0</span></a>
+          <a href="#dependency-section">Dependências</a>
+          <a href="#technical-section">Execução</a>
+        </nav>
 
         <section class="progress-panel" aria-labelledby="progress-title">
           <div class="section-heading compact">
@@ -87,9 +96,20 @@
 
         <section id="assessment-section" class="section-shell" hidden aria-labelledby="assessment-title">
           <div class="section-heading">
-            <div><p class="eyebrow">Perfil dimensional</p><h2 id="assessment-title">Resultado da avaliação</h2></div>
+            <div><p class="eyebrow">Resumo</p><h2 id="assessment-title">Resultado da avaliação</h2></div>
             <span id="overall-state" class="state-chip"></span>
           </div>
+          <div class="assessment-overview">
+            <div class="coverage-summary">
+              <span id="coverage-value" class="coverage-value">—</span>
+              <div>
+                <strong>Cobertura da avaliação</strong>
+                <p id="coverage-detail" class="muted">Calculando indicadores avaliados…</p>
+              </div>
+            </div>
+            <p class="coverage-explanation">Cobertura indica quanto foi possível observar nesta execução. Não é uma nota única de arquivabilidade.</p>
+          </div>
+          <h3 class="subsection-title">Perfil por dimensão</h3>
           <div id="dimension-grid" class="dimension-grid"></div>
         </section>
 
@@ -109,8 +129,20 @@
         </section>
 
         <section id="findings-section" class="section-shell" hidden aria-labelledby="findings-title">
-          <div class="section-heading"><div><p class="eyebrow">Evidências derivadas</p><h2 id="findings-title">Indicadores</h2></div></div>
-          <div id="indicator-list" class="indicator-list"></div>
+          <div class="section-heading"><div><p class="eyebrow">Evidências derivadas</p><h2 id="findings-title">Indicadores</h2></div><span id="indicator-result-count" class="muted"></span></div>
+          <div class="indicator-toolbar" aria-label="Filtros dos indicadores">
+            <div class="filter-group" role="group" aria-label="Filtrar por resultado">
+              <button class="filter-button active" type="button" data-indicator-filter="all" aria-pressed="true">Todos <span id="filter-all-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="attention" aria-pressed="false">Só problemas <span id="filter-attention-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="pass" aria-pressed="false">Atendem <span id="filter-pass-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="unknown" aria-pressed="false">Inconclusivos <span id="filter-unknown-count">0</span></button>
+            </div>
+            <label class="dimension-filter">Dimensão
+              <select id="indicator-dimension-filter"><option value="all">Todas</option></select>
+            </label>
+          </div>
+          <p id="indicator-empty" class="empty-state" hidden>Nenhum indicador corresponde aos filtros selecionados.</p>
+          <div id="indicator-list" class="indicator-list" aria-live="polite"></div>
         </section>
 
         <section id="network-section" class="section-shell" hidden aria-labelledby="network-title">
