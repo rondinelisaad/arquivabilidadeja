@@ -108,3 +108,8 @@ class HttpAssessmentWorkflow:
     def retry(self, *args: object, **kwargs: object) -> HttpWorkflowOutcome:
         del args, kwargs
         raise WorkflowError("collection retries are managed by the durable worker")
+
+    def cancel(
+        self, analysis_id: str, *, audit: AuditContext = AuditContext()
+    ) -> Analysis:
+        return self._orchestrator.cancel_analysis(analysis_id, audit=audit)

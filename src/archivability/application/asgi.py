@@ -20,6 +20,7 @@ from archivability.storage.audit import AuditContext
 _ANALYSIS_PATH = re.compile(r"^/v1/analyses/([^/]+)$")
 _ANALYSIS_EXPORT_PATH = re.compile(r"^/v1/analyses/([^/]+)/export\.json$")
 _ANALYSIS_COMPARISON_PATH = re.compile(r"^/v1/analyses/([^/]+)/comparison$")
+_ANALYSIS_CANCEL_PATH = re.compile(r"^/v1/analyses/([^/]+)/cancel$")
 _COLLECTION_PATH = "/v1/analyses"
 _BATCH_PATH = "/v1/batches"
 _METHODOLOGY_PATH = "/v1/methodology"
@@ -203,6 +204,16 @@ class AnalysisAsgiApp:
                 response = await self._sync_runner.run(
                     lambda: self._api.get_analysis(analysis_id, context=context)
                 )
+            elif route == "analysis_cancel":
+                if method != "POST":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                self._query_filters(scope, allowed=frozenset())
+                assert analysis_id is not None
+                response = await self._sync_runner.run(
+                    lambda: self._api.cancel_analysis(analysis_id, context=context)
+                )
             elif route == "analysis_export":
                 if method != "GET":
                     raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
@@ -303,6 +314,9 @@ class AnalysisAsgiApp:
         comparison_match = _ANALYSIS_COMPARISON_PATH.fullmatch(path)
         if comparison_match is not None:
             return "analysis_comparison", comparison_match.group(1)
+        cancel_match = _ANALYSIS_CANCEL_PATH.fullmatch(path)
+        if cancel_match is not None:
+            return "analysis_cancel", cancel_match.group(1)
         match = _ANALYSIS_PATH.fullmatch(path)
         if match is not None:
             return "analysis_item", match.group(1)

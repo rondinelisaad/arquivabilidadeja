@@ -16,6 +16,7 @@ def test_openapi_contract_is_json_serializable_and_covers_router() -> None:
         "/v1/analyses/{analysis_id}",
         "/v1/analyses/{analysis_id}/export.json",
         "/v1/analyses/{analysis_id}/comparison",
+        "/v1/analyses/{analysis_id}/cancel",
         "/v1/sites/{domain}/history",
         "/v1/methodology",
         "/v1/indicators",
@@ -27,9 +28,10 @@ def test_openapi_contract_is_json_serializable_and_covers_router() -> None:
         for method, operation in path.items()
         if method in {"get", "post"}
     }
-    assert len(operation_ids) == 10
+    assert len(operation_ids) == 11
     assert "createAnalysis" in operation_ids
     assert "getSiteHistory" in operation_ids
+    assert "cancelAnalysis" in operation_ids
     assert "getIndicator" in operation_ids
     json.dumps(document, ensure_ascii=False, allow_nan=False)
 

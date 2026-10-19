@@ -126,3 +126,41 @@ def finalize_analysis(
         finished_at=occurred_at,
         revision=analysis.revision + 1,
     )
+
+
+def cancel_analysis(
+    analysis: Analysis,
+    attempts: Collection[Attempt],
+    *,
+    occurred_at: datetime,
+) -> tuple[Analysis, tuple[Attempt, ...]]:
+    if analysis.state is AnalysisState.CANCELLED:
+        return analysis, tuple(attempts)
+    if analysis.state in {
+        AnalysisState.COMPLETED,
+        AnalysisState.PARTIALLY_COMPLETED,
+        AnalysisState.FAILED,
+    }:
+        raise LifecycleError(f"cannot cancel analysis from {analysis.state.value}")
+    _transition_time(analysis.updated_at, occurred_at)
+    by_id = {attempt.attempt_id: attempt for attempt in attempts}
+    if tuple(by_id) != analysis.attempt_ids or any(
+        item.analysis_id != analysis.analysis_id for item in attempts
+    ):
+        raise LifecycleError("attempt collection does not match the analysis")
+    updated_attempts = tuple(
+        finish_attempt(item, target=AttemptState.CANCELLED, occurred_at=occurred_at)
+        if item.state is AttemptState.RUNNING
+        else item
+        for item in attempts
+    )
+    return (
+        replace(
+            analysis,
+            state=AnalysisState.CANCELLED,
+            updated_at=occurred_at,
+            finished_at=occurred_at,
+            revision=analysis.revision + 1,
+        ),
+        updated_attempts,
+    )

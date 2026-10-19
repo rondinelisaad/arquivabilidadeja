@@ -230,6 +230,11 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     """
                     SELECT job_id FROM browser_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM analyses
+                        WHERE analyses.analysis_id = browser_jobs.analysis_id
+                          AND analyses.state = 'running'
+                      )
                       AND ((state = 'pending' AND available_at <= ?)
                         OR (state = 'running' AND lease_expires_at <= ?))
                     ORDER BY available_at, created_at, job_id
@@ -361,6 +366,11 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     """
                     SELECT job_id FROM collection_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM analyses
+                        WHERE analyses.analysis_id = collection_jobs.analysis_id
+                          AND analyses.state IN ('requested', 'running')
+                      )
                       AND ((state = 'pending' AND available_at <= ?)
                         OR (state = 'running' AND lease_expires_at <= ?))
                     ORDER BY available_at, created_at, job_id
@@ -519,6 +529,11 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     SELECT job_id
                     FROM assessment_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM analyses
+                        WHERE analyses.analysis_id = assessment_jobs.analysis_id
+                          AND analyses.state = 'running'
+                      )
                       AND (
                         (state = 'pending' AND available_at <= ?)
                         OR (state = 'running' AND lease_expires_at <= ?)
@@ -1044,6 +1059,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 "create",
                 "batch_create",
                 "read",
+                "cancel",
                 "export",
                 "history",
                 "site_history",
@@ -1148,9 +1164,16 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 route
                 not in {
                     "analyses_collection",
+                    "batches_collection",
                     "analysis_item",
+                    "analysis_cancel",
                     "analysis_export",
                     "analysis_comparison",
+                    "site_history",
+                    "methodology",
+                    "openapi",
+                    "indicators_collection",
+                    "indicator_item",
                     "unmatched",
                 }
                 or method

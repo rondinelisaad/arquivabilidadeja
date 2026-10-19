@@ -281,6 +281,11 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                            lease_expires_at, completed_at, error_code, created_at, updated_at
                     FROM archivability.browser_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM archivability.analyses
+                        WHERE analyses.analysis_id = browser_jobs.analysis_id
+                          AND analyses.state = 'running'
+                      )
                       AND ((state = 'pending' AND available_at <= %s)
                         OR (state = 'running' AND lease_expires_at <= %s))
                     ORDER BY available_at, created_at, job_id
@@ -408,6 +413,11 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                            completed_at, error_code, created_at, updated_at
                     FROM archivability.collection_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM archivability.analyses
+                        WHERE analyses.analysis_id = collection_jobs.analysis_id
+                          AND analyses.state IN ('requested', 'running')
+                      )
                       AND ((state = 'pending' AND available_at <= %s)
                         OR (state = 'running' AND lease_expires_at <= %s))
                     ORDER BY available_at, created_at, job_id
@@ -558,6 +568,11 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                     SELECT {_JOB_COLUMNS}
                     FROM archivability.assessment_jobs
                     WHERE attempt_count < max_attempts
+                      AND EXISTS (
+                        SELECT 1 FROM archivability.analyses
+                        WHERE analyses.analysis_id = assessment_jobs.analysis_id
+                          AND analyses.state = 'running'
+                      )
                       AND (
                         (state = 'pending' AND available_at <= %s)
                         OR (state = 'running' AND lease_expires_at <= %s)
@@ -1035,6 +1050,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 "create",
                 "batch_create",
                 "read",
+                "cancel",
                 "export",
                 "history",
                 "site_history",
@@ -1137,9 +1153,16 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             if (
                 route not in {
                     "analyses_collection",
+                    "batches_collection",
                     "analysis_item",
+                    "analysis_cancel",
                     "analysis_export",
                     "analysis_comparison",
+                    "site_history",
+                    "methodology",
+                    "openapi",
+                    "indicators_collection",
+                    "indicator_item",
                     "unmatched",
                 }
                 or method
@@ -1360,14 +1383,23 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                             )
                         )
                     FROM (
-                        SELECT state, available_at, lease_expires_at, created_at
-                        FROM archivability.collection_jobs
+                        SELECT jobs.state, jobs.available_at, jobs.lease_expires_at, jobs.created_at
+                        FROM archivability.collection_jobs AS jobs
+                        JOIN archivability.analyses AS analysis USING (analysis_id)
+                        WHERE jobs.state IN ('succeeded', 'failed')
+                           OR analysis.state IN ('requested', 'running')
                         UNION ALL
-                        SELECT state, available_at, lease_expires_at, created_at
-                        FROM archivability.assessment_jobs
+                        SELECT jobs.state, jobs.available_at, jobs.lease_expires_at, jobs.created_at
+                        FROM archivability.assessment_jobs AS jobs
+                        JOIN archivability.analyses AS analysis USING (analysis_id)
+                        WHERE jobs.state IN ('succeeded', 'failed')
+                           OR analysis.state = 'running'
                         UNION ALL
-                        SELECT state, available_at, lease_expires_at, created_at
-                        FROM archivability.browser_jobs
+                        SELECT jobs.state, jobs.available_at, jobs.lease_expires_at, jobs.created_at
+                        FROM archivability.browser_jobs AS jobs
+                        JOIN archivability.analyses AS analysis USING (analysis_id)
+                        WHERE jobs.state IN ('succeeded', 'failed')
+                           OR analysis.state = 'running'
                     ) AS pipeline_jobs
                     """
                 ).fetchone()
@@ -1382,14 +1414,23 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                                count(*) FILTER (WHERE state = 'succeeded'),
                                count(*) FILTER (WHERE state = 'failed')
                         FROM (
-                            SELECT 'collection' AS stage, state
-                            FROM archivability.collection_jobs
+                            SELECT 'collection' AS stage, jobs.state
+                            FROM archivability.collection_jobs AS jobs
+                            JOIN archivability.analyses AS analysis USING (analysis_id)
+                            WHERE jobs.state IN ('succeeded', 'failed')
+                               OR analysis.state IN ('requested', 'running')
                             UNION ALL
-                            SELECT 'browser' AS stage, state
-                            FROM archivability.browser_jobs
+                            SELECT 'browser' AS stage, jobs.state
+                            FROM archivability.browser_jobs AS jobs
+                            JOIN archivability.analyses AS analysis USING (analysis_id)
+                            WHERE jobs.state IN ('succeeded', 'failed')
+                               OR analysis.state = 'running'
                             UNION ALL
-                            SELECT 'assessment' AS stage, state
-                            FROM archivability.assessment_jobs
+                            SELECT 'assessment' AS stage, jobs.state
+                            FROM archivability.assessment_jobs AS jobs
+                            JOIN archivability.analyses AS analysis USING (analysis_id)
+                            WHERE jobs.state IN ('succeeded', 'failed')
+                               OR analysis.state = 'running'
                         ) AS staged_jobs
                         GROUP BY stage
                         ORDER BY stage

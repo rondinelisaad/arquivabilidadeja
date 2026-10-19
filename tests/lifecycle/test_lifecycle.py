@@ -7,7 +7,6 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -19,6 +18,7 @@ from archivability.lifecycle import (  # noqa: E402
     AnalysisState,
     AttemptState,
     LifecycleError,
+    cancel_analysis,
     finalize_analysis,
     finish_attempt,
     start_attempt,
@@ -30,7 +30,6 @@ from archivability.storage import (  # noqa: E402
     SqliteLifecycleRepository,
     apply_sqlite_migrations,
 )
-
 
 T0 = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
 METHODOLOGY = ROOT / "methodology" / "v0.1.0"
@@ -261,6 +260,38 @@ class OrchestratorPersistenceTests(unittest.TestCase):
             target=AnalysisState.CANCELLED,
         )
         self.assertEqual(AnalysisState.CANCELLED, cancelled.state)
+
+    def test_cancel_command_handles_queued_running_and_replay(self) -> None:
+        analysis = self._create()
+        queued, queued_attempts = cancel_analysis(
+            analysis, (), occurred_at=T0 + timedelta(seconds=1)
+        )
+        replay, replay_attempts = cancel_analysis(
+            queued, queued_attempts, occurred_at=T0 + timedelta(seconds=2)
+        )
+        running, attempt = start_attempt(
+            analysis,
+            attempt_id="attempt-running",
+            occurred_at=T0 + timedelta(seconds=1),
+        )
+        cancelled, attempts = cancel_analysis(
+            running, (attempt,), occurred_at=T0 + timedelta(seconds=2)
+        )
+
+        self.assertEqual(AnalysisState.CANCELLED, queued.state)
+        self.assertIs(replay, queued)
+        self.assertEqual((), replay_attempts)
+        self.assertEqual(AnalysisState.CANCELLED, cancelled.state)
+        self.assertEqual(AttemptState.CANCELLED, attempts[0].state)
+
+    def test_orchestrator_cancel_is_idempotent(self) -> None:
+        analysis = self._create()
+
+        first = self.orchestrator.cancel_analysis(analysis.analysis_id)
+        second = self.orchestrator.cancel_analysis(analysis.analysis_id)
+
+        self.assertEqual(AnalysisState.CANCELLED, first.state)
+        self.assertEqual(first, second)
 
     def test_stale_analysis_revision_is_rejected_and_audited(self) -> None:
         original = self._create(max_attempts=2)

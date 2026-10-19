@@ -377,6 +377,102 @@ class AnalysisApi:
     ) -> ApiResponse:
         return self._get_analysis(analysis_id, context=context, operation="export")
 
+    def cancel_analysis(
+        self,
+        analysis_id: str,
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        denied = self._authenticate(context, "cancel")
+        if denied is not None:
+            return denied
+        if not isinstance(analysis_id, str) or not _IDENTIFIER_PATTERN.fullmatch(
+            analysis_id
+        ):
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+            )
+        principal = context.principal
+        assert principal is not None
+        try:
+            authorized = (
+                "analysis:cancel" in principal.permissions
+                and self._authorization.can_read_analysis(principal, analysis_id)
+            )
+        except Exception:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+                analysis_id=analysis_id,
+            )
+        if not authorized:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=403,
+                code="ACCESS_DENIED",
+                message="Access denied.",
+                result="unauthorized",
+                analysis_id=analysis_id,
+            )
+        try:
+            within_limit = self._rate_limiter.allow(principal, "analysis.cancel")
+        except Exception:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+                analysis_id=analysis_id,
+            )
+        if not within_limit:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=429,
+                code="RATE_LIMITED",
+                message="Request limit exceeded.",
+                analysis_id=analysis_id,
+            )
+        try:
+            analysis = self._workflow.cancel(
+                analysis_id, audit=context.audit_context()
+            )
+        except LifecycleError:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+                analysis_id=analysis_id,
+            )
+        except Exception:
+            return self._error(
+                context,
+                operation="cancel",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+                analysis_id=analysis_id,
+            )
+        return self._response(
+            context,
+            operation="cancel",
+            status_code=200,
+            body={"analysis_id": analysis.analysis_id, "state": analysis.state.value},
+            result="success",
+            analysis_id=analysis.analysis_id,
+        )
+
     def list_analyses(self, *, context: ApiRequestContext) -> ApiResponse:
         denied = self._authenticate(context, "history")
         if denied is not None:

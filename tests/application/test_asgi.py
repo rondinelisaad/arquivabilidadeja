@@ -86,6 +86,16 @@ class CapturingApi:
             },
         )
 
+    def cancel_analysis(
+        self, analysis_id: str, *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("cancel", analysis_id, context))
+        return ApiResponse(
+            status_code=200,
+            body={"analysis_id": analysis_id, "state": "cancelled"},
+            headers={"Cache-Control": "no-store"},
+        )
+
     def list_analyses(self, *, context: ApiRequestContext) -> ApiResponse:
         self.calls.append(("history", None, context))
         return ApiResponse(
@@ -435,6 +445,24 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
             [item[0] for item in self.api.calls],
         )
         self.assertEqual("example.org", self.api.calls[2][1])
+
+    async def test_cancel_route_is_post_only_and_does_not_require_a_body(self) -> None:
+        state = {
+            "archivability.principal": self.principal,
+            "archivability.request_id": "request-cancel-1",
+        }
+        cancelled = await self.request(
+            self.scope(
+                method="POST",
+                path="/v1/analyses/analysis-123/cancel",
+                state=state,
+            ),
+            [],
+        )
+
+        self.assertEqual(200, cancelled[0])
+        self.assertEqual("cancelled", cancelled[2]["state"])
+        self.assertEqual("cancel", self.api.calls[0][0])
 
     async def test_oversized_body_is_rejected_and_audited_without_content(self) -> None:
         secret = b"sensitive-body-value"

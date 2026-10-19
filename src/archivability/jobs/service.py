@@ -10,9 +10,8 @@ from archivability.evidence.assessment import HttpAssessmentOutcome
 from archivability.jobs.models import AssessmentJob, AssessmentJobState, JobError
 from archivability.jobs.ports import AssessmentJobRepository
 from archivability.jobs.state_machine import fail_assessment_job, succeed_assessment_job
-from archivability.lifecycle.models import AttemptState
+from archivability.lifecycle.models import AnalysisState, AttemptState
 from archivability.storage.audit import AuditContext
-
 
 Clock = Callable[[], datetime]
 
@@ -73,7 +72,8 @@ class HttpAssessmentQueueService:
         if analysis is None or attempt is None:
             raise JobError("queued observation has no lifecycle state")
         if (
-            attempt.analysis_id != analysis.analysis_id
+            analysis.state is not AnalysisState.RUNNING
+            or attempt.analysis_id != analysis.analysis_id
             or attempt.attempt_id not in analysis.attempt_ids
             or attempt.state is not AttemptState.SUCCEEDED
         ):

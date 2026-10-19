@@ -128,7 +128,7 @@ class AnalysisApiTests(unittest.TestCase):
         self.principal = ApiPrincipal(
             user_id="user-opaque-1",
             session_id="session-opaque-1",
-            permissions=frozenset({"analysis:read"}),
+            permissions=frozenset({"analysis:read", "analysis:cancel"}),
         )
 
     def tearDown(self) -> None:
@@ -316,6 +316,61 @@ class AnalysisApiTests(unittest.TestCase):
         assert event is not None
         self.assertEqual("access.analysis_api_batch_create", event[0])
         self.assertNotIn("subject", event[1])
+
+    def test_cancel_is_owner_authorized_idempotent_and_stops_queue_claim(self) -> None:
+        created = self.api.create_analysis(
+            {"subject_uri": SUBJECT}, context=self.context("request-cancel-create")
+        )
+
+        first = self.api.cancel_analysis(
+            created.body["analysis_id"], context=self.context("request-cancel-1")
+        )
+        second = self.api.cancel_analysis(
+            created.body["analysis_id"], context=self.context("request-cancel-2")
+        )
+        claimed = self.repository.claim_next_collection_job(
+            worker_id="worker-after-cancel",
+            occurred_at=NOW,
+            lease_expires_at=datetime(2026, 10, 7, 5, 1, tzinfo=timezone.utc),
+            audit=self.context("request-cancel-claim").audit_context(),
+        )
+
+        self.assertEqual(200, first.status_code)
+        self.assertEqual("cancelled", first.body["state"])
+        self.assertEqual(first.body, second.body)
+        self.assertIsNone(claimed)
+        actions = self.connection.execute(
+            """
+            SELECT action FROM audit_events
+            WHERE resource_id IN (?, ?) ORDER BY resource_id
+            """,
+            ("request-cancel-1", "request-cancel-2"),
+        ).fetchall()
+        self.assertEqual(
+            [("access.analysis_api_cancel",), ("access.analysis_api_cancel",)],
+            actions,
+        )
+
+    def test_cancel_requires_explicit_permission(self) -> None:
+        created = self.api.create_analysis(
+            {"subject_uri": SUBJECT}, context=self.context("request-cancel-create-2")
+        )
+        principal = ApiPrincipal(
+            user_id=self.principal.user_id,
+            session_id=self.principal.session_id,
+            permissions=frozenset({"analysis:read"}),
+        )
+
+        response = self.api.cancel_analysis(
+            created.body["analysis_id"],
+            context=ApiRequestContext(
+                request_id="request-cancel-denied",
+                ip_address="192.0.2.10",
+                principal=principal,
+            ),
+        )
+
+        self.assertEqual(403, response.status_code)
 
     def test_invalid_batch_is_rejected_before_any_write(self) -> None:
         response = self.api.create_batch(

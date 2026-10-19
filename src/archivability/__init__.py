@@ -132,6 +132,7 @@ from archivability.lifecycle import (
     Attempt,
     AttemptState,
     LifecycleError,
+    cancel_analysis,
 )
 from archivability.methodology.catalog import (
     IndicatorDocumentation,
@@ -328,6 +329,7 @@ __all__ = [
     "WorkflowError",
     "apply_postgresql_migrations",
     "apply_sqlite_migrations",
+    "cancel_analysis",
     "check_worker_readiness",
     "configure_sqlite_connection",
     "create_production_app",

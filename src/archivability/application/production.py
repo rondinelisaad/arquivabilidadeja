@@ -52,6 +52,7 @@ _LOCAL_DATABASE_HOSTS = frozenset({"", "localhost", "127.0.0.1", "::1"})
 _PRODUCTION_RATE_LIMIT_RULES = {
     "analysis.create": RateLimitRule(capacity=10, refill_seconds=60),
     "analysis.batch_create": RateLimitRule(capacity=2, refill_seconds=60),
+    "analysis.cancel": RateLimitRule(capacity=10, refill_seconds=60),
     "analysis.read": RateLimitRule(capacity=120, refill_seconds=60),
     "methodology.read": RateLimitRule(capacity=120, refill_seconds=60),
 }

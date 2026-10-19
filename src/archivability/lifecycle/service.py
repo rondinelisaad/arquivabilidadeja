@@ -13,6 +13,7 @@ from archivability.lifecycle.models import (
 )
 from archivability.lifecycle.ports import LifecycleRepository
 from archivability.lifecycle.state_machine import (
+    cancel_analysis,
     finalize_analysis,
     finish_attempt,
     start_attempt,
@@ -131,6 +132,24 @@ class AnalysisOrchestrator:
             target=target,
             occurred_at=self._now(),
         )
+        self._repository.update_analysis(analysis, updated, audit=audit)
+        return updated
+
+    def cancel_analysis(
+        self, analysis_id: str, *, audit: AuditContext = AuditContext()
+    ) -> Analysis:
+        analysis = self._require_analysis(analysis_id)
+        attempts = self._repository.list_attempts(analysis_id)
+        updated, updated_attempts = cancel_analysis(
+            analysis,
+            attempts,
+            occurred_at=self._now(),
+        )
+        if updated is analysis:
+            return analysis
+        for previous, current in zip(attempts, updated_attempts, strict=True):
+            if current is not previous:
+                self._repository.update_attempt(previous, current, audit=audit)
         self._repository.update_analysis(analysis, updated, audit=audit)
         return updated
 

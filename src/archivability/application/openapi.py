@@ -25,6 +25,10 @@ def build_openapi_document(*, methodology_version: str) -> dict[str, Any]:
             "parameters": [_path_parameter("analysis_id", "Opaque analysis identifier")],
             "get": _operation("compareAnalysis", "Compare with the latest compatible analysis", 200),
         },
+        "/v1/analyses/{analysis_id}/cancel": {
+            "parameters": [_path_parameter("analysis_id", "Opaque analysis identifier")],
+            "post": _operation("cancelAnalysis", "Cancel a queued or running analysis", 200),
+        },
         "/v1/sites/{domain}/history": {
             "parameters": [_path_parameter("domain", "Exact normalized hostname")],
             "get": _operation("getSiteHistory", "List the owner's series for an exact hostname", 200),

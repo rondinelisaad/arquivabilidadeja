@@ -9,6 +9,7 @@ from archivability.lifecycle.models import (
 )
 from archivability.lifecycle.service import AnalysisOrchestrator
 from archivability.lifecycle.state_machine import (
+    cancel_analysis,
     finalize_analysis,
     finish_attempt,
     start_attempt,
@@ -21,6 +22,7 @@ __all__ = [
     "Attempt",
     "AttemptState",
     "LifecycleError",
+    "cancel_analysis",
     "finalize_analysis",
     "finish_attempt",
     "start_attempt",
