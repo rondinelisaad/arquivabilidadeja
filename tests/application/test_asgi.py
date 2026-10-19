@@ -107,6 +107,34 @@ class CapturingApi:
             headers={"Cache-Control": "no-store"},
         )
 
+    def get_methodology(self, *, context: ApiRequestContext) -> ApiResponse:
+        self.calls.append(("methodology_read", None, context))
+        return ApiResponse(
+            status_code=200,
+            body={"methodology_schema_version": "1.0", "version": "0.1.0"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def list_indicators(
+        self, filters: Mapping[str, Any], *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("indicator_list", dict(filters), context))
+        return ApiResponse(
+            status_code=200,
+            body={"indicator_catalog_schema_version": "1.0", "items": []},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def get_indicator(
+        self, identifier: str, *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("indicator_read", identifier, context))
+        return ApiResponse(
+            status_code=200,
+            body={"indicator_schema_version": "1.0", "indicator": {"id": identifier}},
+            headers={"Cache-Control": "no-store"},
+        )
+
     @staticmethod
     def _error(context: ApiRequestContext, status: int, code: str) -> ApiResponse:
         return ApiResponse(
@@ -142,6 +170,7 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         path: str = "/v1/analyses",
         headers: list[tuple[bytes, bytes]] | None = None,
         state: Mapping[str, Any] | None = None,
+        query_string: bytes = b"",
     ) -> dict[str, Any]:
         return {
             "type": "http",
@@ -151,7 +180,7 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
             "scheme": "https",
             "path": path,
             "raw_path": path.encode("ascii"),
-            "query_string": b"",
+            "query_string": query_string,
             "headers": headers or [],
             "client": ("192.0.2.10", 12345),
             "server": ("api.example", 443),
@@ -232,6 +261,66 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(202, status)
         self.assertEqual("batch-1", response["batch_id"])
         self.assertEqual("batch_create", self.api.calls[0][0])
+
+    async def test_methodology_routes_and_indicator_filters_are_explicit(self) -> None:
+        state = {
+            "archivability.principal": self.principal,
+            "archivability.request_id": "request-catalog-1",
+        }
+        methodology = await self.request(
+            self.scope(method="GET", path="/v1/methodology", state=state), []
+        )
+        indicators = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/indicators",
+                query_string=b"dimension=discoverability&version=0.1.0",
+                state=state,
+            ),
+            [],
+        )
+        indicator = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/indicators/latency_breakdown",
+                state=state,
+            ),
+            [],
+        )
+
+        self.assertEqual(200, methodology[0])
+        self.assertEqual(200, indicators[0])
+        self.assertEqual(200, indicator[0])
+        self.assertEqual(
+            {"dimension": "discoverability", "version": "0.1.0"},
+            self.api.calls[1][1],
+        )
+        self.assertEqual("latency_breakdown", self.api.calls[2][1])
+
+    async def test_duplicate_or_unknown_indicator_filters_are_rejected(self) -> None:
+        state = {"archivability.principal": self.principal}
+        duplicate = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/indicators",
+                query_string=b"dimension=a&dimension=b",
+                state=state,
+            ),
+            [],
+        )
+        unknown = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/indicators",
+                query_string=b"target=https%3A%2F%2Fexample.org",
+                state=state,
+            ),
+            [],
+        )
+
+        self.assertEqual(400, duplicate[0])
+        self.assertEqual(400, unknown[0])
+        self.assertEqual([], self.api.calls)
 
     async def test_client_identity_and_request_headers_are_never_trusted(self) -> None:
         status, headers, response = await self.request(

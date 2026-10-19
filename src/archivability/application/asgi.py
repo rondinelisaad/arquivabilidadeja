@@ -5,6 +5,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import parse_qsl
 from uuid import uuid4
 
 from archivability.application.api import (
@@ -21,6 +22,9 @@ _ANALYSIS_EXPORT_PATH = re.compile(r"^/v1/analyses/([^/]+)/export\.json$")
 _ANALYSIS_COMPARISON_PATH = re.compile(r"^/v1/analyses/([^/]+)/comparison$")
 _COLLECTION_PATH = "/v1/analyses"
 _BATCH_PATH = "/v1/batches"
+_METHODOLOGY_PATH = "/v1/methodology"
+_INDICATORS_PATH = "/v1/indicators"
+_INDICATOR_PATH = re.compile(r"^/v1/indicators/([^/]+)$")
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
 _SAFE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
@@ -138,6 +142,37 @@ class AnalysisAsgiApp:
                     response = await self._sync_runner.run(
                         lambda: self._api.create_batch(payload, context=context)
                     )
+            elif route == "methodology":
+                if method != "GET":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                self._query_filters(scope, allowed=frozenset())
+                response = await self._sync_runner.run(
+                    lambda: self._api.get_methodology(context=context)
+                )
+            elif route == "indicators_collection":
+                if method != "GET":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                filters = self._query_filters(
+                    scope,
+                    allowed=frozenset({"version", "dimension", "classification"}),
+                )
+                response = await self._sync_runner.run(
+                    lambda: self._api.list_indicators(filters, context=context)
+                )
+            elif route == "indicator_item":
+                if method != "GET":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                self._query_filters(scope, allowed=frozenset())
+                assert analysis_id is not None
+                response = await self._sync_runner.run(
+                    lambda: self._api.get_indicator(analysis_id, context=context)
+                )
             elif route == "analysis_item":
                 if method != "GET":
                     raise _RequestFailure(405, "METHOD_NOT_ALLOWED", "Method is not allowed.")
@@ -229,6 +264,12 @@ class AnalysisAsgiApp:
             return "analyses_collection", None
         if path == _BATCH_PATH:
             return "batches_collection", None
+        if path == _METHODOLOGY_PATH:
+            return "methodology", None
+        if path == _INDICATORS_PATH:
+            return "indicators_collection", None
+        if match := _INDICATOR_PATH.fullmatch(path):
+            return "indicator_item", match.group(1)
         export_match = _ANALYSIS_EXPORT_PATH.fullmatch(path)
         if export_match is not None:
             return "analysis_export", export_match.group(1)
@@ -239,6 +280,32 @@ class AnalysisAsgiApp:
         if match is not None:
             return "analysis_item", match.group(1)
         return "unmatched", None
+
+    @staticmethod
+    def _query_filters(
+        scope: Mapping[str, Any], *, allowed: frozenset[str]
+    ) -> dict[str, str]:
+        raw = scope.get("query_string", b"")
+        if not isinstance(raw, bytes) or len(raw) > 1024:
+            raise _RequestFailure(400, "INVALID_REQUEST", "Request is invalid.")
+        try:
+            query = raw.decode("ascii")
+            pairs = parse_qsl(
+                query,
+                keep_blank_values=True,
+                strict_parsing=True,
+                max_num_fields=8,
+                separator="&",
+            )
+        except (UnicodeDecodeError, ValueError):
+            raise _RequestFailure(
+                400, "INVALID_REQUEST", "Request is invalid."
+            ) from None
+        if any(not key or not value or key not in allowed for key, value in pairs):
+            raise _RequestFailure(400, "INVALID_REQUEST", "Request is invalid.")
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise _RequestFailure(400, "INVALID_REQUEST", "Request is invalid.")
+        return dict(pairs)
 
     async def _read_json_object(
         self,

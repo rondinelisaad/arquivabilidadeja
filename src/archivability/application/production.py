@@ -36,6 +36,7 @@ from archivability.jobs.metrics import (
     render_prometheus_metrics,
 )
 from archivability.lifecycle.service import AnalysisOrchestrator
+from archivability.methodology.catalog import load_methodology_catalog
 from archivability.methodology.loader import load_methodology
 from archivability.probes.http_metadata import HttpMetadataProbe
 from archivability.probes.ports import AddressResolver, Probe
@@ -52,6 +53,7 @@ _PRODUCTION_RATE_LIMIT_RULES = {
     "analysis.create": RateLimitRule(capacity=10, refill_seconds=60),
     "analysis.batch_create": RateLimitRule(capacity=2, refill_seconds=60),
     "analysis.read": RateLimitRule(capacity=120, refill_seconds=60),
+    "methodology.read": RateLimitRule(capacity=120, refill_seconds=60),
 }
 
 
@@ -725,6 +727,7 @@ def create_production_app(
     if not isinstance(settings, ProductionSettings):
         raise RuntimeConfigurationError("settings must be ProductionSettings")
     methodology = load_methodology(settings.methodology_path)
+    methodology_catalog = load_methodology_catalog(settings.methodology_path)
     if verifier is None:
         verifier = OidcJwtVerifier(settings.oidc)
     if resolver is None:
@@ -786,6 +789,7 @@ def create_production_app(
             authorization=OwnershipAuthorizationPolicy(persistence),
             rate_limiter=request_rate_limiter,
             audit_recorder=persistence,
+            methodology_catalog=methodology_catalog,
         )
         http_app = AnalysisAsgiApp(
             api=api,

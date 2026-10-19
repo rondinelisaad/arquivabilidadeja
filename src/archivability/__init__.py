@@ -133,6 +133,11 @@ from archivability.lifecycle import (
     AttemptState,
     LifecycleError,
 )
+from archivability.methodology.catalog import (
+    IndicatorDocumentation,
+    MethodologyCatalog,
+    load_methodology_catalog,
+)
 from archivability.methodology.loader import load_methodology
 from archivability.methodology.models import (
     AssessmentResult,
@@ -261,6 +266,7 @@ __all__ = [
     "HttpMetadataDerivationError",
     "HttpWorkflowOutcome",
     "InMemoryTokenBucketRateLimiter",
+    "IndicatorDocumentation",
     "IndicatorResult",
     "InlineAsgiSyncRunner",
     "IntegrityViolation",
@@ -268,6 +274,7 @@ __all__ = [
     "LegacyClearPlusInput",
     "LifecycleError",
     "LoopbackBrowserRenderer",
+    "MethodologyCatalog",
     "MethodologyConfig",
     "Observation",
     "OidcConfigurationError",
@@ -328,6 +335,7 @@ __all__ = [
     "derive_http_metadata_indicators",
     "derive_indicator_result",
     "load_methodology",
+    "load_methodology_catalog",
     "render_prometheus_metrics",
     "run_production_worker",
     "validate_browser_render_observation",

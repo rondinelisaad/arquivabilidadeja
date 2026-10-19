@@ -19,6 +19,7 @@ from archivability.application.read_model import (
     ReportNotFoundError,
 )
 from archivability.lifecycle.models import LifecycleError
+from archivability.methodology.catalog import MethodologyCatalog
 from archivability.probes.models import ProbeValidationError
 from archivability.probes.ports import Probe
 from archivability.storage.audit import AuditContext
@@ -142,6 +143,7 @@ class AnalysisApi:
         authorization: ApiAuthorizationPolicy,
         rate_limiter: ApiRateLimiter,
         audit_recorder: ApiAuditRecorder,
+        methodology_catalog: MethodologyCatalog,
         batch_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._workflow = workflow
@@ -150,6 +152,9 @@ class AnalysisApi:
         self._authorization = authorization
         self._rate_limiter = rate_limiter
         self._audit_recorder = audit_recorder
+        if not isinstance(methodology_catalog, MethodologyCatalog):
+            raise ApiValidationError("methodology catalog is invalid")
+        self._methodology_catalog = methodology_catalog
         self._batch_id_factory = batch_id_factory or (
             lambda: f"batch-{uuid4().hex}"
         )
@@ -433,6 +438,99 @@ class AnalysisApi:
             result="success",
         )
 
+    def get_methodology(self, *, context: ApiRequestContext) -> ApiResponse:
+        denied = self._authorize_catalog_read(context, "methodology_read")
+        if denied is not None:
+            return denied
+        return self._response(
+            context,
+            operation="methodology_read",
+            status_code=200,
+            body=self._methodology_catalog.methodology_document(),
+            result="success",
+        )
+
+    def list_indicators(
+        self,
+        filters: Mapping[str, Any],
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        denied = self._authorize_catalog_read(context, "indicator_list")
+        if denied is not None:
+            return denied
+        try:
+            dimension, classification = self._indicator_filters(filters)
+        except ApiValidationError:
+            return self._error(
+                context,
+                operation="indicator_list",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+            )
+        items = self._methodology_catalog.list_indicators(
+            dimension=dimension,
+            classification=classification,
+        )
+        return self._response(
+            context,
+            operation="indicator_list",
+            status_code=200,
+            body={
+                "indicator_catalog_schema_version": "1.0",
+                "methodology_id": self._methodology_catalog.methodology_id,
+                "methodology_version": self._methodology_catalog.version,
+                "filters": {
+                    "dimension": dimension,
+                    "classification": classification,
+                },
+                "items": [item.to_dict() for item in items],
+            },
+            result="success",
+        )
+
+    def get_indicator(
+        self,
+        identifier: str,
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        denied = self._authorize_catalog_read(context, "indicator_read")
+        if denied is not None:
+            return denied
+        if not isinstance(identifier, str) or not _IDENTIFIER_PATTERN.fullmatch(
+            identifier
+        ):
+            return self._error(
+                context,
+                operation="indicator_read",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+            )
+        indicator = self._methodology_catalog.get_indicator(identifier)
+        if indicator is None:
+            return self._error(
+                context,
+                operation="indicator_read",
+                status_code=404,
+                code="NOT_FOUND",
+                message="Indicator was not found.",
+            )
+        return self._response(
+            context,
+            operation="indicator_read",
+            status_code=200,
+            body={
+                "indicator_schema_version": "1.0",
+                "methodology_id": self._methodology_catalog.methodology_id,
+                "methodology_version": self._methodology_catalog.version,
+                "indicator": indicator.to_dict(),
+            },
+            result="success",
+        )
+
     def compare_analysis(
         self,
         analysis_id: str,
@@ -667,6 +765,43 @@ class AnalysisApi:
             result="unauthorized",
         )
 
+    def _authorize_catalog_read(
+        self, context: ApiRequestContext, operation: str
+    ) -> ApiResponse | None:
+        denied = self._authenticate(context, operation)
+        if denied is not None:
+            return denied
+        principal = context.principal
+        assert principal is not None
+        if not principal.permissions.intersection({"analysis:read", "analysis:read:any"}):
+            return self._error(
+                context,
+                operation=operation,
+                status_code=403,
+                code="ACCESS_DENIED",
+                message="Access denied.",
+                result="unauthorized",
+            )
+        try:
+            within_limit = self._rate_limiter.allow(principal, "methodology.read")
+        except Exception:
+            return self._error(
+                context,
+                operation=operation,
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+        if not within_limit:
+            return self._error(
+                context,
+                operation=operation,
+                status_code=429,
+                code="RATE_LIMITED",
+                message="Request limit exceeded.",
+            )
+        return None
+
     @staticmethod
     def _subject_uri(payload: Mapping[str, Any]) -> str:
         if not isinstance(payload, Mapping) or set(payload) != {"subject_uri"}:
@@ -696,6 +831,34 @@ class AnalysisApi:
             ):
                 raise ApiValidationError("batch subject URI is invalid")
         return subjects
+
+    def _indicator_filters(
+        self, filters: Mapping[str, Any]
+    ) -> tuple[str | None, str | None]:
+        if not isinstance(filters, Mapping) or not set(filters) <= {
+            "version",
+            "dimension",
+            "classification",
+        }:
+            raise ApiValidationError("indicator filters are invalid")
+        version = filters.get("version")
+        if version is not None and version != self._methodology_catalog.version:
+            raise ApiValidationError("indicator version is unavailable")
+        dimension = filters.get("dimension")
+        classification = filters.get("classification")
+        if dimension is not None and (
+            not isinstance(dimension, str)
+            or dimension not in {item["id"] for item in self._methodology_catalog.dimensions}
+        ):
+            raise ApiValidationError("indicator dimension is invalid")
+        allowed_classifications = {
+            "intrinsic",
+            "harvest_dependent",
+            "observation_context",
+        }
+        if classification is not None and classification not in allowed_classifications:
+            raise ApiValidationError("indicator classification is invalid")
+        return dimension, classification
 
     def _error(
         self,

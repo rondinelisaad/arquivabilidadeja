@@ -27,6 +27,7 @@ from archivability import (  # noqa: E402
     SsrfPolicy,
     apply_sqlite_migrations,
     load_methodology,
+    load_methodology_catalog,
 )
 from tests.application.test_http_workflow import (  # noqa: E402
     StaticResolver,
@@ -79,6 +80,7 @@ class AnalysisApiTests(unittest.TestCase):
             event_id_factory=lambda: next(event_ids),
         )
         self.methodology = load_methodology(METHODOLOGY_PATH)
+        self.methodology_catalog = load_methodology_catalog(METHODOLOGY_PATH)
         analysis_ids = iter(f"analysis-api-{index}" for index in range(1, 100))
         attempt_ids = iter(f"attempt-api-{index}" for index in range(1, 100))
         orchestrator = AnalysisOrchestrator(
@@ -120,6 +122,7 @@ class AnalysisApiTests(unittest.TestCase):
             authorization=self.authorization,
             rate_limiter=self.rate_limiter,
             audit_recorder=self.repository,
+            methodology_catalog=self.methodology_catalog,
             batch_id_factory=lambda: "batch-api-1",
         )
         self.principal = ApiPrincipal(
@@ -313,6 +316,72 @@ class AnalysisApiTests(unittest.TestCase):
             0, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0]
         )
 
+    def test_methodology_and_indicator_catalog_are_versioned_and_filterable(self) -> None:
+        methodology = self.api.get_methodology(
+            context=self.context("request-methodology-1")
+        )
+        indicators = self.api.list_indicators(
+            {"dimension": "discoverability", "version": "0.1.0"},
+            context=self.context("request-indicators-1"),
+        )
+        indicator = self.api.get_indicator(
+            "latency_breakdown",
+            context=self.context("request-indicator-1"),
+        )
+
+        self.assertEqual(200, methodology.status_code)
+        self.assertEqual("candidate", methodology.body["status"])
+        self.assertEqual(45, methodology.body["indicator_count"])
+        self.assertEqual(200, indicators.status_code)
+        self.assertTrue(indicators.body["items"])
+        self.assertTrue(
+            all(
+                item["dimension"] == "discoverability"
+                for item in indicators.body["items"]
+            )
+        )
+        self.assertEqual(200, indicator.status_code)
+        self.assertEqual("N01", indicator.body["indicator"]["id"])
+        self.assertEqual(
+            ["methodology.read", "methodology.read", "methodology.read"],
+            self.rate_limiter.operations[-3:],
+        )
+        actions = {
+            row[0]
+            for row in self.connection.execute(
+                """
+                SELECT action FROM audit_events
+                WHERE resource_id IN (?, ?, ?)
+                """,
+                (
+                    "request-methodology-1",
+                    "request-indicators-1",
+                    "request-indicator-1",
+                ),
+            ).fetchall()
+        }
+        self.assertEqual(
+            {
+                "access.analysis_api_methodology_read",
+                "access.analysis_api_indicator_list",
+                "access.analysis_api_indicator_read",
+            },
+            actions,
+        )
+
+    def test_indicator_filters_and_missing_indicator_fail_closed(self) -> None:
+        invalid = self.api.list_indicators(
+            {"classification": "invented"},
+            context=self.context("request-indicators-invalid"),
+        )
+        missing = self.api.get_indicator(
+            "missing-indicator",
+            context=self.context("request-indicator-missing"),
+        )
+
+        self.assertEqual(400, invalid.status_code)
+        self.assertEqual(404, missing.status_code)
+
     def test_creation_persists_immutable_owner_and_audits_without_duplication(
         self,
     ) -> None:
@@ -363,6 +432,7 @@ class AnalysisApiTests(unittest.TestCase):
             authorization=OwnershipAuthorizationPolicy(self.repository),
             rate_limiter=self.rate_limiter,
             audit_recorder=self.repository,
+            methodology_catalog=self.methodology_catalog,
         )
         analysis_id = created.body["analysis_id"]
         owner_context = ApiRequestContext(

@@ -1036,6 +1036,9 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 "export",
                 "history",
                 "compare",
+                "methodology_read",
+                "indicator_list",
+                "indicator_read",
             }:
                 raise IntegrityViolation("analysis API operation is invalid")
             if result == "success":
@@ -1043,7 +1046,14 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                     error_code is None
                     and (
                         analysis_id is not None
-                        or operation in {"history", "batch_create"}
+                        or operation
+                        in {
+                            "history",
+                            "batch_create",
+                            "methodology_read",
+                            "indicator_list",
+                            "indicator_read",
+                        }
                     )
                     and status_code
                     == (202 if operation in {"create", "batch_create"} else 200)
