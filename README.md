@@ -245,6 +245,8 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `GET /v1/analyses` lista o histórico sanitizado do proprietário autenticado. `GET /v1/analyses/{analysis_id}/comparison` compara uma avaliação terminal com a anterior mais recente somente quando alvo exato, metodologia, versão e conjunto de probes coincidem. A classificação é descritiva (`observed_change` ou `no_observed_change`), sem inferência automática de causalidade ou mudança estrutural. As ações `access.analysis_history` e `access.analysis_comparison` registram apenas IDs opacos, contagens, resultado e código estável.
 
+`GET /v1/sites/{domain}/history` produz a série privada de um hostname normalizado exato. A consulta percorre somente análises pertencentes ao usuário autenticado, nunca agrega subdomínios implicitamente e organiza a resposta em estratos de metodologia, versão e conjunto de probes. O domínio consultado não é copiado para a trilha de auditoria.
+
 `POST /v1/batches` aceita de 1 a 25 URLs previamente validadas e cria análises duráveis independentes. A resposta preserva a posição e os IDs sem repetir os alvos; falhas por item são explícitas e o acesso gera `access.analysis_api_batch_create`. O bucket de rate limit é separado da criação unitária.
 
 `GET /v1/methodology` publica a identidade, versão, hash da fonte, dimensões, regras de scoring, gates e limitações da mesma configuração carregada pelo motor. `GET /v1/indicators` publica as 45 definições e aceita filtros exatos `version`, `dimension` e `classification`; `GET /v1/indicators/{id-ou-slug}` entrega a documentação individual. Essas leituras exigem `analysis:read` ou `analysis:read:any`, têm rate limit próprio e geram auditoria sem copiar o conteúdo metodológico.

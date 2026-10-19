@@ -505,6 +505,8 @@ Atualização posterior em 2026-10-18: as Fases 4 e 5 também possuem implementa
 
 Atualização de encerramento técnico em 2026-10-18: a Fase 6 possui protocolo, contrato desidentificado e analisador reproduzível de sensibilidade/concordância, mas a validação científica continua corretamente pendente de dataset real e especialistas independentes. A Fase 7 entrega submissão limitada em lote, identidade configurável e estratificação por probe, comparação compatível por probe, métricas por estágio e Docker Compose com separação entre migration/runtime e browser loopback. Object storage não é ativado porque o escopo atual não persiste artefatos binários; os pré-requisitos para uma futura ativação estão documentados. A metodologia `0.1.0` permanece candidata, sem gates ativos.
 
+Atualização do contrato público em 2026-10-18: metodologia e as 45 definições possuem projeções API e Web derivadas da mesma fonte versionada. A série `GET /v1/sites/{domain}/history` foi implementada como consulta privada por hostname normalizado exato, estratificada por metodologia e conjunto de probes, sem agregação implícita de subdomínios nem registro do domínio na auditoria.
+
 ### 16.1 Estratégia de testes
 
 - Testes unitários para normalização, classificação de IP, parsing, derivação, cobertura e fórmulas.
