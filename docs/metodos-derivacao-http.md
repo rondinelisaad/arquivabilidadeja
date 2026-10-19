@@ -56,6 +56,7 @@ A ausência de `Content-Length` é válida e não reduz o resultado. O limite de
 | `D08` | `bounded-crawl-frontier-coverage@1.0.0` | `pass` quando a fronteira termina completamente; `warning` quando termina por orçamento de URLs, bytes ou tempo |
 | `R01` | `bounded-crawl-retrieval-success@1.0.0` | `pass` com 100% das visitas recuperadas; `warning` entre 80% e menos de 100%; `fail` abaixo de 80%; `unknown` quando nenhuma URL chegou a ser visitada. Os limiares são hipótese de projeto, não resultado científico validado |
 | `R03` | `bounded-internal-link-retrieval@1.0.0` | `not_applicable` sem URL interna efetivamente verificada; `pass` sem quebra; `warning` quando parte da amostra quebra; `fail` quando toda a amostra interna verificada quebra |
+| `O07` | `bounded-crawl-campaign-success@1.0.0` | proporção de itens recuperados sobre toda a fronteira enfileirada: `pass` em 100%, `warning` entre 80% e menos de 100% e `fail` abaixo de 80%. O denominador inclui descartes terminais por política ou budget; os limiares são hipótese de projeto |
 
 As evidências preservam apenas escopo, budgets, contagens, classes de falha, decisão sanitizada de robots e motivos de descarte. URLs descobertas, padrões de regras e mensagens de exceção não são persistidos.
 
