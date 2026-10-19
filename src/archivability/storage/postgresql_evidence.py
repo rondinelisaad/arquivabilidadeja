@@ -142,6 +142,8 @@ class PostgreSqlEvidenceRepository(PostgreSqlLifecycleRepository):
                 content_hash=document["content_hash"],
                 error_code=document["error_code"],
                 truncated=document["truncated"],
+                probe_country=document.get("probe_country"),
+                probe_region=document.get("probe_region"),
             )
             if value.content_hash != row[1]:
                 raise IntegrityViolation(
@@ -240,6 +242,8 @@ class PostgreSqlEvidenceRepository(PostgreSqlLifecycleRepository):
                         tool_name=source["tool_name"],
                         tool_version=source["tool_version"],
                         observed_at=datetime.fromisoformat(source["observed_at"]),
+                        probe_country=source.get("probe_country"),
+                        probe_region=source.get("probe_region"),
                     )
                     for source in document["sources"]
                 ),

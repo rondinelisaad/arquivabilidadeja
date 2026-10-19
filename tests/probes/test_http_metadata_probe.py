@@ -204,6 +204,8 @@ class HttpMetadataProbeTests(unittest.TestCase):
             clock=lambda: NOW,
             observation_id_factory=lambda: "observation-http-1",
             probe_id="probe-br-sp-http",
+            probe_country="BR",
+            probe_region="sao-paulo",
         )
 
         result = self.runner.run(self.request, probe)
@@ -213,6 +215,8 @@ class HttpMetadataProbeTests(unittest.TestCase):
         self.assertEqual("observation-http-1", observation.observation_id)
         self.assertEqual("http_metadata", observation.kind)
         self.assertEqual("probe-br-sp-http", observation.probe_id)
+        self.assertEqual("BR", observation.probe_country)
+        self.assertEqual("sao-paulo", observation.probe_region)
         self.assertEqual("1.3", observation.payload_schema_version)
         self.assertEqual(200, observation.payload["status_code"])
         self.assertEqual(5 * 1024 * 1024, observation.payload["response_byte_limit"])

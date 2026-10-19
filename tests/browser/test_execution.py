@@ -131,6 +131,8 @@ class BrowserExecutionServiceTests(unittest.TestCase):
             repository=self.repository,
             observation_id_factory=lambda: "browser-observation-1",
             probe_id="probe-br-sp-browser",
+            probe_country="BR",
+            probe_region="sao-paulo",
         )
 
         first = service.execute(self.request, audit=self.audit)
@@ -142,6 +144,8 @@ class BrowserExecutionServiceTests(unittest.TestCase):
         self.assertEqual(1, renderer.calls)
         self.assertEqual("browser_render", first.observation.kind)
         self.assertEqual("probe-br-sp-browser", first.observation.probe_id)
+        self.assertEqual("BR", first.observation.probe_country)
+        self.assertEqual("sao-paulo", first.observation.probe_region)
         self.assertEqual(5, first.observation.payload["aggregate"]["rendered_url_count"])
         events = self.connection.execute(
             """

@@ -127,6 +127,8 @@ services:
       <<: *runtime-environment
       ARCHIVABILITY_WORKER_ID: worker-local-1
       ARCHIVABILITY_PROBE_ID: ${ARCHIVABILITY_PROBE_ID:-probe-local}
+      ARCHIVABILITY_PROBE_COUNTRY: ${ARCHIVABILITY_PROBE_COUNTRY:-unknown}
+      ARCHIVABILITY_PROBE_REGION: ${ARCHIVABILITY_PROBE_REGION:-unknown}
       ARCHIVABILITY_BROWSER_RENDERER_ENDPOINT: http://127.0.0.1:9223/render
     depends_on:
       grants:

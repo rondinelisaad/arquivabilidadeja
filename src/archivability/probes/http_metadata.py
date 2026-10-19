@@ -50,6 +50,8 @@ Sleeper = Callable[[float], None]
 _MAX_DISCOVERED_LINKS = 1000
 _MAX_XML_LOCATIONS = 1000
 _PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
+_PROBE_COUNTRY_PATTERN = re.compile(r"^(?:[A-Z]{2}|unknown)$")
+_PROBE_REGION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,13 +130,25 @@ class HttpMetadataProbe:
         crawl_event_recorder: CrawlEventRecorder | None = None,
         crawl_audit: AuditContext = AuditContext(),
         probe_id: str = "http-metadata",
+        probe_country: str = "unknown",
+        probe_region: str = "unknown",
         latency_sample_count: int = 5,
         latency_sample_interval_seconds: float = 0.2,
         sleeper: Sleeper = time.sleep,
     ) -> None:
         if not isinstance(probe_id, str) or not _PROBE_ID_PATTERN.fullmatch(probe_id):
             raise ProbeValidationError("probe_id is invalid")
+        if not isinstance(probe_country, str) or not _PROBE_COUNTRY_PATTERN.fullmatch(
+            probe_country
+        ):
+            raise ProbeValidationError("probe_country is invalid")
+        if not isinstance(probe_region, str) or not _PROBE_REGION_PATTERN.fullmatch(
+            probe_region
+        ):
+            raise ProbeValidationError("probe_region is invalid")
         self.probe_id = probe_id
+        self._probe_country = probe_country
+        self._probe_region = probe_region
         self._client = client if client is not None else PinnedHttpClient()
         self._clock = clock
         self._monotonic_clock = monotonic_clock
@@ -211,6 +225,8 @@ class HttpMetadataProbe:
             payload_schema_version="1.3",
             payload=payload,
             truncated=response.truncated or html["truncated"],
+            probe_country=self._probe_country,
+            probe_region=self._probe_region,
         )
         if self._crawl_event_recorder is None:
             return (observation,)
@@ -571,6 +587,8 @@ class HttpMetadataProbe:
                 "summary": summary.to_dict(),
             },
             truncated=summary.termination_reason != "complete",
+            probe_country=self._probe_country,
+            probe_region=self._probe_region,
         )
 
     def _crawl_target(

@@ -34,6 +34,8 @@ def observation(
     analysis_id: str = "analysis-1",
     subject_uri: str = "https://example.org/",
     payload: dict | None = None,
+    probe_country: str | None = None,
+    probe_region: str | None = None,
 ) -> Observation:
     return Observation.create(
         observation_id=observation_id,
@@ -47,6 +49,8 @@ def observation(
         tool_version="1.2.0",
         payload_schema_version="1.0",
         payload=payload or {"status": 200, "headers": {"content-type": "text/html"}},
+        probe_country=probe_country,
+        probe_region=probe_region,
     )
 
 
@@ -113,6 +117,17 @@ class ObservationTests(unittest.TestCase):
         item = observation()
         self.assertEqual(item.content_hash, item.calculate_content_hash())
         self.assertEqual(item.to_dict(), json.loads(json.dumps(item.to_dict())))
+
+    def test_probe_location_is_paired_and_preserved_in_provenance(self) -> None:
+        item = observation(probe_country="BR", probe_region="sao-paulo")
+        source = evidence(item=item).sources[0]
+
+        self.assertEqual("BR", item.to_dict()["probe_country"])
+        self.assertEqual("sao-paulo", source.to_dict()["probe_region"])
+        with self.assertRaisesRegex(EvidenceValidationError, "provided together"):
+            observation(probe_country="BR")
+        with self.assertRaisesRegex(EvidenceValidationError, "ISO 3166"):
+            observation(probe_country="Brazil", probe_region="sao-paulo")
 
 
 class EvidenceAndDerivationTests(unittest.TestCase):

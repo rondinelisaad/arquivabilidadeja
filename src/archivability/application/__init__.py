@@ -65,6 +65,7 @@ from archivability.application.read_model import (
     IndicatorChange,
     IndicatorReport,
     JobReport,
+    ProbeReport,
     ReportError,
     ReportNotFoundError,
 )
@@ -112,6 +113,7 @@ __all__ = [
     "IndicatorReport",
     "InlineAsgiSyncRunner",
     "JobReport",
+    "ProbeReport",
     "OidcConfigurationError",
     "OidcJwtVerifier",
     "OidcVerificationError",

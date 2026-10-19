@@ -63,12 +63,16 @@ class WorkerSettingsTests(unittest.TestCase):
                     (ROOT / "methodology" / "v0.1.0").resolve()
                 ),
                 "ARCHIVABILITY_WORKER_POLL_MILLISECONDS": "250",
+                "ARCHIVABILITY_PROBE_COUNTRY": "BR",
+                "ARCHIVABILITY_PROBE_REGION": "sao-paulo",
             }
         )
 
         self.assertEqual(250, settings.poll_interval_milliseconds)
         self.assertTrue(settings.worker_id)
         self.assertEqual("probe-local", settings.probe_id)
+        self.assertEqual("BR", settings.probe_country)
+        self.assertEqual("sao-paulo", settings.probe_region)
         self.assertNotIn(settings.database_dsn, repr(settings))
 
     def test_invalid_worker_limits_are_rejected(self) -> None:
@@ -87,6 +91,14 @@ class WorkerSettingsTests(unittest.TestCase):
                 methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
                 worker_id="worker-1",
                 browser_renderer_endpoint="http://browser.example/render",
+            )
+        with self.assertRaisesRegex(RuntimeConfigurationError, "country"):
+            WorkerSettings(
+                environment="test",
+                database_dsn=("host=/private/tmp dbname=archive user=archive_runtime"),
+                methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+                worker_id="worker-1",
+                probe_country="Brazil",
             )
 
 

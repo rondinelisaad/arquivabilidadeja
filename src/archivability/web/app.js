@@ -364,12 +364,21 @@
     const contextual = (report.indicator_results || []).filter(
       (result) => catalogById.get(result.indicator_id)?.classification === "observation_context",
     );
-    const probes = new Set((report.indicator_results || []).flatMap((result) => result.probe_ids || []));
+    const probeDetails = report.probes || [];
+    const probeIds = new Set((report.indicator_results || []).flatMap((result) => result.probe_ids || []));
     const section = $("#network-section");
-    section.hidden = !contextual.length && !probes.size;
+    section.hidden = !contextual.length && !probeDetails.length && !probeIds.size;
     const container = $("#network-content");
     const cards = [];
-    probes.forEach((probe) => cards.push(findingCard("Probe", probe, "Identidade de implantação; localização precisa não é inferida.")));
+    if (probeDetails.length) {
+      probeDetails.forEach((probe) => cards.push(findingCard(
+        "Probe",
+        probe.probe_id,
+        `País: ${probe.country}; região: ${probe.region}; observado de ${formatDate(probe.first_observed_at)} a ${formatDate(probe.last_observed_at)}. Localização declarada pela implantação, sem inferência de precisão.`,
+      )));
+    } else {
+      probeIds.forEach((probe) => cards.push(findingCard("Probe", probe, "Registro legado sem país ou região declarados.")));
+    }
     contextual.forEach((result) => {
       const definition = catalogById.get(result.indicator_id);
       cards.push(findingCard(result.indicator_id, definition?.name || result.indicator_id, `${stateLabel(result.state)}; dado contextual, sem penalização automática do website.`));

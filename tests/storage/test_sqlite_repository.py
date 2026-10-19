@@ -42,6 +42,8 @@ def build_chain() -> tuple[Observation, Evidence, object]:
         tool_version="1.2.0",
         payload_schema_version="1.0",
         payload={"status": 200, "secret": "must-not-be-logged"},
+        probe_country="BR",
+        probe_region="sao-paulo",
     )
     evidence = Evidence.create(
         evidence_id="ev-1",

@@ -67,6 +67,8 @@ class SuccessfulHttpProbe:
                 subject_uri=request.subject_uri,
                 observed_at=NOW,
                 probe_id=self.probe_id,
+                probe_country="BR",
+                probe_region="sao-paulo",
                 tool_name=self.tool_name,
                 tool_version=self.tool_version,
                 payload_schema_version="1.1",
@@ -284,7 +286,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual((), report.attempts)
         self.assertEqual("collection", report.jobs[0].stage)
         self.assertEqual("pending", report.jobs[0].state)
-        self.assertEqual("1.1", document["report_schema_version"])
+        self.assertEqual("1.2", document["report_schema_version"])
         self.assertIsNone(report.assessment)
         self.assertEqual([], document["indicator_results"])
         serialized = json.dumps(document)
@@ -366,6 +368,9 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertTrue(all(item.probe_ids for item in report.indicator_results))
         self.assertTrue(all(item.tool_versions for item in report.indicator_results))
         self.assertTrue(all(item.sources for item in report.evidence))
+        self.assertEqual(1, len(report.probes))
+        self.assertEqual("BR", report.probes[0].country)
+        self.assertEqual("sao-paulo", report.probes[0].region)
         self.assertIsNotNone(report.assessment)
         assert report.assessment is not None
         self.assertEqual("partially_assessable", report.assessment.overall_state.value)
@@ -395,9 +400,9 @@ class AnalysisReportServiceTests(unittest.TestCase):
             sort_keys=True,
         ).encode("utf-8")
 
-        self.assertEqual("1.1", report.report_schema_version)
+        self.assertEqual("1.2", report.report_schema_version)
         self.assertEqual(
-            "f391e45445aa38056cd5f546b6a3d1b0235602c8f0e52fb5009f8ef49a1823db",
+            "b33aed8c4390eaa81579005a035a12ddc69d9edc63db0484e9ba194f28c4b15f",
             hashlib.sha256(canonical).hexdigest(),
         )
 

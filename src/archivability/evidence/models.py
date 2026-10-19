@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
+_PROBE_COUNTRY_PATTERN = re.compile(r"^(?:[A-Z]{2}|unknown)$")
+_PROBE_REGION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
 class EvidenceValidationError(ValueError):
@@ -47,6 +49,21 @@ def _subject_uri(value: str) -> str:
     if parsed.username is not None or parsed.password is not None:
         raise EvidenceValidationError("subject_uri cannot contain credentials")
     return value
+
+
+def _probe_location(country: str | None, region: str | None) -> None:
+    if country is None and region is None:
+        return
+    if country is None or region is None:
+        raise EvidenceValidationError(
+            "probe_country and probe_region must be provided together"
+        )
+    if not _PROBE_COUNTRY_PATTERN.fullmatch(country):
+        raise EvidenceValidationError(
+            "probe_country must be an ISO 3166-1 alpha-2 code or unknown"
+        )
+    if not _PROBE_REGION_PATTERN.fullmatch(region):
+        raise EvidenceValidationError("probe_region is invalid")
 
 
 def _freeze_json(value: Any, path: str = "payload") -> Any:
@@ -104,6 +121,8 @@ class Observation:
     content_hash: str
     error_code: str | None = None
     truncated: bool = False
+    probe_country: str | None = None
+    probe_region: str | None = None
 
     def __post_init__(self) -> None:
         for field in (
@@ -121,6 +140,7 @@ class Observation:
         _aware_datetime(self.observed_at, "observed_at")
         if self.error_code is not None:
             _required_text(self.error_code, "error_code")
+        _probe_location(self.probe_country, self.probe_region)
         object.__setattr__(self, "payload", _freeze_json(self.payload))
         if not _SHA256_PATTERN.fullmatch(self.content_hash):
             raise EvidenceValidationError("content_hash must be a lowercase SHA-256 digest")
@@ -144,6 +164,8 @@ class Observation:
         payload: Mapping[str, Any],
         error_code: str | None = None,
         truncated: bool = False,
+        probe_country: str | None = None,
+        probe_region: str | None = None,
     ) -> Observation:
         frozen_payload = _freeze_json(payload)
         values = {
@@ -161,6 +183,9 @@ class Observation:
             "error_code": error_code,
             "truncated": truncated,
         }
+        if probe_country is not None:
+            values["probe_country"] = probe_country
+            values["probe_region"] = probe_region
         return cls(
             observation_id=observation_id,
             analysis_id=analysis_id,
@@ -176,10 +201,12 @@ class Observation:
             content_hash=_content_hash(values),
             error_code=error_code,
             truncated=truncated,
+            probe_country=probe_country,
+            probe_region=probe_region,
         )
 
     def _hashable_content(self) -> dict[str, Any]:
-        return {
+        values = {
             "observation_id": self.observation_id,
             "analysis_id": self.analysis_id,
             "attempt_id": self.attempt_id,
@@ -194,6 +221,10 @@ class Observation:
             "error_code": self.error_code,
             "truncated": self.truncated,
         }
+        if self.probe_country is not None:
+            values["probe_country"] = self.probe_country
+            values["probe_region"] = self.probe_region
+        return values
 
     def calculate_content_hash(self) -> str:
         return _content_hash(self._hashable_content())
@@ -210,6 +241,8 @@ class EvidenceSource:
     tool_name: str
     tool_version: str
     observed_at: datetime
+    probe_country: str | None = None
+    probe_region: str | None = None
 
     def __post_init__(self) -> None:
         for field in ("observation_id", "probe_id", "tool_name", "tool_version"):
@@ -217,9 +250,10 @@ class EvidenceSource:
         if not _SHA256_PATTERN.fullmatch(self.content_hash):
             raise EvidenceValidationError("source content_hash must be a SHA-256 digest")
         _aware_datetime(self.observed_at, "observed_at")
+        _probe_location(self.probe_country, self.probe_region)
 
-    def to_dict(self) -> dict[str, str]:
-        return {
+    def to_dict(self) -> dict[str, str | None]:
+        values: dict[str, str | None] = {
             "observation_id": self.observation_id,
             "content_hash": self.content_hash,
             "probe_id": self.probe_id,
@@ -227,6 +261,10 @@ class EvidenceSource:
             "tool_version": self.tool_version,
             "observed_at": _canonical_datetime(self.observed_at),
         }
+        if self.probe_country is not None:
+            values["probe_country"] = self.probe_country
+            values["probe_region"] = self.probe_region
+        return values
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,6 +339,8 @@ class Evidence:
                 tool_name=item.tool_name,
                 tool_version=item.tool_version,
                 observed_at=item.observed_at,
+                probe_country=item.probe_country,
+                probe_region=item.probe_region,
             )
             for item in observations
         )

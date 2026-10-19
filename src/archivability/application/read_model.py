@@ -227,6 +227,8 @@ class EvidenceSourceReport:
     tool_name: str
     tool_version: str
     observed_at: datetime
+    probe_country: str | None
+    probe_region: str | None
 
     @classmethod
     def from_source(cls, value: EvidenceSource) -> EvidenceSourceReport:
@@ -237,6 +239,8 @@ class EvidenceSourceReport:
             tool_name=value.tool_name,
             tool_version=value.tool_version,
             observed_at=value.observed_at,
+            probe_country=value.probe_country,
+            probe_region=value.probe_region,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -247,6 +251,8 @@ class EvidenceSourceReport:
             "tool_name": self.tool_name,
             "tool_version": self.tool_version,
             "observed_at": _iso(self.observed_at),
+            "probe_country": self.probe_country or "unknown",
+            "probe_region": self.probe_region or "unknown",
         }
 
 
@@ -273,6 +279,26 @@ class EvidenceReport:
             "content_hash": self.content_hash,
             "created_at": _iso(self.created_at),
             "sources": [item.to_dict() for item in self.sources],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeReport:
+    probe_id: str
+    country: str
+    region: str
+    first_observed_at: datetime
+    last_observed_at: datetime
+    tool_versions: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "probe_id": self.probe_id,
+            "country": self.country,
+            "region": self.region,
+            "first_observed_at": _iso(self.first_observed_at),
+            "last_observed_at": _iso(self.last_observed_at),
+            "tool_versions": list(self.tool_versions),
         }
 
 
@@ -432,6 +458,7 @@ class AnalysisReport:
     assessment: AssessmentResult | None
     indicator_results: tuple[IndicatorReport, ...]
     evidence: tuple[EvidenceReport, ...]
+    probes: tuple[ProbeReport, ...]
     limitations: tuple[str, ...]
 
     def to_dict(self) -> dict[str, Any]:
@@ -455,6 +482,7 @@ class AnalysisReport:
             ),
             "indicator_results": [item.to_dict() for item in self.indicator_results],
             "evidence": [item.to_dict() for item in self.evidence],
+            "probes": [item.to_dict() for item in self.probes],
             "limitations": list(self.limitations),
         }
 
@@ -887,7 +915,7 @@ class AnalysisReportService:
                 applicable_indicator_ids=tuple(self._methodology.indicators),
             )
         return AnalysisReport(
-            report_schema_version="1.1",
+            report_schema_version="1.2",
             analysis_id=analysis.analysis_id,
             target_origin=_safe_origin(analysis.subject_uri),
             methodology_id=analysis.methodology_id,
@@ -910,6 +938,7 @@ class AnalysisReportService:
             assessment=assessment,
             indicator_results=results,
             evidence=evidence,
+            probes=self._probe_reports(snapshot.evidence),
             limitations=(
                 "Scores and thresholds are a versioned project hypothesis, not a "
                 "scientifically validated equivalence to CLEAR+.",
@@ -919,6 +948,40 @@ class AnalysisReportService:
                 "mapping from current evidence to the original facets is approved.",
             ),
         )
+
+    @staticmethod
+    def _probe_reports(evidence: tuple[Evidence, ...]) -> tuple[ProbeReport, ...]:
+        grouped: dict[str, list[EvidenceSource]] = {}
+        for item in evidence:
+            for source in item.sources:
+                grouped.setdefault(source.probe_id, []).append(source)
+        reports: list[ProbeReport] = []
+        for probe_id, sources in sorted(grouped.items()):
+            locations = {
+                (source.probe_country or "unknown", source.probe_region or "unknown")
+                for source in sources
+            }
+            if len(locations) != 1:
+                raise ReportError("probe identity has inconsistent location metadata")
+            country, region = next(iter(locations))
+            reports.append(
+                ProbeReport(
+                    probe_id=probe_id,
+                    country=country,
+                    region=region,
+                    first_observed_at=min(source.observed_at for source in sources),
+                    last_observed_at=max(source.observed_at for source in sources),
+                    tool_versions=tuple(
+                        sorted(
+                            {
+                                f"{source.tool_name}@{source.tool_version}"
+                                for source in sources
+                            }
+                        )
+                    ),
+                )
+            )
+        return tuple(reports)
 
     @staticmethod
     def _compare(
@@ -961,9 +1024,10 @@ class AnalysisReportService:
     @staticmethod
     def _snapshot_probe_ids(snapshot: AnalysisReportSnapshot) -> frozenset[str]:
         return frozenset(
-            probe_id
-            for result in snapshot.indicator_results
-            for probe_id in result.probe_ids
+            f"{source.probe_id}|{source.probe_country or 'unknown'}|"
+            f"{source.probe_region or 'unknown'}"
+            for item in snapshot.evidence
+            for source in item.sources
         )
 
     @staticmethod

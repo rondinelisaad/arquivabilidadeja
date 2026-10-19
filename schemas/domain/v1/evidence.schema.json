@@ -31,6 +31,8 @@
           "observation_id": {"$ref": "#/$defs/identifier"},
           "content_hash": {"$ref": "#/$defs/sha256"},
           "probe_id": {"$ref": "#/$defs/identifier"},
+          "probe_country": {"$ref": "#/$defs/probeCountry"},
+          "probe_region": {"$ref": "#/$defs/probeRegion"},
           "tool_name": {"$ref": "#/$defs/identifier"},
           "tool_version": {"$ref": "#/$defs/identifier"},
           "observed_at": {"type": "string", "format": "date-time"}
@@ -43,6 +45,8 @@
   },
   "$defs": {
     "identifier": {"type": "string", "minLength": 1, "maxLength": 256},
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "probeCountry": {"type": "string", "pattern": "^(?:[A-Z]{2}|unknown)$"},
+    "probeRegion": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"}
   }
 }

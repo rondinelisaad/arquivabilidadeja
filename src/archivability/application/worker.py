@@ -41,6 +41,8 @@ from archivability.storage.postgresql_jobs import PostgreSqlAssessmentJobReposit
 
 _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _PROBE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,117}$")
+_PROBE_COUNTRY_PATTERN = re.compile(r"^(?:[A-Z]{2}|unknown)$")
+_PROBE_REGION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
 class WorkerLifecycleRecorder(Protocol):
@@ -84,6 +86,8 @@ class WorkerSettings:
     methodology_path: Path
     worker_id: str
     probe_id: str = "probe-local"
+    probe_country: str = "unknown"
+    probe_region: str = "unknown"
     poll_interval_milliseconds: int = 500
     lease_seconds: int = 300
     retry_base_seconds: int = 30
@@ -112,6 +116,14 @@ class WorkerSettings:
             self.probe_id
         ):
             raise RuntimeConfigurationError("probe ID is invalid")
+        if not isinstance(
+            self.probe_country, str
+        ) or not _PROBE_COUNTRY_PATTERN.fullmatch(self.probe_country):
+            raise RuntimeConfigurationError("probe country is invalid")
+        if not isinstance(
+            self.probe_region, str
+        ) or not _PROBE_REGION_PATTERN.fullmatch(self.probe_region):
+            raise RuntimeConfigurationError("probe region is invalid")
         ProductionSettings._bounded_int(
             "poll_interval_milliseconds",
             self.poll_interval_milliseconds,
@@ -150,6 +162,8 @@ class WorkerSettings:
             ),
             worker_id=worker_id,
             probe_id=values.get("ARCHIVABILITY_PROBE_ID", "probe-local"),
+            probe_country=values.get("ARCHIVABILITY_PROBE_COUNTRY", "unknown"),
+            probe_region=values.get("ARCHIVABILITY_PROBE_REGION", "unknown"),
             poll_interval_milliseconds=ProductionSettings._optional_int(
                 values, "ARCHIVABILITY_WORKER_POLL_MILLISECONDS", 500
             ),
@@ -302,6 +316,8 @@ def run_production_worker(
                 crawl_event_recorder=repository,
                 crawl_audit=AuditContext(user_id=settings.worker_id),
                 probe_id=f"{settings.probe_id}-http",
+                probe_country=settings.probe_country,
+                probe_region=settings.probe_region,
             ),
             browser_queue=BrowserQueueService(repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
@@ -314,6 +330,8 @@ def run_production_worker(
                 renderer=LoopbackBrowserRenderer(settings.browser_renderer_endpoint),
                 repository=repository,
                 probe_id=f"{settings.probe_id}-browser",
+                probe_country=settings.probe_country,
+                probe_region=settings.probe_region,
             ),
             assessment_queue=HttpAssessmentQueueService(repository=repository),
             lease_duration=timedelta(seconds=settings.lease_seconds),
