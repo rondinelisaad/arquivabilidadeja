@@ -549,6 +549,18 @@ def _derive_bounded_crawl_indicators(
     else:
         broken_state = ResultState.WARNING
 
+    visited = summary["visited"]
+    successful = summary["successful"]
+    success_rate = successful / visited if visited else None
+    if success_rate is None:
+        retrieval_state = ResultState.UNKNOWN
+    elif success_rate == 1:
+        retrieval_state = ResultState.PASS
+    elif success_rate >= 0.8:
+        retrieval_state = ResultState.WARNING
+    else:
+        retrieval_state = ResultState.FAIL
+
     items = (
         (
             "D03",
@@ -609,6 +621,24 @@ def _derive_bounded_crawl_indicators(
                 "sample_strategy": "bounded_same_origin_frontier",
             },
             "Broken internal links classified within the bounded crawl sample.",
+        ),
+        (
+            "R01",
+            retrieval_state,
+            "bounded-crawl-retrieval-success",
+            {
+                "sample_size": visited,
+                "success_count": successful,
+                "success_rate": success_rate,
+                "outcome_distribution": {
+                    "status_classes": dict(summary["status_classes"]),
+                    "failure_classes": dict(summary["failures"]),
+                },
+                "scope": "same_origin_bounded",
+                "attempt_count": 1,
+                "threshold_basis": "project_hypothesis_v1",
+            },
+            "Retrieval success rate for one bounded same-origin crawl attempt.",
         ),
     )
     evidence = tuple(

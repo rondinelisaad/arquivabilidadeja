@@ -356,7 +356,7 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         self.assertEqual(ResultState.FAIL, failure_results["O01"].state)
         self.assertEqual({"timeout": 2}, failure_evidence["O01"].data["failure_classes"])
 
-    def test_crawl_contract_derives_d03_d08_and_r03_without_urls(self) -> None:
+    def test_crawl_contract_derives_d03_d08_r01_and_r03_without_urls(self) -> None:
         derived = derive_http_metadata_indicators(
             self.methodology,
             discovery_observation(),
@@ -366,12 +366,15 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         by_id = {item.indicator_id: item for item in derived.indicator_results}
         self.assertEqual(ResultState.PASS, by_id["D03"].state)
         self.assertEqual(ResultState.PASS, by_id["D08"].state)
+        self.assertEqual(ResultState.FAIL, by_id["R01"].state)
         self.assertEqual(ResultState.WARNING, by_id["R03"].state)
         crawl_evidence = {
             item.indicator_id: item
             for item in derived.evidence
-            if item.indicator_id in {"D03", "D08", "R03"}
+            if item.indicator_id in {"D03", "D08", "R01", "R03"}
         }
+        self.assertEqual(3, crawl_evidence["R01"].data["sample_size"])
+        self.assertEqual(2, crawl_evidence["R01"].data["success_count"])
         self.assertEqual(2, crawl_evidence["R03"].data["denominator"])
         self.assertEqual(1, crawl_evidence["R03"].data["broken_count"])
         serialized = json.dumps(
@@ -473,6 +476,7 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         by_id = {item.indicator_id: item for item in derived.indicator_results}
         self.assertEqual(ResultState.WARNING, by_id["D03"].state)
         self.assertEqual(ResultState.PASS, by_id["R03"].state)
+        self.assertEqual(ResultState.PASS, by_id["R01"].state)
 
         all_broken = dict(crawl_observation().payload["summary"])
         all_broken.update(
@@ -489,6 +493,47 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         )
         by_id = {item.indicator_id: item for item in derived.indicator_results}
         self.assertEqual(ResultState.FAIL, by_id["R03"].state)
+        self.assertEqual(ResultState.FAIL, by_id["R01"].state)
+
+        mostly_successful = dict(crawl_observation().payload["summary"])
+        mostly_successful.update(
+            {
+                "discovered_references": 5,
+                "discovered_unique_internal": 5,
+                "enqueued": 5,
+                "visited": 5,
+                "successful": 4,
+                "broken_internal": 1,
+                "edge_count": 4,
+                "status_classes": {"2xx": 4, "4xx": 1},
+            }
+        )
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=crawl_observation(summary=mostly_successful),
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.WARNING, by_id["R01"].state)
+
+        no_visit = dict(crawl_observation().payload["summary"])
+        no_visit.update(
+            {
+                "enqueued": 1,
+                "visited": 0,
+                "successful": 0,
+                "broken_internal": 0,
+                "status_classes": {},
+                "discarded": {"robots_policy": 1},
+            }
+        )
+        derived = derive_http_metadata_indicators(
+            self.methodology,
+            discovery_observation(),
+            crawl_observation=crawl_observation(summary=no_visit),
+        )
+        by_id = {item.indicator_id: item for item in derived.indicator_results}
+        self.assertEqual(ResultState.UNKNOWN, by_id["R01"].state)
 
     def test_rejects_inconsistent_or_unpaired_crawl_observation(self) -> None:
         invalid_summary = dict(crawl_observation().payload["summary"])
