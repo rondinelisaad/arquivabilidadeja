@@ -1378,6 +1378,48 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                 raise
             raise PersistenceError("database write failed") from exc
 
+    def record_local_development_authentication_event(
+        self,
+        *,
+        request_id: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        resource_id = request_id
+        try:
+            if not audit.user_id or not audit.session_id:
+                raise IntegrityViolation(
+                    "local development authentication event is inconsistent"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="authentication",
+                    resource_id=request_id,
+                    result="success",
+                    audit=audit,
+                    action="auth.local_development",
+                    extra={"mode": "local_development"},
+                )
+        except sqlite3.IntegrityError as exc:
+            self._record_failure(
+                "authentication",
+                resource_id,
+                audit,
+                exc,
+                action="auth.local_development",
+            )
+            self._raise_integrity(exc)
+        except (sqlite3.DatabaseError, PersistenceError) as exc:
+            self._record_failure(
+                "authentication",
+                resource_id,
+                audit,
+                exc,
+                action="auth.local_development",
+            )
+            if isinstance(exc, PersistenceError):
+                raise
+            raise PersistenceError("database write failed") from exc
+
     def _get_collection_job_for_analysis(
         self, analysis_id: str
     ) -> CollectionJob | None:

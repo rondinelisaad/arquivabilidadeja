@@ -20,6 +20,7 @@ from archivability.application.authentication import (
     AuthenticationAuditRecorder,
     BearerAuthenticationMiddleware,
     BearerTokenVerifier,
+    LocalDevelopmentAuthenticationMiddleware,
 )
 from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
@@ -102,6 +103,7 @@ __all__ = [
     "AuthenticationAuditRecorder",
     "BearerAuthenticationMiddleware",
     "BearerTokenVerifier",
+    "LocalDevelopmentAuthenticationMiddleware",
     "BrowserRunReport",
     "CrawlRunReport",
     "EvidenceReport",

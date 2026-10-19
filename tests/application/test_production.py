@@ -145,6 +145,44 @@ class ProductionSettingsTests(unittest.TestCase):
                 {**values, "ARCHIVABILITY_DB_POOL_MAX_SIZE": "unbounded"}
             )
 
+    def test_local_authentication_is_explicit_and_development_only(self) -> None:
+        local = ProductionSettings(
+            environment="development",
+            database_dsn=(
+                "host=/var/run/postgresql dbname=archive user=archive_runtime"
+            ),
+            methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+            oidc=OidcVerifierConfig(
+                issuer="https://identity.example/",
+                audience="arquivabilidade-ja",
+                jwks_uri="https://identity.example/.well-known/jwks.json",
+            ),
+            local_auth_enabled=True,
+        )
+        self.assertTrue(local.local_auth_enabled)
+
+        with self.assertRaisesRegex(RuntimeConfigurationError, "development"):
+            ProductionSettings(
+                environment="production",
+                database_dsn=(
+                    "host=/var/run/postgresql dbname=archive user=archive_runtime"
+                ),
+                methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+                oidc=local.oidc,
+                local_auth_enabled=True,
+            )
+        with self.assertRaisesRegex(RuntimeConfigurationError, "local database"):
+            ProductionSettings(
+                environment="development",
+                database_dsn=(
+                    "host=db.example dbname=archive user=archive_runtime "
+                    "sslmode=verify-full"
+                ),
+                methodology_path=(ROOT / "methodology" / "v0.1.0").resolve(),
+                oidc=local.oidc,
+                local_auth_enabled=True,
+            )
+
     def test_database_role_validation_rejects_admin_or_ddl_privileges(self) -> None:
         safe = _Connection()
         validate_runtime_database_role(safe)  # type: ignore[arg-type]

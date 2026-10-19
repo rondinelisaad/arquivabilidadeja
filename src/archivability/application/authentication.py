@@ -42,6 +42,107 @@ class AuthenticationAuditRecorder(Protocol):
         audit: AuditContext,
     ) -> None | Awaitable[None]: ...
 
+    def record_local_development_authentication_event(
+        self,
+        *,
+        request_id: str,
+        audit: AuditContext,
+    ) -> None | Awaitable[None]: ...
+
+
+class LocalDevelopmentAuthenticationMiddleware:
+    """Inject one fixed principal only in an explicitly local development graph."""
+
+    def __init__(
+        self,
+        app: Callable[
+            [
+                Mapping[str, Any],
+                Callable[[], Awaitable[Mapping[str, Any]]],
+                Callable[[Mapping[str, Any]], Awaitable[None]],
+            ],
+            Awaitable[None],
+        ],
+        *,
+        principal: ApiPrincipal,
+        audit_recorder: AuthenticationAuditRecorder,
+    ) -> None:
+        if not isinstance(principal, ApiPrincipal):
+            raise ValueError("local development principal is invalid")
+        self._app = app
+        self._principal = principal
+        self._audit_recorder = audit_recorder
+
+    async def __call__(
+        self,
+        scope: Mapping[str, Any],
+        receive: Callable[[], Awaitable[Mapping[str, Any]]],
+        send: Callable[[Mapping[str, Any]], Awaitable[None]],
+    ) -> None:
+        if scope.get("type") != "http":
+            await self._app(scope, receive, send)
+            return
+
+        trusted_scope, request_id, ip_address = (
+            BearerAuthenticationMiddleware._prepare_scope(scope)
+        )
+        if self._has_authorization_header(scope):
+            await BearerAuthenticationMiddleware._send_error(
+                send,
+                request_id=request_id,
+                status_code=401,
+                error_code="LOCAL_AUTHORIZATION_FORBIDDEN",
+                message="Authorization headers are disabled in local development mode.",
+            )
+            return
+
+        audit = AuditContext(
+            user_id=self._principal.user_id,
+            session_id=self._principal.session_id,
+            ip_address=ip_address,
+        )
+        try:
+            outcome = (
+                self._audit_recorder.record_local_development_authentication_event(
+                    request_id=request_id,
+                    audit=audit,
+                )
+            )
+            if inspect.isawaitable(outcome):
+                await outcome
+        except Exception:
+            await BearerAuthenticationMiddleware._send_error(
+                send,
+                request_id=request_id,
+                status_code=500,
+                error_code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+            return
+
+        state = dict(trusted_scope["state"])
+        state[_PRINCIPAL_STATE_KEY] = self._principal
+        authenticated_scope = dict(trusted_scope)
+        authenticated_scope["state"] = state
+        await self._app(authenticated_scope, receive, send)
+
+    @staticmethod
+    def _has_authorization_header(scope: Mapping[str, Any]) -> bool:
+        headers = scope.get("headers", ())
+        if not isinstance(headers, (tuple, list)) or len(headers) > 64:
+            return True
+        for item in headers:
+            if (
+                not isinstance(item, (tuple, list))
+                or len(item) != 2
+                or not isinstance(item[0], bytes)
+                or not isinstance(item[1], bytes)
+            ):
+                return True
+            if item[0].lower() == b"authorization":
+                return True
+        return False
+
 
 class BearerAuthenticationMiddleware:
     """Authenticate one RFC 6750 Bearer header before invoking an ASGI app."""

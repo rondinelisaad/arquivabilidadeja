@@ -15,11 +15,17 @@ import psycopg
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.pq import TransactionStatus
 
-from archivability.application.api import AnalysisApi, ApiRateLimiter, ApiResponse
+from archivability.application.api import (
+    AnalysisApi,
+    ApiPrincipal,
+    ApiRateLimiter,
+    ApiResponse,
+)
 from archivability.application.asgi import AnalysisAsgiApp, AsgiSyncRunner
 from archivability.application.authentication import (
     AuthenticationAuditRecorder,
     BearerAuthenticationMiddleware,
+    LocalDevelopmentAuthenticationMiddleware,
 )
 from archivability.application.http_workflow import HttpAssessmentWorkflow
 from archivability.application.oidc import OidcJwtVerifier, OidcVerifierConfig
@@ -94,6 +100,7 @@ class ProductionSettings:
     max_request_body_bytes: int = 4096
     max_bearer_token_bytes: int = 8192
     max_rate_limit_buckets: int = 100_000
+    local_auth_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.environment, str) or not _ENVIRONMENT_NAME.fullmatch(
@@ -108,6 +115,17 @@ class ProductionSettings:
             )
         if not isinstance(self.oidc, OidcVerifierConfig):
             raise RuntimeConfigurationError("OIDC configuration is invalid")
+        if not isinstance(self.local_auth_enabled, bool):
+            raise RuntimeConfigurationError("local auth setting is invalid")
+        if self.local_auth_enabled:
+            if self.environment != "development":
+                raise RuntimeConfigurationError(
+                    "local authentication requires the development environment"
+                )
+            if self._database_is_remote(self.database_dsn):
+                raise RuntimeConfigurationError(
+                    "local authentication requires a local database"
+                )
         self._bounded_int("pool_min_size", self.pool_min_size, 1, 32)
         self._bounded_int("pool_max_size", self.pool_max_size, 1, 128)
         if self.pool_min_size > self.pool_max_size:
@@ -174,6 +192,9 @@ class ProductionSettings:
             max_rate_limit_buckets=cls._optional_int(
                 values, "ARCHIVABILITY_MAX_RATE_LIMIT_BUCKETS", 100_000
             ),
+            local_auth_enabled=cls._optional_bool(
+                values, "ARCHIVABILITY_LOCAL_AUTH_ENABLED", False
+            ),
         )
 
     @staticmethod
@@ -198,6 +219,19 @@ class ProductionSettings:
         if not isinstance(raw, str) or not raw.isascii() or not raw.isdecimal():
             raise RuntimeConfigurationError(f"{name} must be an integer")
         return int(raw)
+
+    @staticmethod
+    def _optional_bool(
+        values: Mapping[str, str], name: str, default: bool
+    ) -> bool:
+        raw = values.get(name)
+        if raw is None:
+            return default
+        if raw == "true":
+            return True
+        if raw == "false":
+            return False
+        raise RuntimeConfigurationError(f"{name} must be true or false")
 
     @staticmethod
     def _bounded_int(name: str, value: int, minimum: int, maximum: int) -> None:
@@ -244,6 +278,16 @@ class ProductionSettings:
             raise RuntimeConfigurationError(
                 "remote database connections require sslmode=verify-full"
             )
+
+    @staticmethod
+    def _database_is_remote(value: str) -> bool:
+        parameters = conninfo_to_dict(value)
+        hosts = parameters.get("host", "").split(",")
+        host_addresses = parameters.get("hostaddr", "").split(",")
+        return any(
+            host not in _LOCAL_DATABASE_HOSTS and not host.startswith("/")
+            for host in (*hosts, *host_addresses)
+        )
 
 
 class ThreadedAsgiSyncRunner(AsgiSyncRunner):
@@ -504,6 +548,28 @@ class _PooledAuthenticationAuditRecorder:
                 _return_pool_connection, self._pool, connection
             )
 
+    async def record_local_development_authentication_event(
+        self,
+        *,
+        request_id: str,
+        audit: AuditContext,
+    ) -> None:
+        connection = await asyncio.to_thread(
+            self._pool.getconn, timeout=float(self._timeout_seconds)
+        )
+        try:
+            await asyncio.to_thread(
+                PostgreSqlAssessmentJobRepository(
+                    connection
+                ).record_local_development_authentication_event,
+                request_id=request_id,
+                audit=audit,
+            )
+        finally:
+            await asyncio.to_thread(
+                _return_pool_connection, self._pool, connection
+            )
+
 
 class ProductionAsgiApplication:
     """Expose minimal operations and authenticate every business request."""
@@ -512,17 +578,33 @@ class ProductionAsgiApplication:
         self,
         core: PooledAsgiApplication,
         *,
-        verifier: Any,
+        verifier: Any | None,
         audit_recorder: AuthenticationAuditRecorder,
         max_token_bytes: int,
+        local_principal: ApiPrincipal | None = None,
     ) -> None:
         self._core = core
-        self._authenticated_application = BearerAuthenticationMiddleware(
-            core,
-            verifier=verifier,
-            audit_recorder=audit_recorder,
-            max_token_bytes=max_token_bytes,
-        )
+        if local_principal is not None:
+            if verifier is not None:
+                raise RuntimeConfigurationError(
+                    "local authentication cannot use a token verifier"
+                )
+            self._authenticated_application = (
+                LocalDevelopmentAuthenticationMiddleware(
+                    core,
+                    principal=local_principal,
+                    audit_recorder=audit_recorder,
+                )
+            )
+        else:
+            if verifier is None:
+                raise RuntimeConfigurationError("token verifier is required")
+            self._authenticated_application = BearerAuthenticationMiddleware(
+                core,
+                verifier=verifier,
+                audit_recorder=audit_recorder,
+                max_token_bytes=max_token_bytes,
+            )
 
     async def __call__(
         self,
@@ -731,7 +813,11 @@ def create_production_app(
         raise RuntimeConfigurationError("settings must be ProductionSettings")
     methodology = load_methodology(settings.methodology_path)
     methodology_catalog = load_methodology_catalog(settings.methodology_path)
-    if verifier is None:
+    if settings.local_auth_enabled and verifier is not None:
+        raise RuntimeConfigurationError(
+            "local authentication cannot use an injected token verifier"
+        )
+    if not settings.local_auth_enabled and verifier is None:
         verifier = OidcJwtVerifier(settings.oidc)
     if resolver is None:
         resolver = SystemAddressResolver()
@@ -820,9 +906,20 @@ def create_production_app(
     )
     return ProductionAsgiApplication(
         core,
-        verifier=verifier,
+        verifier=None if settings.local_auth_enabled else verifier,
         audit_recorder=_PooledAuthenticationAuditRecorder(
             pool, timeout_seconds=settings.pool_timeout_seconds
         ),
         max_token_bytes=settings.max_bearer_token_bytes,
+        local_principal=(
+            ApiPrincipal(
+                user_id="local-development-user",
+                session_id="local-development-session",
+                permissions=frozenset(
+                    {"analysis:create", "analysis:read", "analysis:cancel"}
+                ),
+            )
+            if settings.local_auth_enabled
+            else None
+        ),
     )

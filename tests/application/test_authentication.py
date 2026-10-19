@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 from archivability import (  # noqa: E402
     ApiPrincipal,
     BearerAuthenticationMiddleware,
+    LocalDevelopmentAuthenticationMiddleware,
     SqliteAssessmentJobRepository,
     apply_sqlite_migrations,
 )
@@ -55,6 +56,75 @@ class AuditRecorder:
         if self.failure is not None:
             raise self.failure
         self.events.append(event)
+
+    def record_local_development_authentication_event(self, **event: Any) -> None:
+        if self.failure is not None:
+            raise self.failure
+        self.events.append(event)
+
+
+class LocalDevelopmentAuthenticationMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.downstream = CapturingApp()
+        self.audit = AuditRecorder()
+        self.principal = ApiPrincipal(
+            user_id="local-development-user",
+            session_id="local-development-session",
+            permissions=frozenset(
+                {"analysis:create", "analysis:read", "analysis:cancel"}
+            ),
+        )
+        self.middleware = LocalDevelopmentAuthenticationMiddleware(
+            self.downstream,
+            principal=self.principal,
+            audit_recorder=self.audit,
+        )
+
+    async def request(
+        self, headers: list[tuple[bytes, bytes]] | None = None
+    ) -> list[Mapping[str, Any]]:
+        sent: list[Mapping[str, Any]] = []
+
+        async def receive() -> Mapping[str, Any]:
+            return {"type": "http.request", "body": b""}
+
+        async def send(event: Mapping[str, Any]) -> None:
+            sent.append(event)
+
+        await self.middleware(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/analyses",
+                "headers": headers or [],
+                "client": ("127.0.0.1", 54321),
+                "state": {},
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    async def test_injects_fixed_principal_and_audits_without_credentials(self) -> None:
+        sent = await self.request()
+
+        self.assertEqual(204, sent[0]["status"])
+        state = self.downstream.scopes[0]["state"]
+        self.assertEqual(self.principal, state["archivability.principal"])
+        event = self.audit.events[0]
+        self.assertEqual("local-development-user", event["audit"].user_id)
+        self.assertNotIn("token", json.dumps(event, default=str).casefold())
+
+    async def test_rejects_authorization_header_and_audit_failure(self) -> None:
+        forbidden = await self.request(
+            [(b"authorization", b"Bearer signed.payload.signature")]
+        )
+        self.assertEqual(401, forbidden[0]["status"])
+        self.assertEqual([], self.downstream.scopes)
+
+        self.audit.failure = RuntimeError("audit unavailable")
+        unavailable = await self.request()
+        self.assertEqual(500, unavailable[0]["status"])
 
 
 class BearerAuthenticationMiddlewareTests(unittest.IsolatedAsyncioTestCase):

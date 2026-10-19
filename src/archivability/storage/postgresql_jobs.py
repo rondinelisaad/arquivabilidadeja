@@ -1368,6 +1368,37 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
             )
             raise
 
+    def record_local_development_authentication_event(
+        self,
+        *,
+        request_id: str,
+        audit: AuditContext = AuditContext(),
+    ) -> None:
+        try:
+            if not audit.user_id or not audit.session_id:
+                raise IntegrityViolation(
+                    "local development authentication event is inconsistent"
+                )
+            with self._transaction():
+                self._write_audit(
+                    resource="authentication",
+                    resource_id=request_id,
+                    result="success",
+                    audit=audit,
+                    action="auth.local_development",
+                    extra={"mode": "local_development"},
+                )
+        except psycopg.IntegrityError as exc:
+            self._record_boundary_failure(
+                "authentication", request_id, audit, exc, "auth.local_development"
+            )
+            self._raise_integrity(exc)
+        except PersistenceError as exc:
+            self._record_boundary_failure(
+                "authentication", request_id, audit, exc, "auth.local_development"
+            )
+            raise
+
     def record_application_lifecycle_event(
         self,
         *,
