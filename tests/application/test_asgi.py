@@ -125,6 +125,14 @@ class CapturingApi:
             headers={"Cache-Control": "no-store"},
         )
 
+    def get_openapi(self, *, context: ApiRequestContext) -> ApiResponse:
+        self.calls.append(("openapi_read", None, context))
+        return ApiResponse(
+            status_code=200,
+            body={"openapi": "3.1.0", "paths": {}},
+            headers={"Cache-Control": "no-store"},
+        )
+
     def list_indicators(
         self, filters: Mapping[str, Any], *, context: ApiRequestContext
     ) -> ApiResponse:
@@ -280,6 +288,9 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         methodology = await self.request(
             self.scope(method="GET", path="/v1/methodology", state=state), []
         )
+        openapi = await self.request(
+            self.scope(method="GET", path="/openapi.json", state=state), []
+        )
         indicators = await self.request(
             self.scope(
                 method="GET",
@@ -299,13 +310,14 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(200, methodology[0])
+        self.assertEqual("3.1.0", openapi[2]["openapi"])
         self.assertEqual(200, indicators[0])
         self.assertEqual(200, indicator[0])
         self.assertEqual(
             {"dimension": "discoverability", "version": "0.1.0"},
-            self.api.calls[1][1],
+            self.api.calls[2][1],
         )
-        self.assertEqual("latency_breakdown", self.api.calls[2][1])
+        self.assertEqual("latency_breakdown", self.api.calls[3][1])
 
     async def test_duplicate_or_unknown_indicator_filters_are_rejected(self) -> None:
         state = {"archivability.principal": self.principal}

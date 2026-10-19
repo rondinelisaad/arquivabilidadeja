@@ -334,6 +334,7 @@ class AnalysisApiTests(unittest.TestCase):
         )
 
     def test_methodology_and_indicator_catalog_are_versioned_and_filterable(self) -> None:
+        openapi = self.api.get_openapi(context=self.context("request-openapi-1"))
         methodology = self.api.get_methodology(
             context=self.context("request-methodology-1")
         )
@@ -346,6 +347,9 @@ class AnalysisApiTests(unittest.TestCase):
             context=self.context("request-indicator-1"),
         )
 
+        self.assertEqual(200, openapi.status_code)
+        self.assertEqual("3.1.0", openapi.body["openapi"])
+        self.assertIn("/v1/analyses", openapi.body["paths"])
         self.assertEqual(200, methodology.status_code)
         self.assertEqual("candidate", methodology.body["status"])
         self.assertEqual(45, methodology.body["indicator_count"])
@@ -360,17 +364,23 @@ class AnalysisApiTests(unittest.TestCase):
         self.assertEqual(200, indicator.status_code)
         self.assertEqual("N01", indicator.body["indicator"]["id"])
         self.assertEqual(
-            ["methodology.read", "methodology.read", "methodology.read"],
-            self.rate_limiter.operations[-3:],
+            [
+                "methodology.read",
+                "methodology.read",
+                "methodology.read",
+                "methodology.read",
+            ],
+            self.rate_limiter.operations[-4:],
         )
         actions = {
             row[0]
             for row in self.connection.execute(
                 """
                 SELECT action FROM audit_events
-                WHERE resource_id IN (?, ?, ?)
+                WHERE resource_id IN (?, ?, ?, ?)
                 """,
                 (
+                    "request-openapi-1",
                     "request-methodology-1",
                     "request-indicators-1",
                     "request-indicator-1",
@@ -379,6 +389,7 @@ class AnalysisApiTests(unittest.TestCase):
         }
         self.assertEqual(
             {
+                "access.analysis_api_openapi_read",
                 "access.analysis_api_methodology_read",
                 "access.analysis_api_indicator_list",
                 "access.analysis_api_indicator_read",

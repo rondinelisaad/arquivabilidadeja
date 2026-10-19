@@ -1040,6 +1040,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 "site_history",
                 "compare",
                 "methodology_read",
+                "openapi_read",
                 "indicator_list",
                 "indicator_read",
             }:
@@ -1055,6 +1056,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                             "site_history",
                             "batch_create",
                             "methodology_read",
+                            "openapi_read",
                             "indicator_list",
                             "indicator_read",
                         }

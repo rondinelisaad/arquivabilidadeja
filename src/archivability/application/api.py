@@ -13,6 +13,7 @@ from archivability.application.http_workflow import (
     HttpAssessmentWorkflow,
     WorkflowError,
 )
+from archivability.application.openapi import build_openapi_document
 from archivability.application.read_model import (
     AnalysisReportService,
     ReportError,
@@ -155,6 +156,9 @@ class AnalysisApi:
         if not isinstance(methodology_catalog, MethodologyCatalog):
             raise ApiValidationError("methodology catalog is invalid")
         self._methodology_catalog = methodology_catalog
+        self._openapi_document = build_openapi_document(
+            methodology_version=methodology_catalog.version
+        )
         self._batch_id_factory = batch_id_factory or (
             lambda: f"batch-{uuid4().hex}"
         )
@@ -532,6 +536,18 @@ class AnalysisApi:
             operation="methodology_read",
             status_code=200,
             body=self._methodology_catalog.methodology_document(),
+            result="success",
+        )
+
+    def get_openapi(self, *, context: ApiRequestContext) -> ApiResponse:
+        denied = self._authorize_catalog_read(context, "openapi_read")
+        if denied is not None:
+            return denied
+        return self._response(
+            context,
+            operation="openapi_read",
+            status_code=200,
+            body=self._openapi_document,
             result="success",
         )
 

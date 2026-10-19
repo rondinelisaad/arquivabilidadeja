@@ -26,6 +26,7 @@ _METHODOLOGY_PATH = "/v1/methodology"
 _INDICATORS_PATH = "/v1/indicators"
 _INDICATOR_PATH = re.compile(r"^/v1/indicators/([^/]+)$")
 _SITE_HISTORY_PATH = re.compile(r"^/v1/sites/([^/]+)/history$")
+_OPENAPI_PATH = "/openapi.json"
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
 _SAFE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
@@ -151,6 +152,15 @@ class AnalysisAsgiApp:
                 self._query_filters(scope, allowed=frozenset())
                 response = await self._sync_runner.run(
                     lambda: self._api.get_methodology(context=context)
+                )
+            elif route == "openapi":
+                if method != "GET":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                self._query_filters(scope, allowed=frozenset())
+                response = await self._sync_runner.run(
+                    lambda: self._api.get_openapi(context=context)
                 )
             elif route == "site_history":
                 if method != "GET":
@@ -279,6 +289,8 @@ class AnalysisAsgiApp:
             return "batches_collection", None
         if path == _METHODOLOGY_PATH:
             return "methodology", None
+        if path == _OPENAPI_PATH:
+            return "openapi", None
         if path == _INDICATORS_PATH:
             return "indicators_collection", None
         if match := _INDICATOR_PATH.fullmatch(path):
