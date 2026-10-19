@@ -1,12 +1,12 @@
 # Métodos de derivação HTTP e crawl
 
-Este documento descreve as regras executáveis que transformam uma `Observation` de metadados HTTP em `Evidence` e `IndicatorResult`. O schema `1.1` permanece compatível com os métodos 1.0.0 de `D01` e `R06`; o schema `1.2` usa métodos 1.1.0 e acrescenta agregados de descoberta, formato e timing. As regras são determinísticas para a mesma metodologia e observação.
+Este documento descreve as regras executáveis que transformam uma `Observation` de metadados HTTP em `Evidence` e `IndicatorResult`. O schema `1.1` permanece compatível com os métodos 1.0.0 de `D01` e `R06`; o schema `1.2` usa métodos 1.1.0 e acrescenta agregados de descoberta, formato e timing total; o schema `1.3` usa métodos 1.2.0 e acrescenta fases instrumentadas e uma distribuição homogênea. As regras são determinísticas para a mesma metodologia e observação.
 
 Quando o mesmo attempt também contém uma observação `bounded_crawl` 1.0, o assessor valida a proveniência comum, os limites e a consistência dos agregados antes de derivar os métodos de crawl 1.0.0. A persistência de todas as evidências, resultados e transição terminal da análise ocorre na mesma transação.
 
 ## D01 — Homepage accessible
 
-Método: `http-homepage-accessibility@1.0.0` no schema 1.1 e `@1.1.0` no schema 1.2.
+Método: `http-homepage-accessibility@1.0.0` no schema 1.1, `@1.1.0` no schema 1.2 e `@1.2.0` no schema 1.3.
 
 | Status HTTP final | Resultado |
 |---|---|
@@ -19,7 +19,7 @@ A evidência registra status, classe, quantidade de redirects validados e se o t
 
 ## R06 — Response completeness
 
-Método: `http-response-completeness@1.0.0` no schema 1.1 e `@1.1.0` no schema 1.2.
+Método: `http-response-completeness@1.0.0` no schema 1.1, `@1.1.0` no schema 1.2 e `@1.2.0` no schema 1.3.
 
 | Condição | Resultado | Motivo registrado |
 |---|---|---|
@@ -30,7 +30,7 @@ Método: `http-response-completeness@1.0.0` no schema 1.1 e `@1.1.0` no schema 1
 
 A ausência de `Content-Length` é válida e não reduz o resultado. O limite de bytes aplicado pelo probe sempre integra a evidência.
 
-## Indicadores adicionais do schema 1.2
+## Indicadores adicionais dos schemas 1.2 e 1.3
 
 | Indicador | Evidência limitada desta camada |
 |---|---|
@@ -44,7 +44,8 @@ A ausência de `Content-Length` é válida e não reduz o resultado. O limite de
 | `S01` | criação do parser HTML tolerante, sem afirmar validade normativa |
 | `S03` | parsing XML do sitemap com DTD e entidades rejeitados |
 | `S04` | inventário contextual da homepage por MIME declarado |
-| `N01` | tempo total da requisição; DNS/TCP/TLS/TTFB permanecem nulos |
+| `N01` | no 1.2, apenas tempo total; no 1.3, TCP/TLS/TTFB quando observáveis, DNS nulo com motivo, família IP e quantidade de exchanges sem persistir endereço |
+| `N02` | no 1.3, mínimo, máximo, mediana, desvio-padrão amostral, taxa de sucesso e tamanho de uma série de GETs limitada a um byte; p95 somente com `n >= 20` |
 
 ## Indicadores da observação `bounded_crawl` 1.0
 

@@ -15,17 +15,19 @@ Cada etapa usa enqueue idempotente, claim com lease, revisão otimista, retry co
 
 ## Dados coletados
 
-A observação `http_metadata` 1.2 persiste apenas:
+A observação `http_metadata` 1.3 persiste apenas:
 
 - status e cabeçalhos allowlisted da homepage;
 - bytes observados, truncamento, redirects, TLS final e tempo total;
+- fases TCP, TLS e TTFB quando observáveis, família IP sem endereço e `null + reason` para fases indisponíveis;
+- cinco amostras GET homogêneas, espaçadas e limitadas a um byte, com mínimo, máximo, mediana, desvio-padrão amostral e taxa de sucesso;
 - MIME declarado e família de formato;
 - contagens agregadas de links internos, externos, feeds e canonical;
 - disponibilidade, status, parseabilidade e contagens agregadas de robots e sitemap.
 
 Corpos, cookies, URLs descobertas, destinos de redirect e mensagens de exceção não são persistidos nem registrados na auditoria.
 
-Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R02`, `R04`, `R05`, `R06`, `S01`, `S03`, `S04` e `N01`. A evidência identifica explicitamente as limitações da amostra de homepage e da classificação baseada no MIME declarado.
+Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R02`, `R04`, `R05`, `R06`, `S01`, `S03`, `S04`, `N01` e `N02`. `N01` e `N02` são exclusivamente contextuais e não reduzem score. DNS não recebe um zero inventado: permanece nulo com o motivo `resolution_precedes_transport_timer`; p95 exige ao menos 20 sucessos e, nas cinco amostras padrão, permanece nulo com motivo explícito.
 
 ## Segurança e operação
 
