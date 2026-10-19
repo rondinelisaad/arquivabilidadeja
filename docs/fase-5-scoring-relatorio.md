@@ -4,7 +4,7 @@ Status: scoring, exportação canônica, histórico privado, comparação entre 
 
 ## Snapshot versionado
 
-O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começou em `1.0`, passou a `1.1` ao expor `probe_ids` e `tool_versions` por resultado e a `1.2` ao incluir país/região declarados, janela observada e ferramentas por probe; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
+O relatório usa um único snapshot transacional para progresso, jobs, tentativas, observações agregadas, evidências, resultados e avaliação. `report_schema_version` começou em `1.0`, passou a `1.1` ao expor `probe_ids` e `tool_versions` por resultado, a `1.2` ao incluir país/região declarados, janela observada e ferramentas por probe e a `1.3` ao tornar explícitos o resumo e os dados agregados seguros de cada evidência; a resposta normal e a exportação JSON são projeções do mesmo objeto para evitar divergência entre a tela e o arquivo baixado.
 
 Análises ainda em execução retornam `assessment: null`. Quando a análise termina com resultado completo ou parcial, o `ScoringEngine` avalia todos os indicadores declarados aplicáveis pela versão da metodologia. O relatório terminal enumera o catálogo completo: uma medição ainda não implementada gera evidência `measurement_unavailable`, estado `UNKNOWN`, confiança zero e motivo estável `measurement_not_implemented`. Ela reduz a cobertura e nunca recebe nota zero nem desaparece silenciosamente. Indicadores contextuais indisponíveis também podem usar `UNKNOWN`, sem participar do score. O relatório inclui dimensões, cobertura, estado geral, gates, resultados e proveniência por hash.
 
@@ -40,4 +40,4 @@ Leituras de histórico e comparação geram `access.analysis_history` e `access.
 2. ativação de gates somente depois da decisão metodológica correspondente;
 3. mapeamento CLEAR+ legado somente depois de validação explícita.
 
-O critério técnico da fase é coberto por golden tests do `ScoringEngine` e por um hash golden do snapshot exportável completo na versão `1.2`.
+O critério técnico da fase é coberto por golden tests do `ScoringEngine` e por um hash golden do snapshot exportável completo na versão `1.3`.

@@ -22,6 +22,12 @@ A interface oferece português e inglês no mesmo shell, com português como idi
 
 A metodologia executável e o JSON exportado permanecem canônicos em inglês para preservar hashes, reprodutibilidade e comparabilidade. A camada Web localiza títulos, explicações, métodos e limitações dos 45 indicadores apenas na apresentação. Conteúdo dinâmico continua sendo inserido exclusivamente com `textContent`, inclusive após a tradução.
 
+## Evidências dos indicadores
+
+Cada indicador expansível mostra **o que foi observado**, em vez de apenas informar a quantidade de evidências. O relatório apresenta uma explicação direta, os valores agregados usados na conclusão e uma seção opcional de rastreabilidade com método, versão, data, ferramenta, confiança e identificador da evidência.
+
+Por segurança e privacidade, essa projeção não inclui URLs individuais, caminhos, cabeçalhos, cookies, corpos de resposta, payloads ou hashes do DOM. Para `C01`, por exemplo, a interface informa quantas requisições foram observadas, quantas eram externas, a proporção calculada e o número de origens externas distintas.
+
 ## Segurança da fronteira
 
 - assets próprios, sem CDN ou script de terceiro;
