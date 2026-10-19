@@ -3,11 +3,12 @@ import fs from "node:fs";
 import http from "node:http";
 import { chromium } from "playwright";
 
-import { validatePublicUrl, validateRequest } from "./security.mjs";
+import { sanitizeOrigin, validatePublicUrl, validateRequest } from "./security.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = 9223;
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_EXTERNAL_ORIGIN_EVIDENCE = 100;
 let active = false;
 
 function hash(value) {
@@ -77,6 +78,24 @@ function externalDependencyType(resourceType) {
   return "other";
 }
 
+function recordExternalOrigin(stats, url, type) {
+  const origin = sanitizeOrigin(url);
+  const current = stats.externalOriginEvidence.get(origin) ?? {
+    origin,
+    request_count: 0,
+    api_count: 0,
+    script_count: 0,
+    stylesheet_count: 0,
+    image_count: 0,
+    font_count: 0,
+    frame_count: 0,
+    other_count: 0,
+  };
+  current.request_count += 1;
+  current[`${type}_count`] += 1;
+  stats.externalOriginEvidence.set(origin, current);
+}
+
 async function configurePage(page, targetOrigin, budgets, stats) {
   page.on("console", () => {
     stats.consoleEvents = Math.min(stats.consoleEvents + 1, budgets.max_console_events);
@@ -102,18 +121,24 @@ async function configurePage(page, targetOrigin, budgets, stats) {
       return;
     }
     stats.requestCount += 1;
-    if (scope(request.url(), targetOrigin) === "internal") stats.internalRequests += 1;
+    const requestScope = scope(request.url(), targetOrigin);
+    if (requestScope === "internal") stats.internalRequests += 1;
     else {
       stats.externalRequests += 1;
-      try { stats.externalOrigins.add(new URL(request.url()).origin); } catch { /* validated below */ }
-      stats.externalTypes[externalDependencyType(request.resourceType())] += 1;
+      const type = externalDependencyType(request.resourceType());
+      stats.externalTypes[type] += 1;
     }
     if (["xhr", "fetch"].includes(request.resourceType())) {
       stats.apiRequests += 1;
-      if (scope(request.url(), targetOrigin) === "external") stats.externalApiRequests += 1;
+      if (requestScope === "external") stats.externalApiRequests += 1;
     }
     try {
       await validatePublicUrl(request.url());
+      if (requestScope === "external") {
+        const origin = sanitizeOrigin(request.url());
+        stats.externalOrigins.add(origin);
+        recordExternalOrigin(stats, request.url(), externalDependencyType(request.resourceType()));
+      }
       await route.continue();
     } catch {
       stats.blockedRequests += 1;
@@ -164,6 +189,7 @@ async function render(request) {
     requestCount: 0, internalRequests: 0, externalRequests: 0, apiRequests: 0,
     externalApiRequests: 0, failedRequests: 0, blockedRequests: 0,
     externalOrigins: new Set(),
+    externalOriginEvidence: new Map(),
     externalTypes: { api: 0, script: 0, stylesheet: 0, image: 0, font: 0, frame: 0, other: 0 },
     transferBytes: 0, consoleEvents: 0,
     termination: "complete",
@@ -185,6 +211,10 @@ async function render(request) {
     const renderedHashBytes = renderedBytes.subarray(0, request.budgets.max_dom_bytes);
     const rawSet = new Set(raw.urls);
     const renderedSet = new Set(rendered.urls);
+    const allExternalOriginEvidence = [...stats.externalOriginEvidence.values()].sort(
+      (left, right) => right.request_count - left.request_count || left.origin.localeCompare(right.origin),
+    );
+    const externalOriginEvidence = allExternalOriginEvidence.slice(0, MAX_EXTERNAL_ORIGIN_EVIDENCE);
     return {
       analysis_id: request.analysis_id,
       attempt_id: request.attempt_id,
@@ -204,6 +234,8 @@ async function render(request) {
         failed_request_count: Math.min(stats.failedRequests, stats.requestCount),
         blocked_request_count: Math.min(stats.blockedRequests, stats.requestCount),
         external_origin_count: stats.externalOrigins.size,
+        external_origin_evidence: externalOriginEvidence,
+        external_origin_evidence_truncated: allExternalOriginEvidence.length > externalOriginEvidence.length,
         external_script_count: stats.externalTypes.script,
         external_stylesheet_count: stats.externalTypes.stylesheet,
         external_image_count: stats.externalTypes.image,

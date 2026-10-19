@@ -19,6 +19,7 @@ from archivability.browser import (  # noqa: E402
     BrowserRenderAggregate,
     BrowserRenderRequest,
     BrowserRenderResult,
+    ExternalOriginEvidence,
 )
 
 NOW = datetime(2026, 10, 18, 23, 0, tzinfo=timezone.utc)
@@ -130,6 +131,72 @@ class BrowserContractTests(unittest.TestCase):
             aggregate(transfer_bytes=5000).validate_against(
                 BrowserBudgets(max_total_transfer_bytes=4096)
             )
+
+    def test_external_origin_evidence_is_explicit_and_path_free(self) -> None:
+        origin = ExternalOriginEvidence.from_value(
+            {
+                "origin": "https://cdn.example.org:8443",
+                "request_count": 3,
+                "api_count": 1,
+                "script_count": 1,
+                "stylesheet_count": 0,
+                "image_count": 1,
+                "font_count": 0,
+                "frame_count": 0,
+                "other_count": 0,
+            }
+        )
+        result = aggregate(
+            dependency_graph_observed=True,
+            external_origin_count=1,
+            external_api_request_count=1,
+            external_script_count=1,
+            external_image_count=1,
+            external_other_count=1,
+            external_origin_evidence=(origin,),
+        )
+
+        self.assertEqual("https://cdn.example.org:8443", origin.origin)
+        self.assertEqual(origin.to_dict(), result.to_dict()["external_origin_evidence"][0])
+        with self.assertRaisesRegex(BrowserContractError, "path or credentials"):
+            replace(origin, origin="https://cdn.example.org/private?token=secret")
+        with self.assertRaisesRegex(BrowserContractError, "canonical"):
+            replace(origin, origin="https://CDN.EXAMPLE.ORG:443")
+        with self.assertRaisesRegex(BrowserContractError, "counts are inconsistent"):
+            replace(origin, request_count=4)
+
+    def test_external_origin_evidence_must_be_complete_or_marked_truncated(self) -> None:
+        origin = ExternalOriginEvidence(
+            origin="https://cdn.example.org",
+            request_count=4,
+            api_count=1,
+            script_count=1,
+            stylesheet_count=0,
+            image_count=1,
+            font_count=0,
+            frame_count=0,
+            other_count=1,
+        )
+        with self.assertRaisesRegex(BrowserContractError, "is incomplete"):
+            aggregate(
+                dependency_graph_observed=True,
+                external_origin_count=2,
+                external_api_request_count=1,
+                external_script_count=1,
+                external_image_count=1,
+                external_other_count=1,
+                external_origin_evidence=(origin,),
+            )
+        aggregate(
+            dependency_graph_observed=True,
+            external_origin_count=2,
+            external_api_request_count=1,
+            external_script_count=1,
+            external_image_count=1,
+            external_other_count=1,
+            external_origin_evidence=(origin,),
+            external_origin_evidence_truncated=True,
+        )
 
     def test_result_requires_matching_identity_safe_isolation_and_budgets(self) -> None:
         request = BrowserRenderRequest(

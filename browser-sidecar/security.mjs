@@ -3,6 +3,22 @@ import net from "node:net";
 
 const UNSAFE = /[\u0000-\u0020\u007f\\]/u;
 
+export function sanitizeOrigin(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2048 || UNSAFE.test(value)) {
+    throw new Error("URL_INVALID");
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("URL_INVALID");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new Error("URL_INVALID");
+  }
+  return parsed.origin;
+}
+
 function ipv4Number(address) {
   return address.split(".").reduce((value, octet) => value * 256 + Number(octet), 0);
 }
@@ -43,15 +59,8 @@ export async function validatePublicUrl(value, resolver = dns.lookup) {
   if (typeof value !== "string" || value.length === 0 || value.length > 2048 || UNSAFE.test(value)) {
     throw new Error("URL_INVALID");
   }
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("URL_INVALID");
-  }
-  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new Error("URL_INVALID");
-  }
+  sanitizeOrigin(value);
+  const parsed = new URL(value);
   const port = parsed.port ? Number(parsed.port) : (parsed.protocol === "https:" ? 443 : 80);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("URL_INVALID");

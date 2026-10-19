@@ -245,7 +245,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
             probe_id="browser-render",
             tool_name="chromium",
             tool_version="140.0.1",
-            payload_schema_version="1.0",
+            payload_schema_version="1.2",
             payload={
                 "budgets": BrowserBudgets().to_dict(),
                 "profile": BrowserProfile().to_dict(),
@@ -280,6 +280,21 @@ class AnalysisReportServiceTests(unittest.TestCase):
                     console_event_count=0,
                     elapsed_milliseconds=1000,
                     termination_reason="complete",
+                    external_origin_count=1,
+                    dependency_graph_observed=True,
+                    external_origin_evidence=(
+                        {
+                            "origin": "https://api.example.net:8443",
+                            "request_count": 1,
+                            "api_count": 1,
+                            "script_count": 0,
+                            "stylesheet_count": 0,
+                            "image_count": 0,
+                            "font_count": 0,
+                            "frame_count": 0,
+                            "other_count": 0,
+                        },
+                    ),
                 ).to_dict(),
             },
         )
@@ -568,6 +583,10 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual(observation.content_hash, browser["content_hash"])
         self.assertEqual("chromium-baseline-1", browser["profile_id"])
         self.assertEqual(3, browser["summary"]["request_count"])
+        self.assertEqual(
+            "https://api.example.net:8443",
+            browser["summary"]["external_origin_evidence"][0]["origin"],
+        )
         serialized = json.dumps(browser)
         self.assertNotIn("raw_dom_hash", serialized)
         self.assertNotIn("rendered_dom_hash", serialized)

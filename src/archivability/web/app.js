@@ -400,7 +400,7 @@
     if (!value || typeof value !== "object" || depth > 2) return [];
     return Object.entries(value).flatMap(([key, item]) => {
       const path = prefix ? `${prefix}.${key}` : key;
-      if (key.includes("hash") || ["budgets", "limits", "threshold_basis", "profile_id", "parser_version"].includes(key)) return [];
+      if (key.includes("hash") || ["budgets", "limits", "threshold_basis", "profile_id", "parser_version", "external_origin_evidence", "external_origin_evidence_truncated"].includes(key)) return [];
       if (item && typeof item === "object" && !Array.isArray(item)) return flattenEvidenceData(item, path, depth + 1);
       return [[path, item]];
     });
@@ -420,14 +420,94 @@
       const externalRequests = localized(data.external_request_count === 1 ? "foi externa" : "foram externas", data.external_request_count === 1 ? "was external" : "were external");
       const origins = localized(data.external_origin_count === 1 ? "origem externa" : "origens externas", data.external_origin_count === 1 ? "external origin" : "external origins");
       return localized(
-        `O navegador fez ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), distribuídas em ${data.external_origin_count || 0} ${origins}. Os endereços individuais não são armazenados.`,
-        `The browser made ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), across ${data.external_origin_count || 0} ${origins}. Individual addresses are not stored.`,
+        `O navegador fez ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), distribuídas em ${data.external_origin_count || 0} ${origins}. Caminhos, parâmetros e fragmentos não são armazenados.`,
+        `The browser made ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), across ${data.external_origin_count || 0} ${origins}. Paths, parameters, and fragments are not stored.`,
       );
     }
     return localized(
       "A conclusão foi calculada a partir dos valores agregados observados abaixo. Nenhum corpo de página, cookie ou endereço individual faz parte desta evidência.",
       "The conclusion was calculated from the aggregate values observed below. No page body, cookie, or individual address is included in this evidence.",
     );
+  };
+
+  const renderExplicitOrigins = (indicatorId, evidence) => {
+    if (!["C01", "C04", "C05"].includes(indicatorId)) return null;
+    const data = evidence?.data || {};
+    const block = document.createElement("div");
+    block.className = "explicit-origin-evidence";
+    const title = document.createElement("h5");
+    title.textContent = localized("Origens externas observadas", "Observed external origins");
+    block.append(title);
+    const origins = Array.isArray(data.external_origin_evidence)
+      ? data.external_origin_evidence
+      : [];
+    if (!origins.length) {
+      const expectedCount = indicatorId === "C05"
+        ? Number(data.external_api_request_count || 0)
+        : indicatorId === "C04"
+          ? ["external_script", "external_stylesheet", "external_font", "external_api", "external_frame"]
+            .reduce((total, key) => total + Number(data.dependency_edges?.[key] || 0), 0)
+          : Number(data.external_request_count || 0);
+      const message = document.createElement("p");
+      message.textContent = expectedCount === 0
+        ? localized(
+          "Nenhuma origem externa foi observada para este indicador.",
+          "No external origin was observed for this indicator.",
+        )
+        : localized(
+          "Os nomes das origens não foram preservados nesta execução. Faça uma nova avaliação para produzir esta evidência explícita.",
+          "Origin names were not preserved in this run. Start a new assessment to produce this explicit evidence.",
+        );
+      block.append(message);
+      return block;
+    }
+    const typeLabels = {
+      api_count: ["API", "APIs", "API", "APIs"],
+      script_count: ["script", "scripts", "script", "scripts"],
+      stylesheet_count: ["folha de estilo", "folhas de estilo", "stylesheet", "stylesheets"],
+      image_count: ["imagem", "imagens", "image", "images"],
+      font_count: ["fonte", "fontes", "font", "fonts"],
+      frame_count: ["frame", "frames", "frame", "frames"],
+      other_count: ["outro", "outros", "other", "other"],
+    };
+    const list = document.createElement("ul");
+    origins.forEach((origin) => {
+      const item = document.createElement("li");
+      const address = document.createElement("code");
+      address.textContent = origin.origin;
+      const types = Object.entries(typeLabels)
+        .filter(([key]) => Number(origin[key]) > 0)
+        .map(([key, labels]) => {
+          const pluralOffset = Number(origin[key]) === 1 ? 0 : 1;
+          const label = isPortuguese ? labels[pluralOffset] : labels[2 + pluralOffset];
+          return `${origin[key]} ${label}`;
+        });
+      const detail = document.createElement("span");
+      detail.textContent = localized(
+        `${origin.request_count} ${origin.request_count === 1 ? "requisição" : "requisições"} · ${types.join(" · ")}`,
+        `${origin.request_count} ${origin.request_count === 1 ? "request" : "requests"} · ${types.join(" · ")}`,
+      );
+      item.append(address, detail);
+      list.append(item);
+    });
+    block.append(list);
+    const privacy = document.createElement("p");
+    privacy.className = "explicit-origin-note";
+    privacy.textContent = localized(
+      "Evidência limitada à origem (protocolo, domínio e porta); caminhos, parâmetros e fragmentos foram removidos.",
+      "Evidence is limited to the origin (scheme, domain, and port); paths, parameters, and fragments were removed.",
+    );
+    block.append(privacy);
+    if (data.external_origin_evidence_truncated) {
+      const truncated = document.createElement("p");
+      truncated.className = "explicit-origin-note";
+      truncated.textContent = localized(
+        "A lista atingiu o limite de 100 origens e mostra as mais frequentes.",
+        "The list reached the 100-origin limit and shows the most frequent origins.",
+      );
+      block.append(truncated);
+    }
+    return block;
   };
 
   const renderEvidence = (result, evidenceById) => {
@@ -448,6 +528,8 @@
       narrative.className = "evidence-narrative";
       narrative.textContent = evidenceNarrative(result.indicator_id, evidence);
       panel.append(narrative);
+      const explicitOrigins = renderExplicitOrigins(result.indicator_id, evidence);
+      if (explicitOrigins) panel.append(explicitOrigins);
       const facts = flattenEvidenceData(evidence.data).slice(0, 12);
       if (facts.length) {
         const values = document.createElement("dl");
@@ -675,8 +757,22 @@
       [localized("Frames externos", "External frames"), summary.external_frame_count ?? 0],
       [localized("Outros externos", "Other external resources"), summary.external_other_count ?? 0],
     ].filter(([, count]) => count > 0);
+    const explicitOrigins = Array.isArray(summary.external_origin_evidence)
+      ? summary.external_origin_evidence
+      : [];
+    const originDetail = Number(summary.external_request_count || 0) === 0
+      ? localized("Nenhuma requisição externa observada.", "No external request was observed.")
+      : explicitOrigins.length
+        ? localized(
+          `${explicitOrigins.length} origens identificadas; somente protocolo, domínio e porta são preservados.`,
+          `${explicitOrigins.length} origins identified; only scheme, domain, and port are retained.`,
+        )
+        : localized(
+          "Os nomes não foram preservados nesta execução antiga; faça uma nova avaliação.",
+          "Names were not retained in this older run; start a new assessment.",
+        );
     container.replaceChildren(
-      findingCard(localized("Site → origens externas", "Site → external origins"), String(summary.external_origin_count ?? 0), localized(`${summary.external_request_count ?? 0} requisições externas; nomes e URLs não são persistidos.`, `${summary.external_request_count ?? 0} external requests; names and URLs are not persisted.`)),
+      findingCard(localized("Site → origens externas", "Site → external origins"), String(summary.external_origin_count ?? 0), originDetail),
       ...categoryEdges.map(([label, count]) => findingCard(`Site → ${label}`, String(count), localized("Aresta agregada por tipo; presença externa não implica falha.", "Edge aggregated by type; external presence does not imply failure."))),
       findingCard(localized("URLs dinâmicas", "Dynamic URLs"), String(summary.additional_url_count ?? "—"), localized("URLs adicionais após renderização, sem persistir endereços brutos.", "Additional URLs after rendering, without persisting raw addresses.")),
     );

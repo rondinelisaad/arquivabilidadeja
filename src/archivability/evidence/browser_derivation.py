@@ -113,6 +113,21 @@ def derive_browser_indicators(
             "external_request_count": aggregate.external_request_count,
             "external_request_share": round(external_request_share, 6),
             "external_origin_count": aggregate.external_origin_count,
+            "external_origin_evidence": [
+                item.to_dict()
+                for item in aggregate.external_origin_evidence
+                if (
+                    item.api_count
+                    + item.script_count
+                    + item.stylesheet_count
+                    + item.font_count
+                    + item.frame_count
+                )
+                > 0
+            ],
+            "external_origin_evidence_truncated": (
+                aggregate.external_origin_evidence_truncated
+            ),
         },
         "C04": {
             "dependency_graph_observed": aggregate.dependency_graph_observed,
@@ -126,6 +141,12 @@ def derive_browser_indicators(
                 "external_other": aggregate.external_other_count,
             },
             "external_origin_count": aggregate.external_origin_count,
+            "external_origin_evidence": [
+                item.to_dict() for item in aggregate.external_origin_evidence
+            ],
+            "external_origin_evidence_truncated": (
+                aggregate.external_origin_evidence_truncated
+            ),
             "discovery_sources": ["browser_requests"],
             "resource_types": "fixed_browser_resource_type_v1",
             "interpretation": "external_presence_is_not_automatic_failure",
@@ -134,6 +155,14 @@ def derive_browser_indicators(
             "api_request_count": aggregate.api_request_count,
             "external_api_request_count": aggregate.external_api_request_count,
             "external_api_share": round(external_api_share, 6),
+            "external_origin_evidence": [
+                item.to_dict()
+                for item in aggregate.external_origin_evidence
+                if item.api_count > 0
+            ],
+            "external_origin_evidence_truncated": (
+                aggregate.external_origin_evidence_truncated
+            ),
             "rendered_content_changed": dom_changed,
             "additional_url_count": aggregate.additional_url_count,
         },
@@ -179,7 +208,7 @@ def validate_browser_render_observation(
 ) -> tuple[BrowserBudgets, BrowserProfile, BrowserRenderAggregate]:
     if (
         observation.kind != "browser_render"
-        or observation.payload_schema_version not in {"1.0", "1.1"}
+        or observation.payload_schema_version not in {"1.0", "1.1", "1.2"}
         or observation.error_code is not None
         or set(observation.payload) != {"budgets", "profile", "isolation", "aggregate"}
     ):
@@ -190,6 +219,14 @@ def validate_browser_render_observation(
         BrowserIsolationAttestation(**observation.payload["isolation"])
         aggregate = BrowserRenderAggregate(**observation.payload["aggregate"])
         aggregate.validate_against(budgets)
+        if (
+            observation.payload_schema_version == "1.2"
+            and aggregate.external_origin_count > 0
+            and not aggregate.external_origin_evidence
+        ):
+            raise BrowserContractError(
+                "browser schema 1.2 requires explicit external origin evidence"
+            )
     except (BrowserContractError, TypeError) as exc:
         raise BrowserDerivationError("browser observation payload failed validation") from exc
     return budgets, profile, aggregate
@@ -284,7 +321,7 @@ def _evidence(
     return Evidence.create(
         evidence_id=(
             f"browser-{indicator_id.lower()}-v"
-            f"{'1-1-0' if observation.payload_schema_version == '1.1' else '1-0-0'}-"
+            f"{_method_version(observation).replace('.', '-')}-"
             f"{observation.content_hash}"
         ),
         analysis_id=observation.analysis_id,
@@ -292,12 +329,18 @@ def _evidence(
         kind="browser_indicator_measurement",
         subject_uri=observation.subject_uri,
         method_id=f"browser-{indicator_id.lower()}-derivation",
-        method_version=(
-            "1.1.0" if observation.payload_schema_version == "1.1" else "1.0.0"
-        ),
+        method_version=_method_version(observation),
         created_at=observation.observed_at,
         confidence=confidence,
         observations=(observation,),
         data=data,
         summary="Bounded browser aggregate interpreted by versioned project thresholds.",
     )
+
+
+def _method_version(observation: Observation) -> str:
+    return {
+        "1.0": "1.0.0",
+        "1.1": "1.1.0",
+        "1.2": "1.2.0",
+    }[observation.payload_schema_version]

@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isPublicAddress, validatePublicUrl, validateRequest } from "./security.mjs";
+import { isPublicAddress, sanitizeOrigin, validatePublicUrl, validateRequest } from "./security.mjs";
+
+test("keeps only a credential-free HTTP origin", () => {
+  assert.equal(
+    sanitizeOrigin("https://CDN.Example.org:8443/private/file.js?token=secret#part"),
+    "https://cdn.example.org:8443",
+  );
+  assert.throws(() => sanitizeOrigin("https://user:password@example.org/file"), /URL_INVALID/);
+  assert.throws(() => sanitizeOrigin("data:text/plain,secret"), /URL_INVALID/);
+});
 
 test("blocks private, special and documentation addresses", () => {
   for (const address of ["127.0.0.1", "10.0.0.1", "169.254.169.254", "192.168.1.1", "192.0.2.1", "::1", "fd00::1", "2001:db8::1"]) {

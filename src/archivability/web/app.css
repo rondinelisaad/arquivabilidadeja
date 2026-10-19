@@ -122,6 +122,13 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.7rem); }
 .evidence-facts { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 1fr); gap: .35rem 1rem; margin: 0 0 .85rem; font-size: .84rem; line-height: 1.45; }
 .evidence-facts dt { color: var(--muted); }
 .evidence-facts dd { margin: 0; font-weight: 750; }
+.explicit-origin-evidence { margin: .9rem 0; padding: .85rem; border: 1px solid rgb(13 107 98 / 25%); background: var(--white); }
+.explicit-origin-evidence h5 { margin: 0 0 .65rem; font-size: .88rem; }
+.explicit-origin-evidence ul { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; }
+.explicit-origin-evidence li { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr); gap: .75rem; align-items: baseline; }
+.explicit-origin-evidence code { overflow-wrap: anywhere; color: var(--teal-dark); font-size: .8rem; }
+.explicit-origin-evidence li span { color: var(--muted); font-size: .8rem; }
+.explicit-origin-evidence .explicit-origin-note { margin: .7rem 0 0; color: var(--muted); font-size: .76rem; }
 .evidence-trace { border-top: 1px solid rgb(13 107 98 / 25%); padding-top: .65rem; color: var(--muted); font-size: .78rem; }
 .evidence-trace summary { cursor: pointer; font-weight: 800; }
 .evidence-trace p { margin: .55rem 0 0; overflow-wrap: anywhere; }
@@ -189,6 +196,7 @@ footer { max-width: 1240px; margin: 0 auto; padding: 2rem; border-top: 1px solid
   .indicator-detail { padding-left: 5.95rem; }
   .evidence-facts { grid-template-columns: 1fr; gap: .15rem; }
   .evidence-facts dd { margin-bottom: .45rem; }
+  .explicit-origin-evidence li { grid-template-columns: 1fr; gap: .1rem; }
   .indicator-heading strong { white-space: normal; }
   .section-shell, .progress-panel { padding: 1.25rem; }
 }

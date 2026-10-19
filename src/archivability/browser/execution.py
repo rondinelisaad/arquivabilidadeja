@@ -155,7 +155,7 @@ class BrowserExecutionService:
             probe_id=self._probe_id,
             tool_name=result.engine_name,
             tool_version=result.engine_version,
-            payload_schema_version="1.1",
+            payload_schema_version="1.2",
             payload={
                 "budgets": request.budgets.to_dict(),
                 "profile": request.profile.to_dict(),
@@ -177,7 +177,7 @@ class BrowserExecutionService:
     ) -> None:
         if (
             observation.kind != "browser_render"
-            or observation.payload_schema_version not in {"1.0", "1.1"}
+            or observation.payload_schema_version not in {"1.0", "1.1", "1.2"}
             or observation.error_code is not None
             or observation.analysis_id != request.analysis_id
             or observation.attempt_id != request.attempt_id

@@ -13,6 +13,7 @@ from archivability.browser.models import (
     BrowserRenderAggregate,
     BrowserRenderRequest,
     BrowserRenderResult,
+    ExternalOriginEvidence,
 )
 from archivability.browser.ports import BrowserExecutionRepository, BrowserRenderer
 
@@ -28,6 +29,7 @@ __all__ = [
     "BrowserRenderRequest",
     "BrowserRenderResult",
     "BrowserRenderer",
+    "ExternalOriginEvidence",
     "LoopbackBrowserRenderer",
 ]
 

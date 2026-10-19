@@ -395,7 +395,7 @@ class BrowserRunReport:
     truncated: bool
     profile_id: str
     limits: Mapping[str, int]
-    summary: Mapping[str, int | str]
+    summary: Mapping[str, Any]
 
     @classmethod
     def from_observation(cls, value: Observation) -> BrowserRunReport:
@@ -439,7 +439,7 @@ class BrowserRunReport:
             "truncated": self.truncated,
             "profile_id": self.profile_id,
             "limits": dict(self.limits),
-            "summary": dict(self.summary),
+            "summary": _plain_report_json(self.summary),
         }
 
 
@@ -1099,6 +1099,8 @@ def _freeze_report_json(value: Any) -> Any:
             {key: _freeze_report_json(item) for key, item in value.items()}
         )
     if isinstance(value, tuple):
+        return tuple(_freeze_report_json(item) for item in value)
+    if isinstance(value, list):
         return tuple(_freeze_report_json(item) for item in value)
     return value
 

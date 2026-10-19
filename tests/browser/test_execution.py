@@ -83,6 +83,35 @@ def render_result(*, attempt_id: str = "attempt-browser-1") -> BrowserRenderResu
             console_event_count=1,
             elapsed_milliseconds=4000,
             termination_reason="complete",
+            external_origin_count=2,
+            external_script_count=1,
+            external_image_count=1,
+            external_other_count=0,
+            dependency_graph_observed=True,
+            external_origin_evidence=(
+                {
+                    "origin": "https://api.example.net",
+                    "request_count": 2,
+                    "api_count": 1,
+                    "script_count": 1,
+                    "stylesheet_count": 0,
+                    "image_count": 0,
+                    "font_count": 0,
+                    "frame_count": 0,
+                    "other_count": 0,
+                },
+                {
+                    "origin": "https://images.example.net",
+                    "request_count": 1,
+                    "api_count": 0,
+                    "script_count": 0,
+                    "stylesheet_count": 0,
+                    "image_count": 1,
+                    "font_count": 0,
+                    "frame_count": 0,
+                    "other_count": 0,
+                },
+            ),
         ),
     )
 
@@ -143,11 +172,15 @@ class BrowserExecutionServiceTests(unittest.TestCase):
         self.assertEqual(first.observation, second.observation)
         self.assertEqual(1, renderer.calls)
         self.assertEqual("browser_render", first.observation.kind)
-        self.assertEqual("1.1", first.observation.payload_schema_version)
+        self.assertEqual("1.2", first.observation.payload_schema_version)
         self.assertEqual("probe-br-sp-browser", first.observation.probe_id)
         self.assertEqual("BR", first.observation.probe_country)
         self.assertEqual("sao-paulo", first.observation.probe_region)
         self.assertEqual(5, first.observation.payload["aggregate"]["rendered_url_count"])
+        self.assertEqual(
+            "https://api.example.net",
+            first.observation.payload["aggregate"]["external_origin_evidence"][0]["origin"],
+        )
         events = self.connection.execute(
             """
             SELECT result, extra_json FROM audit_events

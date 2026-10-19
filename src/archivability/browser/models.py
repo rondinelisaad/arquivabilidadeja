@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,127}$")
@@ -170,6 +171,97 @@ class BrowserIsolationAttestation:
 
 
 @dataclass(frozen=True, slots=True)
+class ExternalOriginEvidence:
+    origin: str
+    request_count: int
+    api_count: int
+    script_count: int
+    stylesheet_count: int
+    image_count: int
+    font_count: int
+    frame_count: int
+    other_count: int
+
+    @classmethod
+    def from_value(
+        cls, value: ExternalOriginEvidence | Mapping[str, object]
+    ) -> ExternalOriginEvidence:
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, Mapping):
+            raise BrowserContractError("external origin evidence must be an object")
+        expected = {
+            "origin", "request_count", "api_count", "script_count",
+            "stylesheet_count", "image_count", "font_count", "frame_count",
+            "other_count",
+        }
+        if set(value) != expected:
+            raise BrowserContractError("external origin evidence fields are invalid")
+        try:
+            return cls(**value)  # type: ignore[arg-type]
+        except TypeError as exc:
+            raise BrowserContractError("external origin evidence is invalid") from exc
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.origin, str)
+            or not self.origin
+            or len(self.origin) > 512
+            or _UNSAFE_URI_PATTERN.search(self.origin)
+        ):
+            raise BrowserContractError("external origin is invalid")
+        try:
+            parsed = urlsplit(self.origin)
+            port = parsed.port
+        except ValueError as exc:
+            raise BrowserContractError("external origin is invalid") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname is None
+            or port == 0
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise BrowserContractError(
+                "external origin must not include a path or credentials"
+            )
+        host = parsed.hostname
+        assert host is not None
+        canonical_host = f"[{host}]" if ":" in host else host
+        default_port = 443 if parsed.scheme == "https" else 80
+        canonical_port = "" if port in {None, default_port} else f":{port}"
+        if self.origin != f"{parsed.scheme}://{canonical_host}{canonical_port}":
+            raise BrowserContractError("external origin must be canonical")
+        counts = (
+            self.api_count, self.script_count, self.stylesheet_count,
+            self.image_count, self.font_count, self.frame_count, self.other_count,
+        )
+        _integer(self.request_count, "external origin request_count", 1, 2_000)
+        for count in counts:
+            _integer(count, "external origin resource count", 0, 2_000)
+        if sum(counts) != self.request_count:
+            raise BrowserContractError(
+                "external origin resource counts are inconsistent"
+            )
+
+    def to_dict(self) -> dict[str, str | int]:
+        return {
+            "origin": self.origin,
+            "request_count": self.request_count,
+            "api_count": self.api_count,
+            "script_count": self.script_count,
+            "stylesheet_count": self.stylesheet_count,
+            "image_count": self.image_count,
+            "font_count": self.font_count,
+            "frame_count": self.frame_count,
+            "other_count": self.other_count,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class BrowserRenderRequest:
     analysis_id: str
     attempt_id: str
@@ -245,8 +337,15 @@ class BrowserRenderAggregate:
     external_frame_count: int = 0
     external_other_count: int = 0
     dependency_graph_observed: bool = False
+    external_origin_evidence: tuple[ExternalOriginEvidence, ...] = ()
+    external_origin_evidence_truncated: bool = False
 
     def __post_init__(self) -> None:
+        origin_evidence = tuple(
+            ExternalOriginEvidence.from_value(value)
+            for value in self.external_origin_evidence
+        )
+        object.__setattr__(self, "external_origin_evidence", origin_evidence)
         for field in (
             "raw_dom_hash",
             "rendered_dom_hash",
@@ -310,6 +409,8 @@ class BrowserRenderAggregate:
         )
         if not isinstance(self.dependency_graph_observed, bool):
             raise BrowserContractError("dependency graph observation flag is invalid")
+        if not isinstance(self.external_origin_evidence_truncated, bool):
+            raise BrowserContractError("external origin truncation flag is invalid")
         if (
             self.dependency_graph_observed
             and categorized_external != self.external_request_count
@@ -317,6 +418,22 @@ class BrowserRenderAggregate:
             raise BrowserContractError("external dependency counts are inconsistent")
         if self.external_origin_count > self.external_request_count:
             raise BrowserContractError("external origin count is inconsistent")
+        if len(origin_evidence) > 100 or len(origin_evidence) > self.external_origin_count:
+            raise BrowserContractError("external origin evidence count is inconsistent")
+        if len({item.origin for item in origin_evidence}) != len(origin_evidence):
+            raise BrowserContractError("external origin evidence must be unique")
+        if (
+            origin_evidence
+            and sum(item.request_count for item in origin_evidence)
+            > self.external_request_count
+        ):
+            raise BrowserContractError("external origin request counts are inconsistent")
+        if (
+            origin_evidence
+            and not self.external_origin_evidence_truncated
+            and len(origin_evidence) != self.external_origin_count
+        ):
+            raise BrowserContractError("complete external origin evidence is incomplete")
         if self.termination_reason not in {
             "complete",
             "request_budget",
@@ -340,7 +457,7 @@ class BrowserRenderAggregate:
         if self.elapsed_milliseconds > budgets.total_timeout_milliseconds:
             raise BrowserContractError("browser time budget was exceeded")
 
-    def to_dict(self) -> dict[str, str | int]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "raw_dom_hash": self.raw_dom_hash,
             "rendered_dom_hash": self.rendered_dom_hash,
@@ -370,6 +487,10 @@ class BrowserRenderAggregate:
             "external_frame_count": self.external_frame_count,
             "external_other_count": self.external_other_count,
             "dependency_graph_observed": self.dependency_graph_observed,
+            "external_origin_evidence": [
+                item.to_dict() for item in self.external_origin_evidence
+            ],
+            "external_origin_evidence_truncated": self.external_origin_evidence_truncated,
         }
 
 

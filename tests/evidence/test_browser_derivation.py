@@ -38,7 +38,7 @@ def http_observation() -> Observation:
     )
 
 
-def browser_observation(**changes: object) -> Observation:
+def browser_observation(*, schema_version: str = "1.1", **changes: object) -> Observation:
     aggregate = {
         "raw_dom_hash": "a" * 64,
         "rendered_dom_hash": "a" * 64,
@@ -73,7 +73,7 @@ def browser_observation(**changes: object) -> Observation:
         probe_id="browser-render",
         tool_name="chromium",
         tool_version="140.0.1",
-        payload_schema_version="1.1",
+        payload_schema_version=schema_version,
         payload={
             "budgets": BrowserBudgets().to_dict(),
             "profile": BrowserProfile().to_dict(),
@@ -144,6 +144,58 @@ class BrowserDerivationTests(unittest.TestCase):
             )
         )
 
+    def test_version_1_2_exposes_sanitized_origins_in_relevant_evidence(self) -> None:
+        derived = derive_browser_indicators(
+            METHODOLOGY,
+            http_observation(),
+            browser_observation(
+                schema_version="1.2",
+                request_count=8,
+                internal_request_count=4,
+                external_request_count=4,
+                api_request_count=1,
+                external_api_request_count=1,
+                external_origin_count=2,
+                external_script_count=2,
+                external_image_count=1,
+                external_origin_evidence=(
+                    {
+                        "origin": "https://cdn.example.net",
+                        "request_count": 3,
+                        "api_count": 0,
+                        "script_count": 2,
+                        "stylesheet_count": 0,
+                        "image_count": 1,
+                        "font_count": 0,
+                        "frame_count": 0,
+                        "other_count": 0,
+                    },
+                    {
+                        "origin": "https://api.example.net:8443",
+                        "request_count": 1,
+                        "api_count": 1,
+                        "script_count": 0,
+                        "stylesheet_count": 0,
+                        "image_count": 0,
+                        "font_count": 0,
+                        "frame_count": 0,
+                        "other_count": 0,
+                    },
+                ),
+            ),
+        )
+
+        evidence = {item.indicator_id: item for item in derived.evidence}
+        self.assertEqual("1.2.0", evidence["C01"].method_version)
+        self.assertEqual(2, len(evidence["C01"].data["external_origin_evidence"]))
+        self.assertEqual(
+            ["https://api.example.net:8443"],
+            [item["origin"] for item in evidence["C05"].data["external_origin_evidence"]],
+        )
+        serialized = str(evidence["C01"].data)
+        self.assertNotIn("/private", serialized)
+        self.assertNotIn("token", serialized)
+
     def test_budget_termination_and_missing_render_are_unknown(self) -> None:
         bounded = derive_browser_indicators(
             METHODOLOGY,
@@ -177,6 +229,19 @@ class BrowserDerivationTests(unittest.TestCase):
 
         with self.assertRaises(BrowserDerivationError):
             derive_browser_indicators(METHODOLOGY, http_observation(), malformed)
+
+    def test_version_1_2_rejects_missing_explicit_origin_evidence(self) -> None:
+        missing = browser_observation(
+            schema_version="1.2",
+            request_count=2,
+            internal_request_count=1,
+            external_request_count=1,
+            external_origin_count=1,
+            external_other_count=1,
+        )
+
+        with self.assertRaises(BrowserDerivationError):
+            derive_browser_indicators(METHODOLOGY, http_observation(), missing)
 
 
 if __name__ == "__main__":
