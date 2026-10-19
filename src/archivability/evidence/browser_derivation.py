@@ -114,16 +114,7 @@ def derive_browser_indicators(
             "external_request_share": round(external_request_share, 6),
             "external_origin_count": aggregate.external_origin_count,
             "external_origin_evidence": [
-                item.to_dict()
-                for item in aggregate.external_origin_evidence
-                if (
-                    item.api_count
-                    + item.script_count
-                    + item.stylesheet_count
-                    + item.font_count
-                    + item.frame_count
-                )
-                > 0
+                item.to_dict() for item in aggregate.external_origin_evidence
             ],
             "external_origin_evidence_truncated": (
                 aggregate.external_origin_evidence_truncated
@@ -142,7 +133,16 @@ def derive_browser_indicators(
             },
             "external_origin_count": aggregate.external_origin_count,
             "external_origin_evidence": [
-                item.to_dict() for item in aggregate.external_origin_evidence
+                item.to_dict()
+                for item in aggregate.external_origin_evidence
+                if (
+                    item.api_count
+                    + item.script_count
+                    + item.stylesheet_count
+                    + item.font_count
+                    + item.frame_count
+                )
+                > 0
             ],
             "external_origin_evidence_truncated": (
                 aggregate.external_origin_evidence_truncated

@@ -111,7 +111,7 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b"indicator-dimension-filter", report[2])
         self.assertIn(b"Cobertura da avalia", report[2])
         self.assertIn(b'data-locale="pt"', report[2])
-        self.assertIn(b'/assets/i18n.js?v=9', report[2])
+        self.assertIn(b'/assets/i18n.js?v=10', report[2])
         self.assertEqual(200, methodology[0])
         self.assertIn(b"methodology-view", methodology[2])
         self.assertEqual(200, catalog[0])

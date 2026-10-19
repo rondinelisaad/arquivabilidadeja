@@ -150,14 +150,14 @@ class BrowserDerivationTests(unittest.TestCase):
             http_observation(),
             browser_observation(
                 schema_version="1.2",
-                request_count=8,
+                request_count=9,
                 internal_request_count=4,
-                external_request_count=4,
+                external_request_count=5,
                 api_request_count=1,
                 external_api_request_count=1,
-                external_origin_count=2,
+                external_origin_count=3,
                 external_script_count=2,
-                external_image_count=1,
+                external_image_count=2,
                 external_origin_evidence=(
                     {
                         "origin": "https://cdn.example.net",
@@ -181,13 +181,25 @@ class BrowserDerivationTests(unittest.TestCase):
                         "frame_count": 0,
                         "other_count": 0,
                     },
+                    {
+                        "origin": "https://images.example.net",
+                        "request_count": 1,
+                        "api_count": 0,
+                        "script_count": 0,
+                        "stylesheet_count": 0,
+                        "image_count": 1,
+                        "font_count": 0,
+                        "frame_count": 0,
+                        "other_count": 0,
+                    },
                 ),
             ),
         )
 
         evidence = {item.indicator_id: item for item in derived.evidence}
         self.assertEqual("1.2.0", evidence["C01"].method_version)
-        self.assertEqual(2, len(evidence["C01"].data["external_origin_evidence"]))
+        self.assertEqual(3, len(evidence["C01"].data["external_origin_evidence"]))
+        self.assertEqual(2, len(evidence["C04"].data["external_origin_evidence"]))
         self.assertEqual(
             ["https://api.example.net:8443"],
             [item["origin"] for item in evidence["C05"].data["external_origin_evidence"]],
