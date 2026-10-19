@@ -120,6 +120,12 @@ class BrowserContractTests(unittest.TestCase):
                 internal_request_count=2,
                 external_request_count=1,
             )
+        with self.assertRaisesRegex(BrowserContractError, "dependency counts"):
+            aggregate(
+                dependency_graph_observed=True,
+                external_origin_count=1,
+                external_script_count=1,
+            )
         with self.assertRaisesRegex(BrowserContractError, "transfer budget"):
             aggregate(transfer_bytes=5000).validate_against(
                 BrowserBudgets(max_total_transfer_bytes=4096)

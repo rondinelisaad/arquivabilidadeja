@@ -361,10 +361,10 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual("completed", report.state)
         self.assertEqual("completed", report.progress.phase)
         self.assertEqual(
-            ["C01", "C05", "D01", "D07", "O05", "R06"],
+            ["C01", "C04", "C05", "D01", "D07", "O05", "R06"],
             [item.indicator_id for item in report.indicator_results],
         )
-        self.assertEqual(6, len(report.evidence))
+        self.assertEqual(7, len(report.evidence))
         self.assertTrue(all(item.probe_ids for item in report.indicator_results))
         self.assertTrue(all(item.tool_versions for item in report.indicator_results))
         self.assertTrue(all(item.sources for item in report.evidence))
@@ -402,7 +402,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
 
         self.assertEqual("1.2", report.report_schema_version)
         self.assertEqual(
-            "b33aed8c4390eaa81579005a035a12ddc69d9edc63db0484e9ba194f28c4b15f",
+            "c2c728ad8f88910228d1d28b12231109ffe182fbad1a8c53b51d7afcda9312f1",
             hashlib.sha256(canonical).hexdigest(),
         )
 

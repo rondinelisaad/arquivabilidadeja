@@ -18,7 +18,7 @@ from archivability.methodology.models import (
     ResultState,
 )
 
-_INDICATORS = ("D07", "C01", "C05", "O05")
+_INDICATORS = ("D07", "C01", "C04", "C05", "O05")
 
 
 class BrowserDerivationError(EvidenceValidationError):
@@ -76,6 +76,16 @@ def derive_browser_indicators(
                 if external_request_share > 0.25
                 else ResultState.PASS
             ),
+            "C04": (
+                ResultState.UNKNOWN
+                if (
+                    browser_observation.payload_schema_version == "1.0"
+                    or not aggregate.dependency_graph_observed
+                )
+                else ResultState.WARNING
+                if _active_external_count(aggregate) > 0
+                else ResultState.PASS
+            ),
             "C05": _external_api_state(
                 aggregate,
                 external_api_share=external_api_share,
@@ -102,6 +112,23 @@ def derive_browser_indicators(
             "internal_request_count": aggregate.internal_request_count,
             "external_request_count": aggregate.external_request_count,
             "external_request_share": round(external_request_share, 6),
+            "external_origin_count": aggregate.external_origin_count,
+        },
+        "C04": {
+            "dependency_graph_observed": aggregate.dependency_graph_observed,
+            "dependency_edges": {
+                "external_script": aggregate.external_script_count,
+                "external_stylesheet": aggregate.external_stylesheet_count,
+                "external_image": aggregate.external_image_count,
+                "external_font": aggregate.external_font_count,
+                "external_api": aggregate.external_api_request_count,
+                "external_frame": aggregate.external_frame_count,
+                "external_other": aggregate.external_other_count,
+            },
+            "external_origin_count": aggregate.external_origin_count,
+            "discovery_sources": ["browser_requests"],
+            "resource_types": "fixed_browser_resource_type_v1",
+            "interpretation": "external_presence_is_not_automatic_failure",
         },
         "C05": {
             "api_request_count": aggregate.api_request_count,
@@ -152,7 +179,7 @@ def validate_browser_render_observation(
 ) -> tuple[BrowserBudgets, BrowserProfile, BrowserRenderAggregate]:
     if (
         observation.kind != "browser_render"
-        or observation.payload_schema_version != "1.0"
+        or observation.payload_schema_version not in {"1.0", "1.1"}
         or observation.error_code is not None
         or set(observation.payload) != {"budgets", "profile", "isolation", "aggregate"}
     ):
@@ -166,6 +193,18 @@ def validate_browser_render_observation(
     except (BrowserContractError, TypeError) as exc:
         raise BrowserDerivationError("browser observation payload failed validation") from exc
     return budgets, profile, aggregate
+
+
+def _active_external_count(aggregate: BrowserRenderAggregate) -> int:
+    return sum(
+        (
+            aggregate.external_script_count,
+            aggregate.external_stylesheet_count,
+            aggregate.external_font_count,
+            aggregate.external_api_request_count,
+            aggregate.external_frame_count,
+        )
+    )
 
 
 def _rendered_gain_state(
@@ -243,13 +282,19 @@ def _evidence(
     confidence: float,
 ) -> Evidence:
     return Evidence.create(
-        evidence_id=f"browser-{indicator_id.lower()}-v1-0-0-{observation.content_hash}",
+        evidence_id=(
+            f"browser-{indicator_id.lower()}-v"
+            f"{'1-1-0' if observation.payload_schema_version == '1.1' else '1-0-0'}-"
+            f"{observation.content_hash}"
+        ),
         analysis_id=observation.analysis_id,
         indicator_id=indicator_id,
         kind="browser_indicator_measurement",
         subject_uri=observation.subject_uri,
         method_id=f"browser-{indicator_id.lower()}-derivation",
-        method_version="1.0.0",
+        method_version=(
+            "1.1.0" if observation.payload_schema_version == "1.1" else "1.0.0"
+        ),
         created_at=observation.observed_at,
         confidence=confidence,
         observations=(observation,),

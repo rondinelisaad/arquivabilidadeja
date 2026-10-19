@@ -67,6 +67,16 @@ function scope(url, origin) {
   }
 }
 
+function externalDependencyType(resourceType) {
+  if (["xhr", "fetch"].includes(resourceType)) return "api";
+  if (resourceType === "script") return "script";
+  if (resourceType === "stylesheet") return "stylesheet";
+  if (resourceType === "image") return "image";
+  if (resourceType === "font") return "font";
+  if (resourceType === "document") return "frame";
+  return "other";
+}
+
 async function configurePage(page, targetOrigin, budgets, stats) {
   page.on("console", () => {
     stats.consoleEvents = Math.min(stats.consoleEvents + 1, budgets.max_console_events);
@@ -93,7 +103,11 @@ async function configurePage(page, targetOrigin, budgets, stats) {
     }
     stats.requestCount += 1;
     if (scope(request.url(), targetOrigin) === "internal") stats.internalRequests += 1;
-    else stats.externalRequests += 1;
+    else {
+      stats.externalRequests += 1;
+      try { stats.externalOrigins.add(new URL(request.url()).origin); } catch { /* validated below */ }
+      stats.externalTypes[externalDependencyType(request.resourceType())] += 1;
+    }
     if (["xhr", "fetch"].includes(request.resourceType())) {
       stats.apiRequests += 1;
       if (scope(request.url(), targetOrigin) === "external") stats.externalApiRequests += 1;
@@ -150,6 +164,8 @@ async function render(request) {
   const stats = {
     requestCount: 0, internalRequests: 0, externalRequests: 0, apiRequests: 0,
     externalApiRequests: 0, failedRequests: 0, blockedRequests: 0,
+    externalOrigins: new Set(),
+    externalTypes: { api: 0, script: 0, stylesheet: 0, image: 0, font: 0, frame: 0, other: 0 },
     transferBytes: 0, consoleEvents: 0,
     termination: "complete",
   };
@@ -185,6 +201,14 @@ async function render(request) {
         external_api_request_count: stats.externalApiRequests,
         failed_request_count: Math.min(stats.failedRequests, stats.requestCount),
         blocked_request_count: Math.min(stats.blockedRequests, stats.requestCount),
+        external_origin_count: stats.externalOrigins.size,
+        external_script_count: stats.externalTypes.script,
+        external_stylesheet_count: stats.externalTypes.stylesheet,
+        external_image_count: stats.externalTypes.image,
+        external_font_count: stats.externalTypes.font,
+        external_frame_count: stats.externalTypes.frame,
+        external_other_count: stats.externalTypes.other,
+        dependency_graph_observed: true,
         transfer_bytes: stats.transferBytes,
         raw_dom_bytes: Math.min(rawBytes.length, request.budgets.max_dom_bytes),
         rendered_dom_bytes: Math.min(renderedBytes.length, request.budgets.max_dom_bytes),

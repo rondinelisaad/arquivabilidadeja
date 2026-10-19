@@ -60,6 +60,7 @@ def browser_observation(**changes: object) -> Observation:
         "console_event_count": 0,
         "elapsed_milliseconds": 1000,
         "termination_reason": "complete",
+        "dependency_graph_observed": True,
     }
     aggregate.update(changes)
     return Observation.create(
@@ -72,7 +73,7 @@ def browser_observation(**changes: object) -> Observation:
         probe_id="browser-render",
         tool_name="chromium",
         tool_version="140.0.1",
-        payload_schema_version="1.0",
+        payload_schema_version="1.1",
         payload={
             "budgets": BrowserBudgets().to_dict(),
             "profile": BrowserProfile().to_dict(),
@@ -102,6 +103,7 @@ class BrowserDerivationTests(unittest.TestCase):
         states = {item.indicator_id: item.state for item in derived.indicator_results}
         self.assertEqual(ResultState.PASS, states["D07"])
         self.assertEqual(ResultState.PASS, states["C01"])
+        self.assertEqual(ResultState.PASS, states["C04"])
         self.assertEqual(ResultState.NOT_APPLICABLE, states["C05"])
         self.assertEqual(ResultState.PASS, states["O05"])
 
@@ -120,6 +122,10 @@ class BrowserDerivationTests(unittest.TestCase):
                 external_request_count=7,
                 api_request_count=4,
                 external_api_request_count=3,
+                external_origin_count=3,
+                external_script_count=2,
+                external_stylesheet_count=1,
+                external_other_count=1,
                 raw_dom_bytes=100,
                 rendered_dom_bytes=1000,
             ),
@@ -128,6 +134,7 @@ class BrowserDerivationTests(unittest.TestCase):
         states = {item.indicator_id: item.state for item in derived.indicator_results}
         self.assertEqual(ResultState.FAIL, states["D07"])
         self.assertEqual(ResultState.WARNING, states["C01"])
+        self.assertEqual(ResultState.WARNING, states["C04"])
         self.assertEqual(ResultState.FAIL, states["C05"])
         self.assertEqual(ResultState.FAIL, states["O05"])
         self.assertTrue(

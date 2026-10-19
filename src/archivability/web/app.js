@@ -393,9 +393,18 @@
     if (!run) return;
     const summary = run.summary || {};
     const container = $("#dependency-content");
+    const categoryEdges = [
+      ["Scripts externos", summary.external_script_count ?? 0],
+      ["CSS externo", summary.external_stylesheet_count ?? 0],
+      ["Imagens externas", summary.external_image_count ?? 0],
+      ["Fontes externas", summary.external_font_count ?? 0],
+      ["APIs externas", summary.external_api_request_count ?? 0],
+      ["Frames externos", summary.external_frame_count ?? 0],
+      ["Outros externos", summary.external_other_count ?? 0],
+    ].filter(([, count]) => count > 0);
     container.replaceChildren(
-      findingCard("Requisições", String(summary.request_count ?? "—"), `${summary.external_request_count ?? 0} externas; ${summary.failed_request_count ?? 0} falharam.`),
-      findingCard("APIs", String(summary.api_request_count ?? "—"), `${summary.external_api_request_count ?? 0} APIs externas observadas.`),
+      findingCard("Site → origens externas", String(summary.external_origin_count ?? 0), `${summary.external_request_count ?? 0} requisições externas; nomes e URLs não são persistidos.`),
+      ...categoryEdges.map(([label, count]) => findingCard(`Site → ${label}`, String(count), "Aresta agregada por tipo; presença externa não implica falha.")),
       findingCard("URLs dinâmicas", String(summary.additional_url_count ?? "—"), "URLs adicionais após renderização, sem persistir endereços brutos."),
     );
   };

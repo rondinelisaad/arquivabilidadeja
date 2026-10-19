@@ -143,6 +143,7 @@ class BrowserExecutionServiceTests(unittest.TestCase):
         self.assertEqual(first.observation, second.observation)
         self.assertEqual(1, renderer.calls)
         self.assertEqual("browser_render", first.observation.kind)
+        self.assertEqual("1.1", first.observation.payload_schema_version)
         self.assertEqual("probe-br-sp-browser", first.observation.probe_id)
         self.assertEqual("BR", first.observation.probe_country)
         self.assertEqual("sao-paulo", first.observation.probe_region)

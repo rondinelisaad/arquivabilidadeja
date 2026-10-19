@@ -237,6 +237,14 @@ class BrowserRenderAggregate:
     console_event_count: int
     elapsed_milliseconds: int
     termination_reason: str
+    external_origin_count: int = 0
+    external_script_count: int = 0
+    external_stylesheet_count: int = 0
+    external_image_count: int = 0
+    external_font_count: int = 0
+    external_frame_count: int = 0
+    external_other_count: int = 0
+    dependency_graph_observed: bool = False
 
     def __post_init__(self) -> None:
         for field in (
@@ -263,6 +271,13 @@ class BrowserRenderAggregate:
             "rendered_dom_bytes",
             "console_event_count",
             "elapsed_milliseconds",
+            "external_origin_count",
+            "external_script_count",
+            "external_stylesheet_count",
+            "external_image_count",
+            "external_font_count",
+            "external_frame_count",
+            "external_other_count",
         ):
             _integer(getattr(self, field), field, 0, 1_000_000_000)
         if self.additional_url_count > self.rendered_url_count:
@@ -282,6 +297,26 @@ class BrowserRenderAggregate:
             self.api_request_count, self.external_request_count
         ):
             raise BrowserContractError("external API request count is inconsistent")
+        categorized_external = sum(
+            (
+                self.external_api_request_count,
+                self.external_script_count,
+                self.external_stylesheet_count,
+                self.external_image_count,
+                self.external_font_count,
+                self.external_frame_count,
+                self.external_other_count,
+            )
+        )
+        if not isinstance(self.dependency_graph_observed, bool):
+            raise BrowserContractError("dependency graph observation flag is invalid")
+        if (
+            self.dependency_graph_observed
+            and categorized_external != self.external_request_count
+        ):
+            raise BrowserContractError("external dependency counts are inconsistent")
+        if self.external_origin_count > self.external_request_count:
+            raise BrowserContractError("external origin count is inconsistent")
         if self.termination_reason not in {
             "complete",
             "request_budget",
@@ -327,6 +362,14 @@ class BrowserRenderAggregate:
             "console_event_count": self.console_event_count,
             "elapsed_milliseconds": self.elapsed_milliseconds,
             "termination_reason": self.termination_reason,
+            "external_origin_count": self.external_origin_count,
+            "external_script_count": self.external_script_count,
+            "external_stylesheet_count": self.external_stylesheet_count,
+            "external_image_count": self.external_image_count,
+            "external_font_count": self.external_font_count,
+            "external_frame_count": self.external_frame_count,
+            "external_other_count": self.external_other_count,
+            "dependency_graph_observed": self.dependency_graph_observed,
         }
 
 
