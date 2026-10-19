@@ -29,6 +29,10 @@ button, .quiet-button, .danger-button { min-height: 44px; }
 .brand-mark { display: grid; place-items: center; width: 2.35rem; aspect-ratio: 1; border: 1px solid var(--ink); border-radius: 50%; font: 700 .75rem/1 Inter, sans-serif; letter-spacing: .08em; }
 .header-nav { display: flex; align-items: center; gap: 1rem; }
 .header-nav > a { font-size: .85rem; font-weight: 750; text-underline-offset: .25rem; }
+.language-control { display: inline-flex; padding: .18rem; border: 1px solid var(--line); border-radius: 999px; background: var(--white); }
+.language-control button { min-height: 30px; min-width: 38px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .72rem; font-weight: 850; cursor: pointer; }
+.language-control button.active { background: var(--ink); color: white; }
+.language-control button:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 .method-badge, .state-chip { border: 1px solid var(--line); border-radius: 999px; padding: .45rem .75rem; color: var(--muted); font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 main { max-width: 1240px; margin: 0 auto; padding: 0 2rem 5rem; }
 .hero { min-height: 620px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .65fr); gap: 5rem; align-items: center; padding: 5rem 0; }
@@ -50,7 +54,7 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.7rem); }
 .process-title { margin: 0 0 1.4rem; font-weight: 800; }
 .process-card ol { list-style: none; padding: 0; margin: 0; }
 .process-card li { display: flex; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); font-family: Georgia, serif; font-size: 1.15rem; }
-.process-card li span { color: var(--teal); font: 700 .75rem Inter, sans-serif; }
+.process-card li .process-number { color: var(--teal); font: 700 .75rem Inter, sans-serif; }
 .privacy-note { margin: 1.25rem 0 0; color: var(--muted); font-size: .82rem; line-height: 1.55; }
 .section-shell, .progress-panel { margin: 2rem 0; padding: 2rem; border: 1px solid var(--line); background: rgb(255 253 247 / 72%); }
 .section-heading, .report-header { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }

@@ -6,89 +6,94 @@
     <meta name="description" content="Avaliação transparente e reproduzível da arquivabilidade de websites.">
     <title>Arquivabilidade Já</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/assets/app.css?v=3">
-    <script src="/assets/app.js?v=3" defer></script>
+    <link rel="stylesheet" href="/assets/app.css?v=6">
+    <script src="/assets/i18n.js?v=6" defer></script>
+    <script src="/assets/app.js?v=6" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+    <a class="skip-link" href="#conteudo" data-i18n="common.skip">Pular para o conteúdo</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="Arquivabilidade Já — início">
+      <a class="brand" href="/" aria-label="Arquivabilidade Já — início" data-i18n-aria-label="brand.home">
         <span class="brand-mark" aria-hidden="true">AJ</span>
         <span>Arquivabilidade Já</span>
       </a>
-      <nav class="header-nav" aria-label="Navegação principal">
-        <a href="/methodology">Metodologia</a>
-        <span class="method-badge">Versão 0.1.0</span>
+      <nav class="header-nav" aria-label="Navegação principal" data-i18n-aria-label="nav.main">
+        <a href="/methodology" data-i18n="nav.methodology">Metodologia</a>
+        <span class="method-badge" data-i18n="method.version">Versão 0.1.0</span>
+        <div class="language-control" role="group" aria-label="Idioma da interface">
+          <button type="button" data-locale="pt" aria-pressed="true">PT</button>
+          <button type="button" data-locale="en" aria-pressed="false">EN</button>
+        </div>
       </nav>
     </header>
 
     <main id="conteudo">
       <section id="home-view" class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Diagnóstico aberto para preservação da Web</p>
-          <h1 id="hero-title">Seu site está pronto para ser arquivado?</h1>
-          <p class="lede">Informe uma URL. Nós observamos acesso, descoberta, crawl e renderização sem armazenar o conteúdo das páginas.</p>
+          <p class="eyebrow" data-i18n="home.eyebrow">Diagnóstico aberto para preservação da Web</p>
+          <h1 id="hero-title" data-i18n="home.title">Seu site está pronto para ser arquivado?</h1>
+          <p class="lede" data-i18n="home.lede">Informe uma URL. Nós observamos acesso, descoberta, crawl e renderização sem armazenar o conteúdo das páginas.</p>
           <form id="analysis-form" class="analysis-form" novalidate>
-            <label for="subject-uri">Endereço do website</label>
+            <label for="subject-uri" data-i18n="home.urlLabel">Endereço do website</label>
             <div class="url-row">
-              <input id="subject-uri" name="subject_uri" type="url" inputmode="url" autocomplete="url" maxlength="2048" placeholder="https://exemplo.org" required>
-              <button type="submit">Avaliar agora</button>
+              <input id="subject-uri" name="subject_uri" type="url" inputmode="url" autocomplete="url" maxlength="2048" placeholder="https://exemplo.org" data-i18n-placeholder="home.placeholder" required>
+              <button type="submit" data-i18n="home.submit">Avaliar agora</button>
             </div>
-            <p id="form-help" class="form-help">Use uma URL pública com <strong>http://</strong> ou <strong>https://</strong>.</p>
+            <p id="form-help" class="form-help" data-i18n="home.help">Use uma URL pública com http:// ou https://.</p>
             <p id="form-status" class="status-message" role="status" aria-live="polite"></p>
           </form>
         </div>
         <aside class="process-card" aria-label="Etapas da avaliação">
-          <p class="process-title">Uma leitura em quatro movimentos</p>
+          <p class="process-title" data-i18n="home.processTitle">Uma leitura em quatro movimentos</p>
           <ol>
-            <li><span>01</span> Metadados HTTP</li>
-            <li><span>02</span> Crawl limitado</li>
-            <li><span>03</span> Browser isolado</li>
-            <li><span>04</span> Evidências e score</li>
+            <li><span class="process-number">01</span><span data-i18n="home.step1">Metadados HTTP</span></li>
+            <li><span class="process-number">02</span><span data-i18n="home.step2">Crawl limitado</span></li>
+            <li><span class="process-number">03</span><span data-i18n="home.step3">Browser isolado</span></li>
+            <li><span class="process-number">04</span><span data-i18n="home.step4">Evidências e score</span></li>
           </ol>
-          <p class="privacy-note">Sem screenshots, DOM bruto, cookies ou corpos de resposta no relatório.</p>
+          <p class="privacy-note" data-i18n="home.privacy">Sem screenshots, DOM bruto, cookies ou corpos de resposta no relatório.</p>
         </aside>
       </section>
 
       <section id="history-section" class="section-shell" aria-labelledby="history-title">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Seu acervo de avaliações</p>
-            <h2 id="history-title">Histórico recente</h2>
+            <p class="eyebrow" data-i18n="history.eyebrow">Seu acervo de avaliações</p>
+            <h2 id="history-title" data-i18n="history.title">Histórico recente</h2>
           </div>
-          <button id="refresh-history" class="quiet-button" type="button">Atualizar</button>
+          <button id="refresh-history" class="quiet-button" type="button" data-i18n="history.refresh">Atualizar</button>
         </div>
         <div id="history-list" class="history-grid" aria-live="polite"></div>
       </section>
 
       <section id="report-view" class="report-view" hidden aria-labelledby="report-title">
-        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><span>Avaliação</span></nav>
+        <nav class="breadcrumb" aria-label="Navegação estrutural" data-i18n-aria-label="nav.structural"><a href="/" data-i18n="common.home">Início</a><span>/</span><span data-i18n="report.breadcrumb">Avaliação</span></nav>
         <div class="report-header">
           <div>
             <p id="report-origin" class="eyebrow"></p>
-            <h1 id="report-title">Avaliação em andamento</h1>
+            <h1 id="report-title" data-i18n="report.pending">Avaliação em andamento</h1>
             <p id="report-updated" class="muted"></p>
           </div>
           <div class="report-actions">
-            <a class="quiet-button" href="/">Nova avaliação</a>
-            <a id="export-link" class="quiet-button" href="#">Baixar JSON</a>
-            <button id="compare-button" class="quiet-button" type="button">Comparar anterior</button>
-            <button id="cancel-button" class="danger-button" type="button">Cancelar avaliação</button>
+            <a class="quiet-button" href="/" data-i18n="report.new">Nova avaliação</a>
+            <a id="export-link" class="quiet-button" href="#" data-i18n="report.export">Baixar JSON</a>
+            <button id="compare-button" class="quiet-button" type="button" data-i18n="report.compare">Comparar anterior</button>
+            <button id="cancel-button" class="danger-button" type="button" data-i18n="report.cancel">Cancelar avaliação</button>
           </div>
         </div>
 
-        <nav id="report-navigation" class="report-navigation" aria-label="Seções do relatório">
-          <a href="#assessment-section">Resumo</a>
-          <a href="#findings-section">Indicadores <span id="nav-indicator-count" class="nav-count">0</span></a>
-          <a href="#recommendations-section">Recomendações <span id="nav-recommendation-count" class="nav-count">0</span></a>
-          <a href="#dependency-section">Dependências</a>
-          <a href="#technical-section">Execução</a>
+        <nav id="report-navigation" class="report-navigation" aria-label="Seções do relatório" data-i18n-aria-label="report.nav">
+          <a href="#assessment-section"><span data-i18n="report.summary">Resumo</span></a>
+          <a href="#findings-section"><span data-i18n="report.indicators">Indicadores</span> <span id="nav-indicator-count" class="nav-count">0</span></a>
+          <a href="#recommendations-section"><span data-i18n="report.recommendations">Recomendações</span> <span id="nav-recommendation-count" class="nav-count">0</span></a>
+          <a href="#dependency-section"><span data-i18n="report.dependencies">Dependências</span></a>
+          <a href="#technical-section"><span data-i18n="report.execution">Execução</span></a>
         </nav>
 
         <section class="progress-panel" aria-labelledby="progress-title">
           <div class="section-heading compact">
-            <h2 id="progress-title">Progresso</h2>
-            <span id="progress-label" class="state-chip">Preparando</span>
+            <h2 id="progress-title" data-i18n="progress.title">Progresso</h2>
+            <span id="progress-label" class="state-chip" data-i18n="progress.preparing">Preparando</span>
           </div>
           <div class="stage-track" aria-hidden="true"><span id="stage-progress"></span></div>
           <ol id="stage-list" class="stage-list"></ol>
@@ -96,110 +101,110 @@
 
         <section id="assessment-section" class="section-shell" hidden aria-labelledby="assessment-title">
           <div class="section-heading">
-            <div><p class="eyebrow">Resumo</p><h2 id="assessment-title">Resultado da avaliação</h2></div>
+            <div><p class="eyebrow" data-i18n="assessment.eyebrow">Resumo</p><h2 id="assessment-title" data-i18n="assessment.title">Resultado da avaliação</h2></div>
             <span id="overall-state" class="state-chip"></span>
           </div>
           <div class="assessment-overview">
             <div class="coverage-summary">
               <span id="coverage-value" class="coverage-value">—</span>
               <div>
-                <strong>Cobertura da avaliação</strong>
-                <p id="coverage-detail" class="muted">Calculando indicadores avaliados…</p>
+                <strong data-i18n="assessment.coverage">Cobertura da avaliação</strong>
+                <p id="coverage-detail" class="muted" data-i18n="assessment.calculating">Calculando indicadores avaliados…</p>
               </div>
             </div>
-            <p class="coverage-explanation">Cobertura indica quanto foi possível observar nesta execução. Não é uma nota única de arquivabilidade.</p>
+            <p class="coverage-explanation" data-i18n="assessment.explanation">Cobertura indica quanto foi possível observar nesta execução. Não é uma nota única de arquivabilidade.</p>
           </div>
-          <h3 class="subsection-title">Perfil por dimensão</h3>
+          <h3 class="subsection-title" data-i18n="assessment.profile">Perfil por dimensão</h3>
           <div id="dimension-grid" class="dimension-grid"></div>
         </section>
 
         <section id="critical-section" class="section-shell" hidden aria-labelledby="critical-title">
-          <div class="section-heading"><div><p class="eyebrow">Prioridade de revisão</p><h2 id="critical-title">Achados críticos</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="critical.eyebrow">Prioridade de revisão</p><h2 id="critical-title" data-i18n="critical.title">Achados críticos</h2></div></div>
           <div id="critical-findings" class="finding-grid"></div>
         </section>
 
         <section id="blocking-section" class="section-shell" hidden aria-labelledby="blocking-title">
-          <div class="section-heading"><div><p class="eyebrow">Condições declarativas</p><h2 id="blocking-title">Condições impeditivas</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="blocking.eyebrow">Condições declarativas</p><h2 id="blocking-title" data-i18n="blocking.title">Condições impeditivas</h2></div></div>
           <div id="blocking-conditions"></div>
         </section>
 
         <section id="legacy-section" class="section-shell" hidden aria-labelledby="legacy-title">
-          <div class="section-heading"><div><p class="eyebrow">Comparabilidade histórica</p><h2 id="legacy-title">Comparação CLEAR+</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="legacy.eyebrow">Comparabilidade histórica</p><h2 id="legacy-title" data-i18n="legacy.title">Comparação CLEAR+</h2></div></div>
           <div id="legacy-content"></div>
         </section>
 
         <section id="findings-section" class="section-shell" hidden aria-labelledby="findings-title">
-          <div class="section-heading"><div><p class="eyebrow">Evidências derivadas</p><h2 id="findings-title">Indicadores</h2></div><span id="indicator-result-count" class="muted"></span></div>
-          <div class="indicator-toolbar" aria-label="Filtros dos indicadores">
-            <div class="filter-group" role="group" aria-label="Filtrar por resultado">
-              <button class="filter-button active" type="button" data-indicator-filter="all" aria-pressed="true">Todos <span id="filter-all-count">0</span></button>
-              <button class="filter-button" type="button" data-indicator-filter="attention" aria-pressed="false">Só problemas <span id="filter-attention-count">0</span></button>
-              <button class="filter-button" type="button" data-indicator-filter="pass" aria-pressed="false">Atendem <span id="filter-pass-count">0</span></button>
-              <button class="filter-button" type="button" data-indicator-filter="unknown" aria-pressed="false">Inconclusivos <span id="filter-unknown-count">0</span></button>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="indicators.eyebrow">Evidências derivadas</p><h2 id="findings-title" data-i18n="report.indicators">Indicadores</h2></div><span id="indicator-result-count" class="muted"></span></div>
+          <div class="indicator-toolbar" aria-label="Filtros dos indicadores" data-i18n-aria-label="indicators.filters">
+            <div class="filter-group" role="group" aria-label="Filtrar por resultado" data-i18n-aria-label="indicators.filterResult">
+              <button class="filter-button active" type="button" data-indicator-filter="all" aria-pressed="true"><span data-i18n="indicators.all">Todos</span> <span id="filter-all-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="attention" aria-pressed="false"><span data-i18n="indicators.issues">Só problemas</span> <span id="filter-attention-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="pass" aria-pressed="false"><span data-i18n="indicators.pass">Atendem</span> <span id="filter-pass-count">0</span></button>
+              <button class="filter-button" type="button" data-indicator-filter="unknown" aria-pressed="false"><span data-i18n="indicators.unknown">Inconclusivos</span> <span id="filter-unknown-count">0</span></button>
             </div>
-            <label class="dimension-filter">Dimensão
-              <select id="indicator-dimension-filter"><option value="all">Todas</option></select>
+            <label class="dimension-filter"><span data-i18n="indicators.dimension">Dimensão</span>
+              <select id="indicator-dimension-filter"><option value="all" data-i18n="indicators.allDimensions">Todas</option></select>
             </label>
           </div>
-          <p id="indicator-empty" class="empty-state" hidden>Nenhum indicador corresponde aos filtros selecionados.</p>
+          <p id="indicator-empty" class="empty-state" hidden data-i18n="indicators.empty">Nenhum indicador corresponde aos filtros selecionados.</p>
           <div id="indicator-list" class="indicator-list" aria-live="polite"></div>
         </section>
 
         <section id="network-section" class="section-shell" hidden aria-labelledby="network-title">
-          <div class="section-heading"><div><p class="eyebrow">Sem penalização geográfica automática</p><h2 id="network-title">Contexto de rede e probes</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="network.eyebrow">Sem penalização geográfica automática</p><h2 id="network-title" data-i18n="network.title">Contexto de rede e probes</h2></div></div>
           <div id="network-content" class="finding-grid"></div>
         </section>
 
         <section id="dependency-section" class="section-shell" hidden aria-labelledby="dependency-title">
-          <div class="section-heading"><div><p class="eyebrow">Visão agregada</p><h2 id="dependency-title">Dependências observadas</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="dependencies.eyebrow">Visão agregada</p><h2 id="dependency-title" data-i18n="dependencies.title">Dependências observadas</h2></div></div>
           <div id="dependency-content" class="finding-grid"></div>
         </section>
 
         <section id="technical-section" class="section-shell" hidden aria-labelledby="technical-title">
-          <div class="section-heading"><div><p class="eyebrow">Execução reproduzível</p><h2 id="technical-title">Detalhes técnicos</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="technical.eyebrow">Execução reproduzível</p><h2 id="technical-title" data-i18n="technical.title">Detalhes técnicos</h2></div></div>
           <div id="technical-content" class="finding-grid"></div>
         </section>
 
         <section id="recommendations-section" class="section-shell" hidden aria-labelledby="recommendations-title">
-          <div class="section-heading"><div><p class="eyebrow">Ações orientadas por evidência</p><h2 id="recommendations-title">Recomendações</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="recommendations.eyebrow">Ações orientadas por evidência</p><h2 id="recommendations-title" data-i18n="recommendations.title">Recomendações</h2></div></div>
           <div id="recommendations-content" class="recommendation-list"></div>
         </section>
 
         <section id="comparison-section" class="section-shell" hidden aria-labelledby="comparison-title">
-          <div class="section-heading"><div><p class="eyebrow">Leitura longitudinal</p><h2 id="comparison-title">Comparação com a execução anterior</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="comparison.eyebrow">Leitura longitudinal</p><h2 id="comparison-title" data-i18n="comparison.title">Comparação com a execução anterior</h2></div></div>
           <div id="comparison-content"></div>
         </section>
 
-        <aside id="limitations" class="limitations" hidden><h2>Como interpretar</h2><ul></ul></aside>
-        <aside class="methodology-callout"><h2>Metodologia</h2><p>Consulte definições, fórmulas, classificações, gates e limitações da versão usada nesta análise.</p><a class="quiet-button" href="/methodology">Abrir metodologia</a></aside>
+        <aside id="limitations" class="limitations" hidden><h2 data-i18n="limitations.title">Como interpretar</h2><ul></ul></aside>
+        <aside class="methodology-callout"><h2 data-i18n="methodology.calloutTitle">Metodologia</h2><p data-i18n="methodology.calloutText">Consulte definições, fórmulas, classificações, gates e limitações da versão usada nesta análise.</p><a class="quiet-button" href="/methodology" data-i18n="methodology.open">Abrir metodologia</a></aside>
         <p id="report-status" class="status-message" role="status" aria-live="polite"></p>
       </section>
 
       <section id="methodology-view" class="methodology-view" hidden aria-labelledby="methodology-title">
-        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><span>Metodologia</span></nav>
+        <nav class="breadcrumb" aria-label="Navegação estrutural" data-i18n-aria-label="nav.structural"><a href="/" data-i18n="common.home">Início</a><span>/</span><span data-i18n="methodology.breadcrumb">Metodologia</span></nav>
         <header class="methodology-header">
-          <p class="eyebrow">Método aberto e versionado</p>
-          <h1 id="methodology-title">Como avaliamos a arquivabilidade</h1>
-          <p id="methodology-summary" class="lede">Carregando a especificação metodológica…</p>
+          <p class="eyebrow" data-i18n="methodology.eyebrow">Método aberto e versionado</p>
+          <h1 id="methodology-title" data-i18n="methodology.title">Como avaliamos a arquivabilidade</h1>
+          <p id="methodology-summary" class="lede" data-i18n="methodology.loading">Carregando a especificação metodológica…</p>
           <div id="methodology-meta" class="methodology-meta"></div>
         </header>
         <section class="section-shell" aria-labelledby="dimensions-title">
-          <div class="section-heading"><div><p class="eyebrow">Perfil, não nota única</p><h2 id="dimensions-title">Dimensões avaliadas</h2></div></div>
+          <div class="section-heading"><div><p class="eyebrow" data-i18n="methodology.dimensionsEyebrow">Perfil, não nota única</p><h2 id="dimensions-title" data-i18n="methodology.dimensionsTitle">Dimensões avaliadas</h2></div></div>
           <div id="methodology-dimensions" class="dimension-grid"></div>
         </section>
         <section class="section-shell" aria-labelledby="catalog-title">
           <div class="section-heading">
-            <div><p class="eyebrow">Documentação verificável</p><h2 id="catalog-title">Catálogo de indicadores</h2></div>
-            <a class="quiet-button" href="/methodology/indicators">Ver todos</a>
+            <div><p class="eyebrow" data-i18n="methodology.catalogEyebrow">Documentação verificável</p><h2 id="catalog-title" data-i18n="methodology.catalogTitle">Catálogo de indicadores</h2></div>
+            <a class="quiet-button" href="/methodology/indicators" data-i18n="methodology.viewAll">Ver todos</a>
           </div>
           <div id="methodology-indicators" class="methodology-indicator-grid" aria-live="polite"></div>
         </section>
-        <aside class="limitations"><h2>Limitações declaradas</h2><ul id="methodology-limitations"></ul></aside>
+        <aside class="limitations"><h2 data-i18n="methodology.limitations">Limitações declaradas</h2><ul id="methodology-limitations"></ul></aside>
         <p id="methodology-status" class="status-message" role="status" aria-live="polite"></p>
       </section>
 
       <section id="indicator-view" class="methodology-view" hidden aria-labelledby="indicator-title">
-        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><a href="/methodology">Metodologia</a><span>/</span><a href="/methodology/indicators">Indicadores</a></nav>
+        <nav class="breadcrumb" aria-label="Navegação estrutural" data-i18n-aria-label="nav.structural"><a href="/" data-i18n="common.home">Início</a><span>/</span><a href="/methodology" data-i18n="methodology.breadcrumb">Metodologia</a><span>/</span><a href="/methodology/indicators" data-i18n="report.indicators">Indicadores</a></nav>
         <header class="indicator-doc-header">
           <p id="indicator-id" class="eyebrow"></p>
           <h1 id="indicator-title">Indicador</h1>
@@ -211,6 +216,6 @@
       </section>
     </main>
 
-    <footer><p>Software livre para diagnósticos transparentes. Resultados indicam evidências observadas, não garantias de preservação.</p></footer>
+    <footer><p data-i18n="footer">Software livre para diagnósticos transparentes. Resultados indicam evidências observadas, não garantias de preservação.</p></footer>
   </body>
 </html>

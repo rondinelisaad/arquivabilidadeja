@@ -65,6 +65,7 @@ class WebAsgiApp:
         resources = files("archivability.web")
         self._index = resources.joinpath("index.html").read_bytes()
         self._styles = resources.joinpath("app.css").read_bytes()
+        self._localization = resources.joinpath("i18n.js").read_bytes()
         self._script = resources.joinpath("app.js").read_bytes()
         self._favicon = resources.joinpath("favicon.svg").read_bytes()
 
@@ -87,6 +88,11 @@ class WebAsgiApp:
         if path == "/assets/app.js":
             await self._asset(
                 send, method, self._script, b"text/javascript; charset=utf-8"
+            )
+            return
+        if path == "/assets/i18n.js":
+            await self._asset(
+                send, method, self._localization, b"text/javascript; charset=utf-8"
             )
             return
         if path == "/favicon.svg":

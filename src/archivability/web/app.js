@@ -2,40 +2,19 @@
   "use strict";
 
   const $ = (selector) => document.querySelector(selector);
+  const i18n = window.ArchivabilityI18n;
+  const t = i18n.t;
+  const isPortuguese = i18n.locale === "pt";
+  const localized = (pt, en) => isPortuguese ? pt : en;
   const terminalStates = new Set(["completed", "partially_completed", "failed", "cancelled"]);
   const phaseOrder = ["collection", "browser", "assessment", "completed"];
-  const phaseLabels = {
-    requested: "Preparando",
-    collection_queued: "Coleta na fila",
-    collecting: "Coletando metadados",
-    browser_queued: "Browser na fila",
-    rendering: "Renderizando com segurança",
-    assessment_queued: "Avaliação na fila",
-    assessment_queued_degraded: "Avaliação parcial na fila",
-    assessing: "Derivando evidências",
-    completed: "Concluída",
-    partially_completed: "Concluída parcialmente",
-    failed: "Falhou",
-    cancelled: "Cancelada",
-  };
   const dimensionNames = {
-    discoverability: "Descoberta",
-    retrievability: "Recuperação",
-    standards_formats: "Padrões e formatos",
-    dependency_cohesion: "Dependências",
-    metadata_context: "Metadados",
-    operational_harvestability: "Operação de coleta",
-  };
-  const resultStateLabels = {
-    pass: "Atende",
-    warning: "Atenção",
-    fail: "Não atende",
-    unknown: "Inconclusivo",
-    not_applicable: "Não se aplica",
-    context: "Contexto",
-    assessable: "Avaliável",
-    partially_assessable: "Parcialmente avaliável",
-    not_assessable: "Não avaliável",
+    discoverability: "Discoverability",
+    retrievability: "Retrievability",
+    standards_formats: "Standards & Formats",
+    dependency_cohesion: "Dependency / Cohesion",
+    metadata_context: "Metadata & Context",
+    operational_harvestability: "Operational Harvestability",
   };
   let pendingSubmission = null;
   let indicatorCatalogPromise = null;
@@ -58,14 +37,29 @@
   };
 
   const errorMessage = (error) => {
-    if (error.status === 401) return "Sua sessão não está autenticada. Entre pelo provedor institucional e tente novamente.";
-    if (error.status === 429) return "O limite de solicitações foi atingido. Aguarde um pouco e tente novamente.";
-    if (error.code === "NOT_FOUND") return "A avaliação solicitada não foi encontrada.";
-    return "Não foi possível concluir a solicitação agora.";
+    if (error.status === 401) return t("error.auth");
+    if (error.status === 429) return t("error.rate");
+    if (error.code === "NOT_FOUND") return t("error.notFound");
+    return t("error.generic");
   };
 
-  const stateLabel = (state) => phaseLabels[state] || resultStateLabels[state] || String(state || "indisponível").replaceAll("_", " ");
-  const formatDate = (value) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
+  const stateLabel = (state) => i18n.state(state);
+  const dimensionLabel = (id) => i18n.dimension(id, dimensionNames[id] || id);
+  const taxonomyLabel = (value) => {
+    if (!isPortuguese) return value;
+    return ({
+      candidate: "candidato",
+      intrinsic: "intrínseco",
+      harvest_dependent: "dependente da coleta",
+      observation_context: "contexto de observação",
+      critical: "crítica",
+      high: "alta",
+      medium: "média",
+      low: "baixa",
+      info: "informativa",
+    })[value] || value;
+  };
+  const formatDate = (value) => value ? new Intl.DateTimeFormat(isPortuguese ? "pt-BR" : "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
   const hidePrimaryViews = () => {
     ["#home-view", "#history-section", "#report-view", "#methodology-view", "#indicator-view"].forEach((selector) => {
@@ -83,6 +77,7 @@
   };
 
   const indicatorCard = (indicator) => {
+    indicator = i18n.localizeIndicator(indicator);
     const link = document.createElement("a");
     link.className = "methodology-indicator-card";
     link.href = indicator.path;
@@ -104,13 +99,16 @@
         request("/v1/methodology"),
         request("/v1/indicators"),
       ]);
-      $("#methodology-title").textContent = methodology.title;
-      $("#methodology-summary").textContent = "A avaliação produz um perfil em seis dimensões, preserva resultados desconhecidos e explicita evidências, confiança e limitações sem reduzi-las a uma nota única.";
+      $("#methodology-title").textContent = t("methodology.title");
+      $("#methodology-summary").textContent = localized(
+        "A avaliação produz um perfil em seis dimensões, preserva resultados desconhecidos e explicita evidências, confiança e limitações sem reduzi-las a uma nota única.",
+        "The assessment produces a six-dimension profile, preserves unknown results, and exposes evidence, confidence, and limitations without reducing them to a single score.",
+      );
       appendMeta($("#methodology-meta"), [
-        `Versão ${methodology.version}`,
-        `Estado ${methodology.status}`,
-        `${methodology.indicator_count} indicadores`,
-        `Fonte ${methodology.source_sha256.slice(0, 12)}…`,
+        localized(`Versão ${methodology.version}`, `Version ${methodology.version}`),
+        localized(`Estado ${taxonomyLabel(methodology.status)}`, `Status ${methodology.status}`),
+        localized(`${methodology.indicator_count} indicadores`, `${methodology.indicator_count} indicators`),
+        localized(`Fonte ${methodology.source_sha256.slice(0, 12)}…`, `Source ${methodology.source_sha256.slice(0, 12)}…`),
       ]);
       const dimensions = $("#methodology-dimensions");
       dimensions.replaceChildren();
@@ -118,12 +116,14 @@
         const card = document.createElement("article");
         card.className = "dimension-card";
         const title = document.createElement("h3");
-        title.textContent = dimension.name;
+        title.textContent = dimensionLabel(dimension.id);
         const description = document.createElement("p");
         description.className = "muted";
-        description.textContent = dimension.description;
+        description.textContent = i18n.dimensionDescription(dimension.id, dimension.description);
         const weight = document.createElement("p");
-        weight.textContent = dimension.score_enabled ? `Peso candidato: ${dimension.weight}` : "Dimensão contextual, sem pontuação";
+        weight.textContent = dimension.score_enabled
+          ? localized(`Peso candidato: ${dimension.weight}`, `Candidate weight: ${dimension.weight}`)
+          : localized("Dimensão contextual, sem pontuação", "Contextual dimension, not scored");
         card.append(title, description, weight);
         dimensions.append(card);
       });
@@ -133,7 +133,7 @@
       limitations.replaceChildren();
       methodology.limitations.forEach((value) => {
         const item = document.createElement("li");
-        item.textContent = value;
+        item.textContent = i18n.localizeLimitation(value);
         limitations.append(item);
       });
       status.textContent = "";
@@ -168,31 +168,34 @@
     const status = $("#indicator-status");
     try {
       const payload = await request(`/v1/indicators/${encodeURIComponent(identifier)}`);
-      const indicator = payload.indicator;
+      const indicator = i18n.localizeIndicator(payload.indicator);
       $("#indicator-id").textContent = indicator.id;
       $("#indicator-title").textContent = indicator.name;
       $("#indicator-description").textContent = indicator.description;
       appendMeta($("#indicator-tags"), [
-        indicator.dimension ? `Dimensão ${dimensionNames[indicator.dimension] || indicator.dimension}` : "Contexto transversal",
-        `Classificação ${indicator.classification}`,
-        `Severidade ${indicator.severity}`,
-        `Metodologia ${payload.methodology_version}`,
+        indicator.dimension ? localized(`Dimensão ${dimensionLabel(indicator.dimension)}`, `Dimension ${dimensionLabel(indicator.dimension)}`) : t("common.crossCutting"),
+        localized(`Classificação ${taxonomyLabel(indicator.classification)}`, `Classification ${indicator.classification}`),
+        localized(`Severidade ${taxonomyLabel(indicator.severity)}`, `Severity ${indicator.severity}`),
+        localized(`Metodologia ${payload.methodology_version}`, `Methodology ${payload.methodology_version}`),
       ]);
       const documentation = $("#indicator-documentation");
       documentation.replaceChildren(
-        documentationCard("Definição", indicator.description),
-        documentationCard("Por que importa", `Este indicador documenta uma condição de ${indicator.dimension ? dimensionNames[indicator.dimension] || indicator.dimension : "contexto"} que afeta a interpretação da arquivabilidade observada.`),
-        documentationCard("Medição", indicator.measurement),
-        documentationCard("Evidências necessárias", indicator.evidence_requirements),
-        documentationCard("Classificação", `${indicator.classification}; severidade padrão ${indicator.severity}.`),
-        documentationCard("Pontuação", indicator.scoring.enabled ? `Peso ${indicator.scoring.weight}. Regra: ${indicator.scoring.rule}.` : "Indicador contextual: não compõe score."),
-        documentationCard("Limitações", indicator.limitations),
-        documentationCard("Referências", indicator.origin.references.length ? indicator.origin.references : ["Sem referência externa declarada nesta versão."]),
+        documentationCard(t("indicator.definition"), indicator.description),
+        documentationCard(t("indicator.importance"), localized(
+          `Este indicador documenta uma condição de ${indicator.dimension ? dimensionLabel(indicator.dimension) : "contexto"} que afeta a interpretação da arquivabilidade observada.`,
+          `This indicator documents a ${indicator.dimension ? dimensionLabel(indicator.dimension) : "context"} condition that affects the interpretation of observed archivability.`,
+        )),
+        documentationCard(t("indicator.measurement"), indicator.measurement),
+        documentationCard(t("indicator.evidence"), indicator.evidence_requirements),
+        documentationCard(t("indicator.classification"), localized(`${taxonomyLabel(indicator.classification)}; severidade padrão ${taxonomyLabel(indicator.severity)}.`, `${indicator.classification}; default severity ${indicator.severity}.`)),
+        documentationCard(t("indicator.scoring"), indicator.scoring.enabled ? localized(`Peso ${indicator.scoring.weight}. Regra: ${indicator.scoring.rule}.`, `Weight ${indicator.scoring.weight}. Rule: ${indicator.scoring.rule}.`) : localized("Indicador contextual: não compõe score.", "Contextual indicator: not included in the score.")),
+        documentationCard(t("indicator.limitations"), indicator.limitations),
+        documentationCard(t("indicator.references"), indicator.origin.references.length ? indicator.origin.references : [localized("Sem referência externa declarada nesta versão.", "No external reference declared in this version.")]),
       );
       status.textContent = "";
       document.title = `${indicator.id} — ${indicator.name} | Arquivabilidade Já`;
     } catch (error) {
-      status.textContent = error.code === "NOT_FOUND" ? "O indicador solicitado não foi encontrado." : errorMessage(error);
+      status.textContent = error.code === "NOT_FOUND" ? localized("O indicador solicitado não foi encontrado.", "The requested indicator was not found.") : errorMessage(error);
     }
   };
 
@@ -202,7 +205,7 @@
     if (!items.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = "Nenhuma avaliação encontrada nesta conta.";
+      empty.textContent = t("common.noHistory");
       container.append(empty);
       return;
     }
@@ -220,7 +223,7 @@
       const date = document.createElement("span");
       date.textContent = formatDate(item.finished_at || item.created_at);
       const overall = document.createElement("span");
-      overall.textContent = item.overall_state ? stateLabel(item.overall_state) : "Em processamento";
+      overall.textContent = item.overall_state ? stateLabel(item.overall_state) : localized("Em processamento", "Processing");
       meta.append(date, overall);
       link.append(label, title, meta);
       container.append(link);
@@ -229,7 +232,7 @@
 
   const loadHistory = async () => {
     const container = $("#history-list");
-    container.textContent = "Carregando histórico…";
+    container.textContent = t("common.loadingHistory");
     try {
       const history = await request("/v1/analyses");
       renderHistory(history.items || []);
@@ -245,7 +248,7 @@
     $("#stage-progress").style.width = `${Math.max(8, ((stage + 1) / 4) * 100)}%`;
     const list = $("#stage-list");
     list.replaceChildren();
-    ["Coleta HTTP", "Browser isolado", "Derivação", "Relatório"].forEach((label, index) => {
+    [t("progress.http"), t("progress.browser"), t("progress.derive"), t("progress.report")].forEach((label, index) => {
       const item = document.createElement("li");
       item.textContent = label;
       if (index <= stage) item.className = "active";
@@ -262,20 +265,23 @@
     const assessed = results.filter((result) => ["pass", "warning", "fail"].includes(result.state)).length;
     const coverage = results.length ? Math.round((assessed / results.length) * 100) : 0;
     $("#coverage-value").textContent = `${coverage}%`;
-    $("#coverage-detail").textContent = `${assessed} de ${results.length} indicadores produziram resultado avaliável.`;
+    $("#coverage-detail").textContent = localized(
+      `${assessed} de ${results.length} indicadores produziram resultado avaliável.`,
+      `${assessed} of ${results.length} indicators produced an assessable result.`,
+    );
     const grid = $("#dimension-grid");
     grid.replaceChildren();
     Object.entries(report.assessment.dimensions || {}).forEach(([id, value]) => {
       const card = document.createElement("article");
       card.className = "dimension-card";
       const title = document.createElement("h3");
-      title.textContent = dimensionNames[id] || id;
+      title.textContent = dimensionLabel(id);
       const score = document.createElement("p");
       score.className = "dimension-score";
       score.textContent = value.score == null ? "—" : `${Math.round(value.score)}`;
       const coverage = document.createElement("p");
       coverage.className = "muted";
-      coverage.textContent = `Cobertura ${Math.round((value.coverage || 0) * 100)}%`;
+      coverage.textContent = t("common.coverage", { value: Math.round((value.coverage || 0) * 100) });
       const bar = document.createElement("div");
       bar.className = "coverage-bar";
       const fill = document.createElement("span");
@@ -302,7 +308,7 @@
       row.hidden = !indicatorMatchesFilter(row, activeIndicatorFilter, dimension);
       if (!row.hidden) visible += 1;
     });
-    $("#indicator-result-count").textContent = `${visible} de ${rows.length}`;
+    $("#indicator-result-count").textContent = localized(`${visible} de ${rows.length}`, `${visible} of ${rows.length}`);
     $("#indicator-empty").hidden = visible !== 0;
   };
 
@@ -323,12 +329,12 @@
     dimensionSelect.replaceChildren();
     const allOption = document.createElement("option");
     allOption.value = "all";
-    allOption.textContent = "Todas";
+    allOption.textContent = t("indicators.allDimensions");
     dimensionSelect.append(allOption);
-    dimensions.sort((left, right) => (dimensionNames[left] || left).localeCompare(dimensionNames[right] || right, "pt-BR")).forEach((dimension) => {
+    dimensions.sort((left, right) => dimensionLabel(left).localeCompare(dimensionLabel(right), isPortuguese ? "pt-BR" : "en")).forEach((dimension) => {
       const option = document.createElement("option");
       option.value = dimension;
-      option.textContent = dimension === "cross_cutting" ? "Contexto transversal" : dimensionNames[dimension] || dimension;
+      option.textContent = dimension === "cross_cutting" ? t("common.crossCutting") : dimensionLabel(dimension);
       dimensionSelect.append(option);
     });
     dimensionSelect.value = dimensions.includes(selectedDimension) ? selectedDimension : "all";
@@ -339,7 +345,7 @@
       row.dataset.state = result.state;
       const id = document.createElement("span");
       id.className = "indicator-id";
-      const definition = catalogById.get(result.indicator_id);
+      const definition = i18n.localizeIndicator(catalogById.get(result.indicator_id));
       const dimension = definition?.dimension || "cross_cutting";
       row.dataset.dimension = dimension;
       id.textContent = result.indicator_id;
@@ -348,9 +354,9 @@
       const heading = document.createElement("span");
       heading.className = "indicator-heading";
       const name = document.createElement("strong");
-      name.textContent = definition?.name || "Indicador metodológico";
+      name.textContent = definition?.name || localized("Indicador metodológico", "Methodology indicator");
       const meta = document.createElement("small");
-      meta.textContent = `${dimension === "cross_cutting" ? "Contexto transversal" : dimensionNames[dimension] || dimension} · Confiança ${Math.round((result.confidence || 0) * 100)}%`;
+      meta.textContent = `${dimension === "cross_cutting" ? t("common.crossCutting") : dimensionLabel(dimension)} · ${t("common.confidence", { value: Math.round((result.confidence || 0) * 100) })}`;
       heading.append(name, meta);
       const state = document.createElement("span");
       state.className = `indicator-state state-${result.state}`;
@@ -359,14 +365,17 @@
       const detail = document.createElement("div");
       detail.className = "indicator-detail";
       const description = document.createElement("p");
-      description.textContent = definition?.description || "Consulte a documentação metodológica para interpretar este indicador.";
+      description.textContent = definition?.description || localized("Consulte a documentação metodológica para interpretar este indicador.", "Review the methodology documentation to interpret this indicator.");
       const evidence = document.createElement("p");
       evidence.className = "muted";
-      evidence.textContent = `${(result.evidence_ids || []).length} evidência(s) derivada(s) · ${definition?.measurement || "Medição documentada na metodologia."}`;
+      evidence.textContent = localized(
+        `${(result.evidence_ids || []).length} evidência(s) derivada(s) · ${definition?.measurement || "Medição documentada na metodologia."}`,
+        `${(result.evidence_ids || []).length} derived evidence item(s) · ${definition?.measurement || "Measurement documented in the methodology."}`,
+      );
       const indicatorLink = document.createElement("a");
       indicatorLink.className = "indicator-method-link";
       indicatorLink.href = definition?.path || `/methodology/indicators/${encodeURIComponent(result.indicator_id)}`;
-      indicatorLink.textContent = "Ver definição e método";
+      indicatorLink.textContent = t("indicator.viewMethod");
       detail.append(description, evidence, indicatorLink);
       row.append(summary, detail);
       list.append(row);
@@ -397,11 +406,14 @@
     section.hidden = !findings.length;
     const container = $("#critical-findings");
     container.replaceChildren(...findings.map((result) => {
-      const definition = catalogById.get(result.indicator_id);
+      const definition = i18n.localizeIndicator(catalogById.get(result.indicator_id));
       return findingCard(
-        `${result.indicator_id} · ${definition?.severity || "prioridade"}`,
+        `${result.indicator_id} · ${taxonomyLabel(definition?.severity || localized("prioridade", "priority"))}`,
         definition?.name || result.indicator_id,
-        `${stateLabel(result.state)} com confiança de ${Math.round((result.confidence || 0) * 100)}%.`,
+        localized(
+          `${stateLabel(result.state)} com confiança de ${Math.round((result.confidence || 0) * 100)}%.`,
+          `${stateLabel(result.state)} with ${Math.round((result.confidence || 0) * 100)}% confidence.`,
+        ),
       );
     }));
   };
@@ -416,12 +428,15 @@
     container.replaceChildren();
     if (!triggered.length) {
       const note = document.createElement("p");
-      note.textContent = "Nenhuma condição impeditiva ativa foi acionada. Nesta versão candidata, os gates permanecem inativos e não alteram o resultado.";
+      note.textContent = localized(
+        "Nenhuma condição impeditiva ativa foi acionada. Nesta versão candidata, os gates permanecem inativos e não alteram o resultado.",
+        "No active blocking condition was triggered. In this candidate version, gates remain inactive and do not change the result.",
+      );
       container.append(note);
       return;
     }
     triggered.forEach(([gateId, gate]) => {
-      container.append(findingCard(gateId, "Condição impeditiva acionada", gate.reason));
+      container.append(findingCard(gateId, localized("Condição impeditiva acionada", "Blocking condition triggered"), gate.reason));
     });
   };
 
@@ -433,9 +448,15 @@
     container.replaceChildren();
     const paragraph = document.createElement("p");
     if (!assessment.legacy_clear_plus) {
-      paragraph.textContent = "Legacy CLEAR+ Flat e Weighted permanecem indisponíveis nesta versão: ainda não existe mapeamento cientificamente validado entre as evidências atuais e as quatro facetas originais.";
+      paragraph.textContent = localized(
+        "CLEAR+ legado Flat e Weighted permanecem indisponíveis nesta versão: ainda não existe mapeamento cientificamente validado entre as evidências atuais e as quatro facetas originais.",
+        "Legacy CLEAR+ Flat and Weighted remain unavailable in this version: there is no scientifically validated mapping between current evidence and the four original facets.",
+      );
     } else {
-      paragraph.textContent = `Flat ${assessment.legacy_clear_plus.flat}; Weighted ${assessment.legacy_clear_plus.fixed_max}. Estes valores servem apenas para comparação histórica.`;
+      paragraph.textContent = localized(
+        `Flat ${assessment.legacy_clear_plus.flat}; Weighted ${assessment.legacy_clear_plus.fixed_max}. Estes valores servem apenas para comparação histórica.`,
+        `Flat ${assessment.legacy_clear_plus.flat}; Weighted ${assessment.legacy_clear_plus.fixed_max}. These values are for historical comparison only.`,
+      );
     }
     container.append(paragraph);
   };
@@ -454,14 +475,20 @@
       probeDetails.forEach((probe) => cards.push(findingCard(
         "Probe",
         probe.probe_id,
-        `País: ${probe.country}; região: ${probe.region}; observado de ${formatDate(probe.first_observed_at)} a ${formatDate(probe.last_observed_at)}. Localização declarada pela implantação, sem inferência de precisão.`,
+        localized(
+          `País: ${probe.country}; região: ${probe.region}; observado de ${formatDate(probe.first_observed_at)} a ${formatDate(probe.last_observed_at)}. Localização declarada pela implantação, sem inferência de precisão.`,
+          `Country: ${probe.country}; region: ${probe.region}; observed from ${formatDate(probe.first_observed_at)} to ${formatDate(probe.last_observed_at)}. Deployment-declared location, without a precision inference.`,
+        ),
       )));
     } else {
-      probeIds.forEach((probe) => cards.push(findingCard("Probe", probe, "Registro legado sem país ou região declarados.")));
+      probeIds.forEach((probe) => cards.push(findingCard("Probe", probe, localized("Registro legado sem país ou região declarados.", "Legacy record without a declared country or region."))));
     }
     contextual.forEach((result) => {
-      const definition = catalogById.get(result.indicator_id);
-      cards.push(findingCard(result.indicator_id, definition?.name || result.indicator_id, `${stateLabel(result.state)}; dado contextual, sem penalização automática do website.`));
+      const definition = i18n.localizeIndicator(catalogById.get(result.indicator_id));
+      cards.push(findingCard(result.indicator_id, definition?.name || result.indicator_id, localized(
+        `${stateLabel(result.state)}; dado contextual, sem penalização automática do website.`,
+        `${stateLabel(result.state)}; contextual data, without an automatic website penalty.`,
+      )));
     });
     container.replaceChildren(...cards);
   };
@@ -474,18 +501,18 @@
     const summary = run.summary || {};
     const container = $("#dependency-content");
     const categoryEdges = [
-      ["Scripts externos", summary.external_script_count ?? 0],
-      ["CSS externo", summary.external_stylesheet_count ?? 0],
-      ["Imagens externas", summary.external_image_count ?? 0],
-      ["Fontes externas", summary.external_font_count ?? 0],
-      ["APIs externas", summary.external_api_request_count ?? 0],
-      ["Frames externos", summary.external_frame_count ?? 0],
-      ["Outros externos", summary.external_other_count ?? 0],
+      [localized("Scripts externos", "External scripts"), summary.external_script_count ?? 0],
+      [localized("CSS externo", "External CSS"), summary.external_stylesheet_count ?? 0],
+      [localized("Imagens externas", "External images"), summary.external_image_count ?? 0],
+      [localized("Fontes externas", "External fonts"), summary.external_font_count ?? 0],
+      [localized("APIs externas", "External APIs"), summary.external_api_request_count ?? 0],
+      [localized("Frames externos", "External frames"), summary.external_frame_count ?? 0],
+      [localized("Outros externos", "Other external resources"), summary.external_other_count ?? 0],
     ].filter(([, count]) => count > 0);
     container.replaceChildren(
-      findingCard("Site → origens externas", String(summary.external_origin_count ?? 0), `${summary.external_request_count ?? 0} requisições externas; nomes e URLs não são persistidos.`),
-      ...categoryEdges.map(([label, count]) => findingCard(`Site → ${label}`, String(count), "Aresta agregada por tipo; presença externa não implica falha.")),
-      findingCard("URLs dinâmicas", String(summary.additional_url_count ?? "—"), "URLs adicionais após renderização, sem persistir endereços brutos."),
+      findingCard(localized("Site → origens externas", "Site → external origins"), String(summary.external_origin_count ?? 0), localized(`${summary.external_request_count ?? 0} requisições externas; nomes e URLs não são persistidos.`, `${summary.external_request_count ?? 0} external requests; names and URLs are not persisted.`)),
+      ...categoryEdges.map(([label, count]) => findingCard(`Site → ${label}`, String(count), localized("Aresta agregada por tipo; presença externa não implica falha.", "Edge aggregated by type; external presence does not imply failure."))),
+      findingCard(localized("URLs dinâmicas", "Dynamic URLs"), String(summary.additional_url_count ?? "—"), localized("URLs adicionais após renderização, sem persistir endereços brutos.", "Additional URLs after rendering, without persisting raw addresses.")),
     );
   };
 
@@ -493,13 +520,13 @@
     const cards = [];
     (report.crawl_runs || []).forEach((run) => cards.push(findingCard(
       `Crawl · ${run.probe_id}`,
-      `${run.summary.visited ?? 0} URL(s) visitadas`,
-      `Término: ${run.summary.termination_reason}; bytes observados: ${run.summary.response_bytes ?? 0}.`,
+      localized(`${run.summary.visited ?? 0} URL(s) visitadas`, `${run.summary.visited ?? 0} URL(s) visited`),
+      localized(`Término: ${run.summary.termination_reason}; bytes observados: ${run.summary.response_bytes ?? 0}.`, `Termination: ${run.summary.termination_reason}; observed bytes: ${run.summary.response_bytes ?? 0}.`),
     )));
     (report.browser_runs || []).forEach((run) => cards.push(findingCard(
       `Browser · ${run.probe_id}`,
       run.profile_id,
-      `Término: ${run.summary.termination_reason}; duração: ${run.summary.elapsed_milliseconds ?? 0} ms.`,
+      localized(`Término: ${run.summary.termination_reason}; duração: ${run.summary.elapsed_milliseconds ?? 0} ms.`, `Termination: ${run.summary.termination_reason}; duration: ${run.summary.elapsed_milliseconds ?? 0} ms.`),
     )));
     const section = $("#technical-section");
     section.hidden = !cards.length;
@@ -513,24 +540,24 @@
     $("#nav-recommendation-count").textContent = actionable.length;
     const container = $("#recommendations-content");
     container.replaceChildren(...actionable.map((result) => {
-      const definition = catalogById.get(result.indicator_id) || {};
+      const definition = i18n.localizeIndicator(catalogById.get(result.indicator_id)) || {};
       const card = document.createElement("details");
       card.className = "recommendation-card";
       const summary = document.createElement("summary");
       summary.className = "recommendation-summary";
       const title = document.createElement("h3");
-      title.textContent = `${result.indicator_id} — ${definition.name || "Condição observada"}`;
+      title.textContent = `${result.indicator_id} — ${definition.name || localized("Condição observada", "Observed condition")}`;
       const state = document.createElement("span");
       state.className = `indicator-state state-${result.state}`;
       state.textContent = stateLabel(result.state);
       summary.append(title, state);
       const details = document.createElement("dl");
       const rows = [
-        ["Problema", stateLabel(result.state)],
-        ["Evidência", `${(result.evidence_ids || []).length} evidência(s); confiança ${Math.round((result.confidence || 0) * 100)}%.`],
-        ["Impacto", definition.description || "Pode afetar a captura ou a interpretação do resultado."],
-        ["Possível correção", `Revisar a condição pelo método: ${definition.measurement || "consulte a documentação do indicador"}.`],
-        ["Responsabilidade", definition.classification === "intrinsic" ? "Depende principalmente do administrador do site." : definition.classification === "observation_context" ? "Depende principalmente do contexto/probe de coleta." : "Pode depender do site e da configuração do coletor."],
+        [localized("Problema", "Issue"), stateLabel(result.state)],
+        [localized("Evidência", "Evidence"), localized(`${(result.evidence_ids || []).length} evidência(s); confiança ${Math.round((result.confidence || 0) * 100)}%.`, `${(result.evidence_ids || []).length} evidence item(s); ${Math.round((result.confidence || 0) * 100)}% confidence.`)],
+        [localized("Impacto", "Impact"), definition.description || localized("Pode afetar a captura ou a interpretação do resultado.", "May affect capture or interpretation of the result.")],
+        [localized("Possível correção", "Possible fix"), localized(`Revisar a condição pelo método: ${definition.measurement || "consulte a documentação do indicador"}.`, `Review the condition using this method: ${definition.measurement || "see the indicator documentation"}.`)],
+        [localized("Responsabilidade", "Responsibility"), definition.classification === "intrinsic" ? localized("Depende principalmente do administrador do site.", "Depends mainly on the website administrator.") : definition.classification === "observation_context" ? localized("Depende principalmente do contexto/probe de coleta.", "Depends mainly on the collection context/probe.") : localized("Pode depender do site e da configuração do coletor.", "May depend on the website and collector configuration.")],
       ];
       rows.forEach(([term, value]) => {
         const dt = document.createElement("dt");
@@ -545,10 +572,10 @@
   };
 
   const renderReport = (report, catalog) => {
-    const catalogById = new Map((catalog.items || []).map((item) => [item.id, item]));
+    const catalogById = new Map((catalog.items || []).map((item) => [item.id, i18n.localizeIndicator(item)]));
     $("#report-origin").textContent = report.target_origin;
-    $("#report-title").textContent = terminalStates.has(report.state) ? "Relatório de arquivabilidade" : "Avaliação em andamento";
-    $("#report-updated").textContent = `Atualizado em ${formatDate(report.updated_at)}`;
+    $("#report-title").textContent = terminalStates.has(report.state) ? t("report.title") : t("report.pending");
+    $("#report-updated").textContent = t("common.updated", { date: formatDate(report.updated_at) });
     $("#cancel-button").hidden = terminalStates.has(report.state);
     renderProgress(report);
     renderAssessment(report);
@@ -566,7 +593,7 @@
     list.replaceChildren();
     (report.limitations || []).forEach((text) => {
       const item = document.createElement("li");
-      item.textContent = text;
+      item.textContent = i18n.localizeLimitation(text);
       list.append(item);
     });
   };
@@ -591,12 +618,14 @@
     const section = $("#comparison-section");
     const content = $("#comparison-content");
     section.hidden = false;
-    content.textContent = "Buscando execução compatível…";
+    content.textContent = localized("Buscando execução compatível…", "Looking for a compatible run…");
     try {
       const comparison = await request(`/v1/analyses/${encodeURIComponent(analysisId)}/comparison`);
       content.replaceChildren();
       const summary = document.createElement("p");
-      summary.textContent = comparison.classification === "observed_change" ? `${comparison.indicator_changes.length} indicador(es) mudaram desde a execução anterior.` : "Nenhuma mudança foi observada nos indicadores comparáveis.";
+      summary.textContent = comparison.classification === "observed_change"
+        ? localized(`${comparison.indicator_changes.length} indicador(es) mudaram desde a execução anterior.`, `${comparison.indicator_changes.length} indicator(s) changed since the previous run.`)
+        : localized("Nenhuma mudança foi observada nos indicadores comparáveis.", "No changes were observed in comparable indicators.");
       content.append(summary);
       comparison.indicator_changes.forEach((change) => {
         const row = document.createElement("p");
@@ -604,7 +633,7 @@
         content.append(row);
       });
     } catch (error) {
-      content.textContent = error.code === "NOT_FOUND" ? "Ainda não existe uma execução anterior compatível." : errorMessage(error);
+      content.textContent = error.code === "NOT_FOUND" ? localized("Ainda não existe uma execução anterior compatível.", "There is no compatible previous run yet.") : errorMessage(error);
     }
   };
 
@@ -612,7 +641,7 @@
     const button = $("#cancel-button");
     const status = $("#report-status");
     button.disabled = true;
-    status.textContent = "Cancelando avaliação…";
+    status.textContent = localized("Cancelando avaliação…", "Cancelling assessment…");
     try {
       await request(`/v1/analyses/${encodeURIComponent(analysisId)}/cancel`, { method: "POST" });
       await loadReport(analysisId);
@@ -623,6 +652,10 @@
   };
 
   const initialize = () => {
+    i18n.translateDocument();
+    document.querySelectorAll("[data-locale]").forEach((button) => {
+      button.addEventListener("click", () => i18n.setLocale(button.dataset.locale));
+    });
     const indicatorMatch = window.location.pathname.match(/^\/methodology\/indicators\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
     if (indicatorMatch) {
       hidePrimaryViews();
@@ -671,7 +704,7 @@
           key: crypto.randomUUID(),
         };
       }
-      status.textContent = "Criando avaliação…";
+      status.textContent = localized("Criando avaliação…", "Creating assessment…");
       try {
         const outcome = await request("/v1/analyses", {
           method: "POST",

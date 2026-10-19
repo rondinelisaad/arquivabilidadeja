@@ -110,6 +110,8 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'data-indicator-filter="attention"', report[2])
         self.assertIn(b"indicator-dimension-filter", report[2])
         self.assertIn(b"Cobertura da avalia", report[2])
+        self.assertIn(b'data-locale="pt"', report[2])
+        self.assertIn(b'/assets/i18n.js?v=6', report[2])
         self.assertEqual(200, methodology[0])
         self.assertIn(b"methodology-view", methodology[2])
         self.assertEqual(200, catalog[0])
@@ -134,11 +136,18 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_assets_support_head_and_api_paths_are_delegated(self) -> None:
         script = await self.request(self.scope("/assets/app.js", method="HEAD"))
+        localization = await self.request(self.scope("/assets/i18n.js"))
         delegated = await self.request(self.scope("/v1/analyses"))
 
         self.assertEqual(200, script[0])
         self.assertEqual(b"", script[2])
         self.assertEqual("text/javascript; charset=utf-8", script[1]["content-type"])
+        self.assertEqual(200, localization[0])
+        self.assertIn("P\u00e1gina inicial acess\u00edvel".encode(), localization[2])
+        self.assertIn(b"Is your website ready to be archived?", localization[2])
+        self.assertEqual(
+            "text/javascript; charset=utf-8", localization[1]["content-type"]
+        )
         self.assertEqual(418, delegated[0])
         self.assertEqual(["/v1/analyses"], self.delegate.paths)
 
