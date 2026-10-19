@@ -26,7 +26,7 @@ A metodologia executável e o JSON exportado permanecem canônicos em inglês pa
 
 Cada indicador expansível mostra **o que foi observado**, em vez de apenas informar a quantidade de evidências. O relatório apresenta uma explicação direta, os valores agregados usados na conclusão e uma seção opcional de rastreabilidade com método, versão, data, ferramenta, confiança e identificador da evidência.
 
-Por segurança e privacidade, essa projeção não inclui URLs individuais, caminhos, cabeçalhos, cookies, corpos de resposta, payloads ou hashes do DOM. Para `C01`, por exemplo, a interface informa quantas requisições foram observadas, quantas eram externas, a proporção calculada e o número de origens externas distintas.
+Por segurança e privacidade, essa projeção não inclui URLs completas, caminhos, parâmetros, fragmentos, cabeçalhos, cookies, corpos de resposta, payloads ou hashes do DOM. Para `C01`, `C04` e `C05`, uma nova avaliação também mostra explicitamente as origens externas observadas — somente protocolo, domínio e porta —, a quantidade de requisições e os tipos de recurso associados. A lista preserva no máximo as 100 origens mais frequentes e informa quando foi truncada. Avaliações antigas continuam legíveis, mas não podem reconstruir nomes que não foram persistidos.
 
 ## Segurança da fronteira
 

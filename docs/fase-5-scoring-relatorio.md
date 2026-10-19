@@ -24,7 +24,7 @@ O arquivo declara que pesos e thresholds ainda são hipótese versionada, que ga
 
 A interface organiza o mesmo snapshot em achados críticos, gates, perfil dimensional, comparação CLEAR+, indicadores/evidências, contexto de probes, dependências agregadas, detalhes técnicos e recomendações. Definições e severidades vêm do catálogo da mesma versão metodológica.
 
-Recomendações são geradas somente para estados `FAIL` e `WARNING` e exibem problema, quantidade de evidências, confiança, impacto documentado, método de revisão e responsabilidade provável. Indicadores de `observation_context` permanecem contextuais; dependências são mostradas por agregados, pois URLs brutas e conteúdo capturado não são persistidos pelo escopo atual.
+Recomendações são geradas somente para estados `FAIL` e `WARNING` e exibem problema, quantidade de evidências, confiança, impacto documentado, método de revisão e responsabilidade provável. Indicadores de `observation_context` permanecem contextuais; dependências são mostradas por agregados e por origens sanitizadas. URLs completas e conteúdo capturado não são persistidos pelo escopo atual.
 
 ## Histórico e comparação
 

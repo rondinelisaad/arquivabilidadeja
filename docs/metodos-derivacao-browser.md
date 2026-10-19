@@ -1,4 +1,4 @@
-# Métodos de derivação do browser 1.1.0
+# Métodos de derivação do browser 1.2.0
 
 Status: hipótese de projeto, ainda sem validação científica externa.
 
@@ -34,7 +34,7 @@ O limiar não declara que recursos externos são ruins; sinaliza ampliação rel
 - `WARNING`: ao menos um script, stylesheet, fonte, API ou frame externo;
 - `UNKNOWN`: observação legada sem grafo agregado ou render incompleto.
 
-O grafo possui uma raiz lógica `site` e arestas agregadas por tipo. Ele registra quantidade de origens distintas, mas não nomes, URLs ou caminhos. `WARNING` significa dependência que merece inspeção para captura, não erro nem indisponibilidade comprovada.
+O grafo possui uma raiz lógica `site` e arestas agregadas por tipo. A observação 1.2 preserva, para no máximo 100 origens públicas externas, apenas protocolo, domínio e porta, além da quantidade de requisições por tipo de recurso. A lista é ordenada pelas origens mais frequentes; um marcador informa eventual truncamento. URLs completas, credenciais, caminhos, parâmetros e fragmentos são descartados. `WARNING` significa dependência que merece inspeção para captura, não erro nem indisponibilidade comprovada.
 
 ### C05 — external API dependency
 
