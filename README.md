@@ -247,9 +247,13 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `POST /v1/batches` aceita de 1 a 25 URLs previamente validadas e cria análises duráveis independentes. A resposta preserva a posição e os IDs sem repetir os alvos; falhas por item são explícitas e o acesso gera `access.analysis_api_batch_create`. O bucket de rate limit é separado da criação unitária.
 
+`GET /v1/methodology` publica a identidade, versão, hash da fonte, dimensões, regras de scoring, gates e limitações da mesma configuração carregada pelo motor. `GET /v1/indicators` publica as 45 definições e aceita filtros exatos `version`, `dimension` e `classification`; `GET /v1/indicators/{id-ou-slug}` entrega a documentação individual. Essas leituras exigem `analysis:read` ou `analysis:read:any`, têm rate limit próprio e geram auditoria sem copiar o conteúdo metodológico.
+
 ## Interface Web
 
 `GET /` serve uma interface responsiva e sem dependências de frontend. Depois da autenticação, a página inicial pede somente a URL; o navegador cria a análise pelo contrato JSON existente e acompanha coleta, browser e derivação até o relatório terminal. A mesma interface lista histórico, exibe dimensões/cobertura e indicadores, solicita comparação compatível e baixa o snapshot canônico.
+
+`GET /methodology` e `GET /methodology/indicators` apresentam a metodologia e o catálogo completos. Cada definição possui uma projeção própria em `GET /methodology/indicators/{id-ou-slug}`, com definição, relevância, medição, evidências, classificação, pontuação, limitações e referências obtidas do pacote versionado — sem uma segunda fonte editorial que possa divergir da execução.
 
 HTML, CSS, JavaScript e favicon são assets locais empacotados com a aplicação. A interface usa CSP sem código inline, `textContent` para dados dinâmicos, `Cache-Control: no-store` nas páginas e não renderiza conteúdo coletado. `access.web_ui` registra acesso às páginas com rota lógica e identidade opaca, sem URL submetida ou conteúdo do relatório.
 

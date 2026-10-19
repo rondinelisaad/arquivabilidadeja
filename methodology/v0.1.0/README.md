@@ -13,6 +13,15 @@ Esta pasta contém a primeira especificação executável da metodologia Arquiva
 
 Os arquivos `.yaml` usam deliberadamente o subconjunto JSON do YAML 1.2. Isso permite validação básica com a biblioteca padrão do Python e evita dependências antes da fundação da aplicação.
 
+## Projeções públicas
+
+O runtime valida estes arquivos e deriva deles duas projeções equivalentes:
+
+- API: `GET /v1/methodology`, `GET /v1/indicators` e `GET /v1/indicators/{id-ou-slug}`;
+- Web: `/methodology`, `/methodology/indicators` e `/methodology/indicators/{id-ou-slug}`.
+
+O catálogo aceita filtros exatos `version`, `dimension` e `classification`. A resposta inclui o SHA-256 canônico das fontes metodológicas, e cada página de indicador apresenta definição, medição, regras de score, evidências, limitações e referências diretamente desta versão.
+
 ## Invariantes
 
 - `unknown`, `not_applicable` e `context` nunca viram score zero.

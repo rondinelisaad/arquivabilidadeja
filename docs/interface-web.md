@@ -6,6 +6,12 @@ A página inicial contém um único dado de entrada: a URL pública a avaliar. A
 
 Quando disponível, o relatório mostra estado geral, score e cobertura por dimensão, indicadores derivados, limitações metodológicas, exportação JSON e comparação com a execução anterior compatível. A página inicial também lista as 20 avaliações mais recentes do proprietário.
 
+## Metodologia pública
+
+A rota `/methodology` apresenta versão, estado candidato, hash da fonte, dimensões e limitações. `/methodology/indicators` lista as 45 definições e cada URL `/methodology/indicators/{id-ou-slug}` documenta definição, relevância, medição, evidências, classificação, scoring, limitações e referências. A interface consome `/v1/methodology` e `/v1/indicators`; portanto, documentação humana e scoring partem do mesmo pacote versionado.
+
+As páginas metodológicas usam o mesmo shell protegido, CSP e auditoria das páginas de análise. Conteúdo vindo da API é inserido com `textContent`, nunca como HTML interpretável.
+
 ## Segurança da fronteira
 
 - assets próprios, sem CDN ou script de terceiro;
