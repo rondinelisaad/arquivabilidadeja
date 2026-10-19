@@ -27,7 +27,7 @@ A observação `http_metadata` 1.3 persiste apenas:
 
 Corpos, cookies, URLs descobertas, destinos de redirect e mensagens de exceção não são persistidos nem registrados na auditoria.
 
-Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R02`, `R04`, `R05`, `R06`, `S01`, `S03`, `S04`, `N01` e `N02`. `N01` e `N02` são exclusivamente contextuais e não reduzem score. DNS não recebe um zero inventado: permanece nulo com o motivo `resolution_precedes_transport_timer`; p95 exige ao menos 20 sucessos e, nas cinco amostras padrão, permanece nulo com motivo explícito.
+Os indicadores derivados nesta camada são `D01`, `D02`, `D04`, `D05`, `D06`, `R02`, `R04`, `R05`, `R06`, `S01`, `S03`, `S04`, `O01`, `N01` e `N02`. `N01` e `N02` são exclusivamente contextuais e não reduzem score. DNS não recebe um zero inventado: permanece nulo com o motivo `resolution_precedes_transport_timer`; p95 exige ao menos 20 sucessos e, nas cinco amostras padrão, permanece nulo com motivo explícito. `O01` considera somente sucesso/falha das repetições: cinco sucessos resultam em `PASS`, quatro em `WARNING` e três ou menos em `FAIL`, como hipótese de projeto versionada; o valor da latência não entra nessa decisão.
 
 ## Segurança e operação
 

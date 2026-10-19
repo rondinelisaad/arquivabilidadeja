@@ -44,6 +44,7 @@ A ausência de `Content-Length` é válida e não reduz o resultado. O limite de
 | `S01` | criação do parser HTML tolerante, sem afirmar validade normativa |
 | `S03` | parsing XML do sitemap com DTD e entidades rejeitados |
 | `S04` | inventário contextual da homepage por MIME declarado |
+| `O01` | no 1.3, confiabilidade das cinco repetições limitadas: 100% `PASS`, 80% `WARNING` e abaixo de 80% `FAIL`; latência não entra no estado |
 | `N01` | no 1.2, apenas tempo total; no 1.3, TCP/TLS/TTFB quando observáveis, DNS nulo com motivo, família IP e quantidade de exchanges sem persistir endereço |
 | `N02` | no 1.3, mínimo, máximo, mediana, desvio-padrão amostral, taxa de sucesso e tamanho de uma série de GETs limitada a um byte; p95 somente com `n >= 20` |
 
