@@ -26,6 +26,8 @@ button, .quiet-button { min-height: 44px; }
 .site-header { max-width: 1240px; margin: 0 auto; padding: 1.35rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: .8rem; text-decoration: none; font-family: Georgia, "Times New Roman", serif; font-size: 1.15rem; font-weight: 700; }
 .brand-mark { display: grid; place-items: center; width: 2.35rem; aspect-ratio: 1; border: 1px solid var(--ink); border-radius: 50%; font: 700 .75rem/1 Inter, sans-serif; letter-spacing: .08em; }
+.header-nav { display: flex; align-items: center; gap: 1rem; }
+.header-nav > a { font-size: .85rem; font-weight: 750; text-underline-offset: .25rem; }
 .method-badge, .state-chip { border: 1px solid var(--line); border-radius: 999px; padding: .45rem .75rem; color: var(--muted); font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 main { max-width: 1240px; margin: 0 auto; padding: 0 2rem 5rem; }
 .hero { min-height: 620px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .65fr); gap: 5rem; align-items: center; padding: 5rem 0; }
@@ -79,12 +81,27 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.7rem); }
 .state-pass { color: var(--teal); } .state-warning { color: var(--amber); } .state-fail { color: var(--red); }
 .limitations { margin: 2rem 0; padding: 1.5rem 2rem; border-left: 4px solid var(--amber); background: #eee5d7; }
 .limitations h2 { font-size: 1.4rem; }.limitations li { margin: .55rem 0; line-height: 1.5; }
+.methodology-view { padding-top: 2rem; }
+.methodology-header, .indicator-doc-header { padding: 2rem 0 1rem; }
+.methodology-header h1, .indicator-doc-header h1 { font-size: clamp(2.7rem, 6vw, 5.7rem); }
+.methodology-meta { display: flex; flex-wrap: wrap; gap: .55rem; margin: 1rem 0; }
+.methodology-meta span { border: 1px solid var(--line); border-radius: 999px; padding: .4rem .7rem; color: var(--muted); font-size: .78rem; }
+.methodology-indicator-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 1.5rem; }
+.methodology-indicator-card { display: block; padding: 1.1rem; border: 1px solid var(--line); background: var(--white); text-decoration: none; }
+.methodology-indicator-card:hover { border-color: var(--teal); }
+.methodology-indicator-card h3 { margin: .35rem 0; font: 500 1.2rem Georgia, serif; }
+.methodology-indicator-card p { margin: .45rem 0 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.documentation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 2rem 0; }
+.documentation-card { padding: 1.5rem; border: 1px solid var(--line); background: rgb(255 253 247 / 72%); }
+.documentation-card h2 { font-size: 1.45rem; }
+.documentation-card p, .documentation-card li { line-height: 1.6; }
+.documentation-card ul { padding-left: 1.2rem; }
 footer { max-width: 1240px; margin: 0 auto; padding: 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
 [hidden] { display: none !important; }
 
 @media (max-width: 850px) {
   .hero { grid-template-columns: 1fr; gap: 2rem; min-height: auto; padding: 4rem 0; }
-  .history-grid, .dimension-grid { grid-template-columns: 1fr 1fr; }
+  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid { grid-template-columns: 1fr 1fr; }
   .report-header { align-items: flex-start; flex-direction: column; }
 }
 
@@ -93,7 +110,7 @@ footer { max-width: 1240px; margin: 0 auto; padding: 2rem; border-top: 1px solid
   .method-badge { display: none; }
   h1 { font-size: 3.1rem; }
   .url-row { display: grid; }
-  .history-grid, .dimension-grid { grid-template-columns: 1fr; }
+  .history-grid, .dimension-grid, .methodology-indicator-grid, .documentation-grid { grid-template-columns: 1fr; }
   .stage-list { grid-template-columns: 1fr 1fr; }
   .indicator-row { grid-template-columns: 4rem 1fr; }
   .indicator-state { grid-column: 2; text-align: left; }

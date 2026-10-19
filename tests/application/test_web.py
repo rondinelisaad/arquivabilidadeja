@@ -90,17 +90,39 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
             sent[1]["body"],
         )
 
-    async def test_home_and_analysis_shell_are_secure_and_audited(self) -> None:
+    async def test_human_pages_are_secure_and_audited(self) -> None:
         home = await self.request(self.scope("/"))
         report = await self.request(self.scope("/analyses/analysis-123"))
+        methodology = await self.request(self.scope("/methodology"))
+        catalog = await self.request(self.scope("/methodology/indicators"))
+        indicator = await self.request(
+            self.scope("/methodology/indicators/latency_breakdown")
+        )
 
         self.assertEqual(200, home[0])
         self.assertIn(b"Arquivabilidade J", home[2])
         self.assertEqual(200, report[0])
+        self.assertEqual(200, methodology[0])
+        self.assertIn(b"methodology-view", methodology[2])
+        self.assertEqual(200, catalog[0])
+        self.assertEqual(200, indicator[0])
         self.assertIn("default-src 'none'", home[1]["content-security-policy"])
         self.assertEqual("no-store", home[1]["cache-control"])
-        self.assertEqual(["home", "analysis"], [item["route"] for item in self.audit.events])
+        self.assertEqual(
+            ["home", "analysis", "methodology", "indicator_catalog", "indicator"],
+            [item["route"] for item in self.audit.events],
+        )
         self.assertEqual("user-1", self.audit.events[0]["audit"].user_id)
+
+    async def test_invalid_indicator_page_is_delegated(self) -> None:
+        response = await self.request(
+            self.scope("/methodology/indicators/unsafe%2Fidentifier")
+        )
+
+        self.assertEqual(418, response[0])
+        self.assertEqual(
+            ["/methodology/indicators/unsafe%2Fidentifier"], self.delegate.paths
+        )
 
     async def test_assets_support_head_and_api_paths_are_delegated(self) -> None:
         script = await self.request(self.scope("/assets/app.js", method="HEAD"))

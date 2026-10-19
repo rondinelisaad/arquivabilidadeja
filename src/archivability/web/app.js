@@ -53,6 +53,135 @@
   const stateLabel = (state) => phaseLabels[state] || String(state || "indisponível").replaceAll("_", " ");
   const formatDate = (value) => value ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
+  const hidePrimaryViews = () => {
+    ["#home-view", "#history-section", "#report-view", "#methodology-view", "#indicator-view"].forEach((selector) => {
+      $(selector).hidden = true;
+    });
+  };
+
+  const appendMeta = (container, values) => {
+    container.replaceChildren();
+    values.filter(Boolean).forEach((value) => {
+      const item = document.createElement("span");
+      item.textContent = value;
+      container.append(item);
+    });
+  };
+
+  const indicatorCard = (indicator) => {
+    const link = document.createElement("a");
+    link.className = "methodology-indicator-card";
+    link.href = indicator.path;
+    const id = document.createElement("span");
+    id.className = "eyebrow";
+    id.textContent = indicator.id;
+    const title = document.createElement("h3");
+    title.textContent = indicator.name;
+    const description = document.createElement("p");
+    description.textContent = indicator.description;
+    link.append(id, title, description);
+    return link;
+  };
+
+  const loadMethodology = async () => {
+    const status = $("#methodology-status");
+    try {
+      const [methodology, catalog] = await Promise.all([
+        request("/v1/methodology"),
+        request("/v1/indicators"),
+      ]);
+      $("#methodology-title").textContent = methodology.title;
+      $("#methodology-summary").textContent = "A avaliação produz um perfil em seis dimensões, preserva resultados desconhecidos e explicita evidências, confiança e limitações sem reduzi-las a uma nota única.";
+      appendMeta($("#methodology-meta"), [
+        `Versão ${methodology.version}`,
+        `Estado ${methodology.status}`,
+        `${methodology.indicator_count} indicadores`,
+        `Fonte ${methodology.source_sha256.slice(0, 12)}…`,
+      ]);
+      const dimensions = $("#methodology-dimensions");
+      dimensions.replaceChildren();
+      methodology.dimensions.forEach((dimension) => {
+        const card = document.createElement("article");
+        card.className = "dimension-card";
+        const title = document.createElement("h3");
+        title.textContent = dimension.name;
+        const description = document.createElement("p");
+        description.className = "muted";
+        description.textContent = dimension.description;
+        const weight = document.createElement("p");
+        weight.textContent = dimension.score_enabled ? `Peso candidato: ${dimension.weight}` : "Dimensão contextual, sem pontuação";
+        card.append(title, description, weight);
+        dimensions.append(card);
+      });
+      const indicators = $("#methodology-indicators");
+      indicators.replaceChildren(...catalog.items.map(indicatorCard));
+      const limitations = $("#methodology-limitations");
+      limitations.replaceChildren();
+      methodology.limitations.forEach((value) => {
+        const item = document.createElement("li");
+        item.textContent = value;
+        limitations.append(item);
+      });
+      status.textContent = "";
+    } catch (error) {
+      status.textContent = errorMessage(error);
+    }
+  };
+
+  const documentationCard = (titleText, content) => {
+    const card = document.createElement("section");
+    card.className = "documentation-card";
+    const title = document.createElement("h2");
+    title.textContent = titleText;
+    card.append(title);
+    if (Array.isArray(content)) {
+      const list = document.createElement("ul");
+      content.forEach((value) => {
+        const item = document.createElement("li");
+        item.textContent = value;
+        list.append(item);
+      });
+      card.append(list);
+    } else {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = content;
+      card.append(paragraph);
+    }
+    return card;
+  };
+
+  const loadIndicatorDocumentation = async (identifier) => {
+    const status = $("#indicator-status");
+    try {
+      const payload = await request(`/v1/indicators/${encodeURIComponent(identifier)}`);
+      const indicator = payload.indicator;
+      $("#indicator-id").textContent = indicator.id;
+      $("#indicator-title").textContent = indicator.name;
+      $("#indicator-description").textContent = indicator.description;
+      appendMeta($("#indicator-tags"), [
+        indicator.dimension ? `Dimensão ${dimensionNames[indicator.dimension] || indicator.dimension}` : "Contexto transversal",
+        `Classificação ${indicator.classification}`,
+        `Severidade ${indicator.severity}`,
+        `Metodologia ${payload.methodology_version}`,
+      ]);
+      const documentation = $("#indicator-documentation");
+      documentation.replaceChildren(
+        documentationCard("Definição", indicator.description),
+        documentationCard("Por que importa", `Este indicador documenta uma condição de ${indicator.dimension ? dimensionNames[indicator.dimension] || indicator.dimension : "contexto"} que afeta a interpretação da arquivabilidade observada.`),
+        documentationCard("Medição", indicator.measurement),
+        documentationCard("Evidências necessárias", indicator.evidence_requirements),
+        documentationCard("Classificação", `${indicator.classification}; severidade padrão ${indicator.severity}.`),
+        documentationCard("Pontuação", indicator.scoring.enabled ? `Peso ${indicator.scoring.weight}. Regra: ${indicator.scoring.rule}.` : "Indicador contextual: não compõe score."),
+        documentationCard("Limitações", indicator.limitations),
+        documentationCard("Referências", indicator.origin.references.length ? indicator.origin.references : ["Sem referência externa declarada nesta versão."]),
+      );
+      status.textContent = "";
+      document.title = `${indicator.id} — ${indicator.name} | Arquivabilidade Já`;
+    } catch (error) {
+      status.textContent = error.code === "NOT_FOUND" ? "O indicador solicitado não foi encontrado." : errorMessage(error);
+    }
+  };
+
   const renderHistory = (items) => {
     const container = $("#history-list");
     container.replaceChildren();
@@ -211,11 +340,23 @@
   };
 
   const initialize = () => {
+    const indicatorMatch = window.location.pathname.match(/^\/methodology\/indicators\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
+    if (indicatorMatch) {
+      hidePrimaryViews();
+      $("#indicator-view").hidden = false;
+      loadIndicatorDocumentation(indicatorMatch[1]);
+      return;
+    }
+    if (["/methodology", "/methodology/indicators"].includes(window.location.pathname)) {
+      hidePrimaryViews();
+      $("#methodology-view").hidden = false;
+      loadMethodology();
+      return;
+    }
     const match = window.location.pathname.match(/^\/analyses\/([A-Za-z0-9][A-Za-z0-9_.:-]{0,255})$/);
     if (match) {
       const analysisId = match[1];
-      $("#home-view").hidden = true;
-      $("#history-section").hidden = true;
+      hidePrimaryViews();
       $("#report-view").hidden = false;
       $("#export-link").href = `/v1/analyses/${encodeURIComponent(analysisId)}/export.json`;
       $("#compare-button").addEventListener("click", () => loadComparison(analysisId));

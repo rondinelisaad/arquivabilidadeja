@@ -11,6 +11,9 @@ from archivability.application.api import ApiPrincipal
 from archivability.storage.audit import AuditContext
 
 _ANALYSIS_PAGE = re.compile(r"^/analyses/[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
+_INDICATOR_PAGE = re.compile(
+    r"^/methodology/indicators/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+)
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _PAGE_HEADERS = (
@@ -89,7 +92,19 @@ class WebAsgiApp:
         if path == "/favicon.svg":
             await self._asset(send, method, self._favicon, b"image/svg+xml")
             return
-        route = "home" if path == "/" else "analysis" if _ANALYSIS_PAGE.fullmatch(path) else None
+        route = (
+            "home"
+            if path == "/"
+            else "analysis"
+            if _ANALYSIS_PAGE.fullmatch(path)
+            else "methodology"
+            if path == "/methodology"
+            else "indicator_catalog"
+            if path == "/methodology/indicators"
+            else "indicator"
+            if _INDICATOR_PAGE.fullmatch(path)
+            else None
+        )
         if route is None:
             await self._api_app(scope, receive, send)
             return

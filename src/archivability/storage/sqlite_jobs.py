@@ -1201,7 +1201,14 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
         resource_id = request_id
         try:
             valid = (
-                route in {"home", "analysis"}
+                route
+                in {
+                    "home",
+                    "analysis",
+                    "methodology",
+                    "indicator_catalog",
+                    "indicator",
+                }
                 and (
                     (
                         result == "success"

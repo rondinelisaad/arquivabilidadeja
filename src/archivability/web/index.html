@@ -16,7 +16,10 @@
         <span class="brand-mark" aria-hidden="true">AJ</span>
         <span>Arquivabilidade Já</span>
       </a>
-      <span class="method-badge">Metodologia 0.1.0</span>
+      <nav class="header-nav" aria-label="Navegação principal">
+        <a href="/methodology">Metodologia</a>
+        <span class="method-badge">Versão 0.1.0</span>
+      </nav>
     </header>
 
     <main id="conteudo">
@@ -101,6 +104,41 @@
 
         <aside id="limitations" class="limitations" hidden><h2>Como interpretar</h2><ul></ul></aside>
         <p id="report-status" class="status-message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="methodology-view" class="methodology-view" hidden aria-labelledby="methodology-title">
+        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><span>Metodologia</span></nav>
+        <header class="methodology-header">
+          <p class="eyebrow">Método aberto e versionado</p>
+          <h1 id="methodology-title">Como avaliamos a arquivabilidade</h1>
+          <p id="methodology-summary" class="lede">Carregando a especificação metodológica…</p>
+          <div id="methodology-meta" class="methodology-meta"></div>
+        </header>
+        <section class="section-shell" aria-labelledby="dimensions-title">
+          <div class="section-heading"><div><p class="eyebrow">Perfil, não nota única</p><h2 id="dimensions-title">Dimensões avaliadas</h2></div></div>
+          <div id="methodology-dimensions" class="dimension-grid"></div>
+        </section>
+        <section class="section-shell" aria-labelledby="catalog-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Documentação verificável</p><h2 id="catalog-title">Catálogo de indicadores</h2></div>
+            <a class="quiet-button" href="/methodology/indicators">Ver todos</a>
+          </div>
+          <div id="methodology-indicators" class="methodology-indicator-grid" aria-live="polite"></div>
+        </section>
+        <aside class="limitations"><h2>Limitações declaradas</h2><ul id="methodology-limitations"></ul></aside>
+        <p id="methodology-status" class="status-message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="indicator-view" class="methodology-view" hidden aria-labelledby="indicator-title">
+        <nav class="breadcrumb" aria-label="Navegação estrutural"><a href="/">Início</a><span>/</span><a href="/methodology">Metodologia</a><span>/</span><a href="/methodology/indicators">Indicadores</a></nav>
+        <header class="indicator-doc-header">
+          <p id="indicator-id" class="eyebrow"></p>
+          <h1 id="indicator-title">Indicador</h1>
+          <p id="indicator-description" class="lede"></p>
+          <div id="indicator-tags" class="methodology-meta"></div>
+        </header>
+        <div id="indicator-documentation" class="documentation-grid"></div>
+        <p id="indicator-status" class="status-message" role="status" aria-live="polite"></p>
       </section>
     </main>
 

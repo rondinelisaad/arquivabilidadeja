@@ -1198,7 +1198,14 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
     ) -> None:
         try:
             valid = (
-                route in {"home", "analysis"}
+                route
+                in {
+                    "home",
+                    "analysis",
+                    "methodology",
+                    "indicator_catalog",
+                    "indicator",
+                }
                 and (
                     (
                         result == "success"
