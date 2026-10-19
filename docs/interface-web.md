@@ -28,6 +28,8 @@ Cada indicador expansível mostra **o que foi observado**, em vez de apenas info
 
 Por segurança e privacidade, essa projeção não inclui URLs completas, caminhos, parâmetros, fragmentos, cabeçalhos, cookies, corpos de resposta, payloads ou hashes do DOM. Para `C01`, `C04` e `C05`, uma nova avaliação também mostra explicitamente as origens externas observadas — somente protocolo, domínio e porta —, a quantidade de requisições e os tipos de recurso associados. A lista preserva no máximo as 100 origens mais frequentes e informa quando foi truncada. Avaliações antigas continuam legíveis, mas não podem reconstruir nomes que não foram persistidos.
 
+`R01`, `R03` e `O05` apresentam um quadro de evidência especializado. `R01` explicita sucessos, tamanho da amostra e distribuição das respostas; `R03` mostra links quebrados sobre o total verificado e as classes de resultado; `O05` compara o tamanho antes e depois da renderização, a variação, URLs adicionais e requisições de API. Como a coleta atual não persiste URLs individuais dos links quebrados, `R03` declara essa limitação em vez de sugerir que os endereços estão disponíveis.
+
 ## Segurança da fronteira
 
 - assets próprios, sem CDN ou script de terceiro;
