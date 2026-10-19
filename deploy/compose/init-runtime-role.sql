@@ -1,0 +1,11 @@
+\getenv runtime_password ARCHIVABILITY_RUNTIME_DB_PASSWORD
+
+CREATE ROLE archivability_runtime
+    LOGIN
+    PASSWORD :'runtime_password'
+    NOSUPERUSER
+    NOCREATEDB
+    NOCREATEROLE
+    NOINHERIT
+    NOREPLICATION
+    NOBYPASSRLS;
