@@ -317,6 +317,39 @@ class AnalysisApiTests(unittest.TestCase):
         self.assertEqual("access.analysis_api_batch_create", event[0])
         self.assertNotIn("subject", event[1])
 
+    def test_creation_idempotency_replays_and_rejects_changed_input(self) -> None:
+        first = self.api.create_analysis(
+            {"subject_uri": SUBJECT},
+            context=self.context("request-idempotency-1"),
+            idempotency_key="opaque-request-key-1",
+        )
+        replay = self.api.create_analysis(
+            {"subject_uri": SUBJECT},
+            context=self.context("request-idempotency-2"),
+            idempotency_key="opaque-request-key-1",
+        )
+        conflict = self.api.create_analysis(
+            {"subject_uri": "https://different.example/"},
+            context=self.context("request-idempotency-3"),
+            idempotency_key="opaque-request-key-1",
+        )
+
+        self.assertEqual(202, first.status_code)
+        self.assertFalse(first.body["replayed"])
+        self.assertEqual(first.body["analysis_id"], replay.body["analysis_id"])
+        self.assertTrue(replay.body["replayed"])
+        self.assertEqual(409, conflict.status_code)
+        self.assertEqual("IDEMPOTENCY_CONFLICT", conflict.body["error"]["code"])
+        self.assertEqual(
+            1, self.connection.execute("SELECT count(*) FROM analyses").fetchone()[0]
+        )
+        stored = self.connection.execute(
+            "SELECT key_hash, request_hash FROM analysis_idempotency_keys"
+        ).fetchone()
+        self.assertEqual(64, len(stored[0]))
+        self.assertEqual(64, len(stored[1]))
+        self.assertNotIn("opaque-request-key-1", json.dumps(stored))
+
     def test_cancel_is_owner_authorized_idempotent_and_stops_queue_claim(self) -> None:
         created = self.api.create_analysis(
             {"subject_uri": SUBJECT}, context=self.context("request-cancel-create")

@@ -698,6 +698,8 @@ def validate_runtime_database_role(connection: psycopg.Connection[Any]) -> None:
                            ('archivability.indicator_result_evidence', 'INSERT'),
                            ('archivability.analysis_ownership', 'SELECT'),
                            ('archivability.analysis_ownership', 'INSERT'),
+                           ('archivability.analysis_idempotency_keys', 'SELECT'),
+                           ('archivability.analysis_idempotency_keys', 'INSERT'),
                            ('archivability.audit_events', 'INSERT'),
                            ('archivability.rate_limit_buckets', 'SELECT'),
                            ('archivability.rate_limit_buckets', 'INSERT'),

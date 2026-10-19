@@ -18,6 +18,26 @@ from archivability.storage.audit import AuditContext
 
 Clock = Callable[[], datetime]
 _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisIdempotency:
+    owner_user_id: str
+    key_hash: str
+    request_hash: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.owner_user_id, str)
+            or not 1 <= len(self.owner_user_id) <= 256
+            or any(ord(character) < 32 or ord(character) == 127 for character in self.owner_user_id)
+        ):
+            raise JobError("idempotency owner is invalid")
+        if not _SHA256_PATTERN.fullmatch(self.key_hash) or not _SHA256_PATTERN.fullmatch(
+            self.request_hash
+        ):
+            raise JobError("idempotency hashes are invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,8 +218,9 @@ class CollectionJobRepository(Protocol):
         job: CollectionJob,
         *,
         owner_user_id: str | None,
+        idempotency: AnalysisIdempotency | None,
         audit: AuditContext,
-    ) -> None: ...
+    ) -> tuple[Analysis, CollectionJob, bool]: ...
 
     def claim_next_collection_job(
         self,
@@ -224,6 +245,7 @@ class CollectionJobRepository(Protocol):
 class CollectionEnqueueOutcome:
     job: CollectionJob
     created: bool
+    analysis: Analysis | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +300,7 @@ class HttpCollectionQueueService:
         analysis: Analysis,
         *,
         owner_user_id: str | None = None,
+        idempotency: AnalysisIdempotency | None = None,
         limits: CollectionLimits = CollectionLimits(),
         max_attempts: int = 3,
         assessment_max_attempts: int = 3,
@@ -293,13 +316,14 @@ class HttpCollectionQueueService:
             max_attempts=max_attempts,
             assessment_max_attempts=assessment_max_attempts,
         )
-        self._repository.add_analysis_with_collection_job(
+        stored_analysis, stored_job, created = self._repository.add_analysis_with_collection_job(
             analysis,
             job,
             owner_user_id=owner_user_id,
+            idempotency=idempotency,
             audit=audit,
         )
-        return CollectionEnqueueOutcome(job, True)
+        return CollectionEnqueueOutcome(stored_job, created, stored_analysis)
 
     def _now(self) -> datetime:
         value = self._clock()

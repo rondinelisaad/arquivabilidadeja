@@ -12,6 +12,7 @@ from archivability.jobs.browser import (
     succeed_browser_job,
 )
 from archivability.jobs.collection import (
+    AnalysisIdempotency,
     CollectionEnqueueOutcome,
     CollectionJob,
     CollectionJobRepository,
@@ -42,6 +43,7 @@ from archivability.jobs.state_machine import (
 )
 
 __all__ = [
+    "AnalysisIdempotency",
     "AssessmentJob",
     "AssessmentJobRepository",
     "AssessmentJobState",

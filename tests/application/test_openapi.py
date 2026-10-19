@@ -33,6 +33,12 @@ def test_openapi_contract_is_json_serializable_and_covers_router() -> None:
     assert "getSiteHistory" in operation_ids
     assert "cancelAnalysis" in operation_ids
     assert "getIndicator" in operation_ids
+    idempotency = document["paths"]["/v1/analyses"]["post"]["parameters"][0]
+    assert (idempotency["name"], idempotency["in"], idempotency["required"]) == (
+        "Idempotency-Key",
+        "header",
+        False,
+    )
     json.dumps(document, ensure_ascii=False, allow_nan=False)
 
 

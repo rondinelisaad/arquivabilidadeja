@@ -38,6 +38,7 @@ GRANT SELECT, INSERT ON TABLE
     archivability.indicator_results,
     archivability.indicator_result_evidence,
     archivability.analysis_ownership,
+    archivability.analysis_idempotency_keys,
     archivability.audit_events
 TO :"runtime_role";
 

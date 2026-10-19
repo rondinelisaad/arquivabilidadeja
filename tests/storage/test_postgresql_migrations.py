@@ -124,9 +124,16 @@ class PostgreSqlMigrationTests(unittest.TestCase):
             ROOT
             / "src/archivability/storage/migrations/postgresql/004_browser_jobs.sql"
         ).read_text(encoding="utf-8")
+        idempotency_migration = (
+            ROOT
+            / "src/archivability/storage/migrations/postgresql/005_analysis_idempotency.sql"
+        ).read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE rate_limit_buckets", rate_limit_migration)
         self.assertIn("CREATE TABLE collection_jobs", collection_migration)
         self.assertIn("CREATE TABLE browser_jobs", browser_migration)
+        self.assertIn(
+            "CREATE TABLE analysis_idempotency_keys", idempotency_migration
+        )
         self.assertIn("JSONB", migration)
         self.assertIn("TIMESTAMPTZ", migration)
         self.assertIn("REVOKE ALL ON ALL TABLES", grants)
@@ -137,6 +144,7 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertIn("archivability.rate_limit_buckets", grants)
         self.assertIn("archivability.collection_jobs", grants)
         self.assertIn("archivability.browser_jobs", grants)
+        self.assertIn("archivability.analysis_idempotency_keys", grants)
         self.assertNotIn("CREATE ROLE", grants)
         self.assertNotIn("PASSWORD", grants.upper())
 

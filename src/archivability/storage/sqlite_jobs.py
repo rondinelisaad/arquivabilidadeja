@@ -11,6 +11,7 @@ from archivability.jobs.browser import (
     claim_browser_job,
 )
 from archivability.jobs.collection import (
+    AnalysisIdempotency,
     CollectionJob,
     CollectionLimits,
     claim_collection_job,
@@ -21,6 +22,7 @@ from archivability.lifecycle.models import Analysis, AnalysisState
 from archivability.storage.audit import AuditContext
 from archivability.storage.errors import (
     ConcurrencyConflict,
+    IdempotencyConflict,
     IntegrityViolation,
     PersistenceError,
 )
@@ -53,8 +55,9 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
         job: CollectionJob,
         *,
         owner_user_id: str | None,
+        idempotency: AnalysisIdempotency | None = None,
         audit: AuditContext = AuditContext(),
-    ) -> None:
+    ) -> tuple[Analysis, CollectionJob, bool]:
         if job.analysis_id != analysis.analysis_id:
             raise IntegrityViolation("collection job belongs to another analysis")
         if owner_user_id is not None and (
@@ -68,12 +71,61 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
             raise PersistenceError("analysis owner identifier is invalid")
         if owner_user_id is not None and owner_user_id != audit.user_id:
             raise PersistenceError("analysis owner must match the audited actor")
+        if idempotency is not None and (
+            owner_user_id is None or idempotency.owner_user_id != owner_user_id
+        ):
+            raise IntegrityViolation("idempotency owner does not match analysis owner")
         try:
             with self._transaction():
+                if idempotency is not None:
+                    existing = self._connection.execute(
+                        """
+                        SELECT request_hash, analysis_id
+                        FROM analysis_idempotency_keys
+                        WHERE owner_user_id = ? AND key_hash = ?
+                        """,
+                        (idempotency.owner_user_id, idempotency.key_hash),
+                    ).fetchone()
+                    if existing is not None:
+                        if existing[0] != idempotency.request_hash:
+                            raise IdempotencyConflict(
+                                "idempotency key was used for another request"
+                            )
+                        stored_analysis = self.get_analysis(existing[1])
+                        stored_job = self._get_collection_job_for_analysis(existing[1])
+                        if stored_analysis is None or stored_job is None:
+                            raise IntegrityViolation(
+                                "idempotent analysis reference is incomplete"
+                            )
+                        self._write_audit(
+                            resource="collection_job",
+                            resource_id=stored_job.job_id,
+                            result="success",
+                            audit=audit,
+                            action="job.http_collection_queue_enqueue",
+                            after=self._collection_job_audit_state(stored_job),
+                            extra={"outcome": "replayed"},
+                        )
+                        return stored_analysis, stored_job, False
                 self._insert_analysis(analysis)
                 if owner_user_id is not None:
                     self._insert_analysis_owner(analysis.analysis_id, owner_user_id)
                 self._insert_collection_job(job)
+                if idempotency is not None:
+                    self._connection.execute(
+                        """
+                        INSERT INTO analysis_idempotency_keys
+                            (owner_user_id, key_hash, request_hash, analysis_id, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            idempotency.owner_user_id,
+                            idempotency.key_hash,
+                            idempotency.request_hash,
+                            analysis.analysis_id,
+                            self._timestamp(),
+                        ),
+                    )
                 self._write_audit(
                     resource="analysis",
                     resource_id=analysis.analysis_id,
@@ -104,6 +156,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
                     after=self._collection_job_audit_state(job),
                     extra={"outcome": "created"},
                 )
+            return analysis, job, True
         except sqlite3.IntegrityError as exc:
             self._record_failure(
                 "collection_job",
@@ -1097,6 +1150,7 @@ class SqliteAssessmentJobRepository(SqliteLifecycleRepository):
             elif result == "failure":
                 valid = (status_code, error_code) in {
                     (400, "INVALID_REQUEST"),
+                    (409, "IDEMPOTENCY_CONFLICT"),
                     (404, "NOT_FOUND"),
                     (429, "RATE_LIMITED"),
                     (500, "INTERNAL_ERROR"),

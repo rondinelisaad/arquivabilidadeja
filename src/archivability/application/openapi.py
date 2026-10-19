@@ -8,7 +8,10 @@ def build_openapi_document(*, methodology_version: str) -> dict[str, Any]:
     paths: dict[str, Any] = {
         "/v1/analyses": {
             "get": _operation("listAnalyses", "List the authenticated owner's analyses", 200),
-            "post": _operation("createAnalysis", "Create and enqueue one analysis", 202, request_body="#/components/schemas/AnalysisRequest"),
+            "post": {
+                **_operation("createAnalysis", "Create and enqueue one analysis", 202, request_body="#/components/schemas/AnalysisRequest"),
+                "parameters": [_idempotency_parameter()],
+            },
         },
         "/v1/batches": {
             "post": _operation("createBatch", "Create and enqueue a bounded batch", 202, request_body="#/components/schemas/BatchRequest"),
@@ -135,6 +138,7 @@ def _operation(
             "401": _error_response("Authentication required"),
             "403": _error_response("Access denied"),
             "404": _error_response("Resource not found"),
+            "409": _error_response("Idempotency conflict"),
             "429": _error_response("Rate limited"),
             "500": _error_response("Internal error"),
         },
@@ -172,4 +176,14 @@ def _query_parameter(name: str) -> dict[str, Any]:
         "in": "query",
         "required": False,
         "schema": {"type": "string", "minLength": 1},
+    }
+
+
+def _idempotency_parameter() -> dict[str, Any]:
+    return {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": False,
+        "description": "Opaque key scoped to the authenticated owner and request body.",
+        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
     }

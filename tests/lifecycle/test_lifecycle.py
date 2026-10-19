@@ -323,6 +323,7 @@ class OrchestratorPersistenceTests(unittest.TestCase):
                 ("004_analysis_ownership",),
                 ("005_collection_jobs",),
                 ("006_browser_jobs",),
+                ("007_analysis_idempotency",),
             ],
             versions,
         )

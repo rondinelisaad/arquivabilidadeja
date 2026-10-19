@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from archivability.jobs.collection import (
+    AnalysisIdempotency,
     CollectionEnqueueOutcome,
     CollectionLimits,
     HttpCollectionQueueService,
@@ -76,6 +77,7 @@ class HttpAssessmentWorkflow:
         assessment_max_attempts: int = 3,
         limits: ProbeLimits = ProbeLimits(),
         audit: AuditContext = AuditContext(),
+        idempotency: AnalysisIdempotency | None = None,
     ) -> HttpWorkflowOutcome:
         # Accepted for compatibility, but deliberately never invoked here.
         del probe
@@ -94,14 +96,16 @@ class HttpAssessmentWorkflow:
         queued = self._collection_queue.enqueue_new_analysis(
             analysis,
             owner_user_id=owner_user_id,
+            idempotency=idempotency,
             limits=limits,
             max_attempts=analysis_max_attempts,
             assessment_max_attempts=assessment_max_attempts,
             audit=audit,
         )
+        stored_analysis = queued.analysis or analysis
         return HttpWorkflowOutcome(
             status="collection_queued",
-            analysis=analysis,
+            analysis=stored_analysis,
             collection=queued,
         )
 

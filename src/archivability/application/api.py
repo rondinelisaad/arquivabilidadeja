@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import re
 from collections.abc import Callable
@@ -19,11 +20,13 @@ from archivability.application.read_model import (
     ReportError,
     ReportNotFoundError,
 )
+from archivability.jobs.collection import AnalysisIdempotency
 from archivability.lifecycle.models import LifecycleError
 from archivability.methodology.catalog import MethodologyCatalog
 from archivability.probes.models import ProbeValidationError
 from archivability.probes.ports import Probe
 from archivability.storage.audit import AuditContext
+from archivability.storage.errors import IdempotencyConflict
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 _PERMISSION_PATTERN = re.compile(r'^[\x21\x23-\x5B\x5D-\x7E]{1,128}$')
@@ -91,6 +94,7 @@ class ApiResponse:
             403,
             404,
             405,
+            409,
             413,
             415,
             429,
@@ -168,6 +172,7 @@ class AnalysisApi:
         payload: Mapping[str, Any],
         *,
         context: ApiRequestContext,
+        idempotency_key: str | None = None,
     ) -> ApiResponse:
         denied = self._authenticate(context, "create")
         if denied is not None:
@@ -213,11 +218,25 @@ class AnalysisApi:
             )
         try:
             subject_uri = self._subject_uri(payload)
+            idempotency = self._idempotency(
+                idempotency_key,
+                owner_user_id=principal.user_id,
+                subject_uri=subject_uri,
+            )
             outcome = self._workflow.start(
                 subject_uri=subject_uri,
                 probe=self._probe,
                 owner_user_id=principal.user_id,
                 audit=context.audit_context(),
+                idempotency=idempotency,
+            )
+        except IdempotencyConflict:
+            return self._error(
+                context,
+                operation="create",
+                status_code=409,
+                code="IDEMPOTENCY_CONFLICT",
+                message="Idempotency key conflicts with a previous request.",
             )
         except (ApiValidationError, WorkflowError, LifecycleError, ProbeValidationError):
             return self._error(
@@ -238,6 +257,7 @@ class AnalysisApi:
         body = {
             "analysis_id": outcome.analysis.analysis_id,
             "status": outcome.status,
+            "replayed": not outcome.collection.created,
             "report_path": f"/v1/analyses/{quote(outcome.analysis.analysis_id, safe='')}",
             "export_path": (
                 f"/v1/analyses/{quote(outcome.analysis.analysis_id, safe='')}/export.json"
@@ -1007,6 +1027,31 @@ class AnalysisApi:
         if not isinstance(value, str) or not value or len(value) > 2048:
             raise ApiValidationError("subject_uri is invalid")
         return value
+
+    def _idempotency(
+        self,
+        value: str | None,
+        *,
+        owner_user_id: str,
+        subject_uri: str,
+    ) -> AnalysisIdempotency | None:
+        if value is None:
+            return None
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 256
+            or any(ord(character) < 33 or ord(character) > 126 for character in value)
+        ):
+            raise ApiValidationError("idempotency key is invalid")
+        request_material = (
+            f"{self._methodology_catalog.methodology_id}\0"
+            f"{self._methodology_catalog.version}\0{subject_uri}"
+        ).encode("utf-8")
+        return AnalysisIdempotency(
+            owner_user_id=owner_user_id,
+            key_hash=hashlib.sha256(value.encode("ascii")).hexdigest(),
+            request_hash=hashlib.sha256(request_material).hexdigest(),
+        )
 
     @classmethod
     def _batch_subjects(cls, payload: Mapping[str, Any]) -> tuple[str, ...]:

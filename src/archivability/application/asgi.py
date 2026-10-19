@@ -124,8 +124,13 @@ class AnalysisAsgiApp:
                         )
                     else:
                         payload = await self._read_json_object(scope, receive)
+                        idempotency_key = self._idempotency_key(scope)
                         response = await self._sync_runner.run(
-                            lambda: self._api.create_analysis(payload, context=context)
+                            lambda: self._api.create_analysis(
+                                payload,
+                                context=context,
+                                idempotency_key=idempotency_key,
+                            )
                         )
                 else:
                     raise _RequestFailure(
@@ -427,6 +432,33 @@ class AnalysisAsgiApp:
         if length > self._max_body_bytes:
             raise _RequestFailure(413, "PAYLOAD_TOO_LARGE", "Request body is too large.")
         return length
+
+    @staticmethod
+    def _idempotency_key(scope: Mapping[str, Any]) -> str | None:
+        headers = scope.get("headers", ())
+        values = [
+            value
+            for name, value in headers
+            if isinstance(name, bytes)
+            and isinstance(value, bytes)
+            and name.lower() == b"idempotency-key"
+        ]
+        if not values:
+            return None
+        if len(values) != 1:
+            raise _RequestFailure(400, "INVALID_REQUEST", "Request is invalid.")
+        try:
+            value = values[0].decode("ascii")
+        except UnicodeDecodeError:
+            raise _RequestFailure(
+                400, "INVALID_REQUEST", "Request is invalid."
+            ) from None
+        if (
+            not 1 <= len(value) <= 256
+            or any(ord(character) < 33 or ord(character) > 126 for character in value)
+        ):
+            raise _RequestFailure(400, "INVALID_REQUEST", "Request is invalid.")
+        return value
 
     @staticmethod
     def _is_json_content_type(value: bytes) -> bool:

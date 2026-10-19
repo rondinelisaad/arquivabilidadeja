@@ -99,6 +99,7 @@ from archivability.evidence import (
     validate_browser_render_observation,
 )
 from archivability.jobs import (
+    AnalysisIdempotency,
     AssessmentJob,
     AssessmentJobRepository,
     AssessmentJobState,
@@ -188,6 +189,7 @@ __all__ = [
     "AnalysisAsgiApp",
     "AnalysisComparison",
     "AnalysisHistoryEntry",
+    "AnalysisIdempotency",
     "AnalysisOrchestrator",
     "AnalysisOwnershipReader",
     "AnalysisReport",

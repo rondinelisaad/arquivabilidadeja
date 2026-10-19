@@ -28,9 +28,13 @@ class CapturingApi:
         self.calls: list[tuple[str, Any, ApiRequestContext]] = []
 
     def create_analysis(
-        self, payload: Mapping[str, Any], *, context: ApiRequestContext
+        self,
+        payload: Mapping[str, Any],
+        *,
+        context: ApiRequestContext,
+        idempotency_key: str | None = None,
     ) -> ApiResponse:
-        self.calls.append(("create", dict(payload), context))
+        self.calls.append(("create", (dict(payload), idempotency_key), context))
         if context.principal is None:
             return self._error(context, 401, "AUTHENTICATION_REQUIRED")
         return ApiResponse(
@@ -249,6 +253,7 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
                 headers=[
                     (b"content-type", b"application/json; charset=utf-8"),
                     (b"content-length", str(len(body)).encode("ascii")),
+                    (b"idempotency-key", b"opaque-key-1"),
                 ],
                 state=state,
             ),
@@ -262,9 +267,11 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("analysis-1", response["analysis_id"])
         self.assertEqual("request-trusted-1", headers["x-request-id"])
         self.assertEqual("nosniff", headers["x-content-type-options"])
-        operation, payload, context = self.api.calls[0]
+        operation, arguments, context = self.api.calls[0]
+        payload, idempotency_key = arguments
         self.assertEqual("create", operation)
         self.assertEqual("https://example.org/", payload["subject_uri"])
+        self.assertEqual("opaque-key-1", idempotency_key)
         self.assertIs(self.principal, context.principal)
         self.assertEqual([], self.audit.events)
 
@@ -289,6 +296,24 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(202, status)
         self.assertEqual("batch-1", response["batch_id"])
         self.assertEqual("batch_create", self.api.calls[0][0])
+
+    async def test_duplicate_idempotency_key_is_rejected_before_api_call(self) -> None:
+        body = b'{"subject_uri":"https://example.org/"}'
+        status, _, response = await self.request(
+            self.scope(
+                headers=[
+                    (b"content-type", b"application/json"),
+                    (b"idempotency-key", b"first"),
+                    (b"idempotency-key", b"second"),
+                ],
+                state={"archivability.principal": self.principal},
+            ),
+            [{"type": "http.request", "body": body}],
+        )
+
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_REQUEST", response["error"]["code"])
+        self.assertEqual([], self.api.calls)
 
     async def test_methodology_routes_and_indicator_filters_are_explicit(self) -> None:
         state = {
