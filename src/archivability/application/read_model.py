@@ -264,6 +264,8 @@ class EvidenceReport:
     method_id: str
     method_version: str
     confidence: float
+    data: Mapping[str, Any]
+    summary: str
     content_hash: str
     created_at: datetime
     sources: tuple[EvidenceSourceReport, ...]
@@ -276,6 +278,8 @@ class EvidenceReport:
             "method_id": self.method_id,
             "method_version": self.method_version,
             "confidence": self.confidence,
+            "data": _plain_report_json(self.data),
+            "summary": self.summary,
             "content_hash": self.content_hash,
             "created_at": _iso(self.created_at),
             "sources": [item.to_dict() for item in self.sources],
@@ -889,6 +893,8 @@ class AnalysisReportService:
                 method_id=item.method_id,
                 method_version=item.method_version,
                 confidence=item.confidence,
+                data=_freeze_report_json(_public_evidence_data(item.data)),
+                summary=item.summary,
                 content_hash=item.content_hash,
                 created_at=item.created_at,
                 sources=tuple(
@@ -915,7 +921,7 @@ class AnalysisReportService:
                 applicable_indicator_ids=tuple(self._methodology.indicators),
             )
         return AnalysisReport(
-            report_schema_version="1.2",
+            report_schema_version="1.3",
             analysis_id=analysis.analysis_id,
             target_origin=_safe_origin(analysis.subject_uri),
             methodology_id=analysis.methodology_id,
@@ -1095,6 +1101,32 @@ def _freeze_report_json(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_freeze_report_json(item) for item in value)
     return value
+
+
+def _plain_report_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _plain_report_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain_report_json(item) for item in value]
+    return value
+
+
+def _public_evidence_data(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return aggregate evidence while excluding raw or identifying fields."""
+    blocked = {"body", "cookies", "headers", "path", "payload", "subject_uri", "url"}
+
+    def sanitize(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {
+                key: sanitize(child)
+                for key, child in item.items()
+                if key not in blocked and not key.endswith("_hash")
+            }
+        if isinstance(item, tuple):
+            return [sanitize(child) for child in item]
+        return item
+
+    return sanitize(value)
 
 
 def _progress_phase(

@@ -39,6 +39,7 @@ from archivability import (  # noqa: E402
     apply_sqlite_migrations,
     load_methodology,
 )
+from archivability.application.read_model import _public_evidence_data  # noqa: E402
 
 NOW = datetime(2026, 10, 7, 5, 0, tzinfo=timezone.utc)
 SUBJECT = "https://example.org/private/path?token=must-not-be-logged"
@@ -86,6 +87,18 @@ class SuccessfulHttpProbe:
 
 
 class AnalysisReportServiceTests(unittest.TestCase):
+    def test_public_evidence_data_excludes_raw_fields(self) -> None:
+        projected = _public_evidence_data(
+            {
+                "request_count": 9,
+                "raw_dom_hash": "a" * 64,
+                "url": "https://example.org/private",
+                "nested": {"headers": {"authorization": "secret"}, "visited": 3},
+            }
+        )
+
+        self.assertEqual({"request_count": 9, "nested": {"visited": 3}}, projected)
+
     def setUp(self) -> None:
         self.connection = sqlite3.connect(":memory:")
         apply_sqlite_migrations(self.connection)
@@ -286,7 +299,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual((), report.attempts)
         self.assertEqual("collection", report.jobs[0].stage)
         self.assertEqual("pending", report.jobs[0].state)
-        self.assertEqual("1.2", document["report_schema_version"])
+        self.assertEqual("1.3", document["report_schema_version"])
         self.assertIsNone(report.assessment)
         self.assertEqual([], document["indicator_results"])
         serialized = json.dumps(document)
@@ -354,7 +367,7 @@ class AnalysisReportServiceTests(unittest.TestCase):
             "SITE_HISTORY_BUILD_FAILED", json.loads(event[2])["error_code"]
         )
 
-    def test_completed_report_contains_results_and_hash_only_provenance(self) -> None:
+    def test_completed_report_contains_results_and_safe_evidence_details(self) -> None:
         report = self._complete_analysis()
         document = report.to_dict()
 
@@ -373,6 +386,9 @@ class AnalysisReportServiceTests(unittest.TestCase):
         )
         self.assertEqual("measurement_unavailable", unavailable.kind)
         self.assertEqual(0.0, unavailable.confidence)
+        self.assertEqual("measurement_not_implemented", unavailable.data["reason"])
+        self.assertEqual("0.1.0", unavailable.data["methodology_version"])
+        self.assertTrue(unavailable.summary)
         self.assertTrue(all(item.probe_ids for item in report.indicator_results))
         self.assertTrue(all(item.tool_versions for item in report.indicator_results))
         self.assertTrue(all(item.sources for item in report.evidence))
@@ -408,9 +424,9 @@ class AnalysisReportServiceTests(unittest.TestCase):
             sort_keys=True,
         ).encode("utf-8")
 
-        self.assertEqual("1.2", report.report_schema_version)
+        self.assertEqual("1.3", report.report_schema_version)
         self.assertEqual(
-            "16c9c2ca55ed93622a0c37e746b0aa9febd4ba489182a83bd44ee96c47cc6ced",
+            "693dc684adeffc52f78805d262688ed2cfdbed421523feb8d4abff1fd096cea8",
             hashlib.sha256(canonical).hexdigest(),
         )
 

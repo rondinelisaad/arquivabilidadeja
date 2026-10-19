@@ -312,10 +312,176 @@
     $("#indicator-empty").hidden = visible !== 0;
   };
 
-  const renderIndicators = (results, catalogById) => {
+  const evidenceFieldLabels = {
+    request_count: ["Requisições observadas", "Observed requests"],
+    internal_request_count: ["Requisições internas", "Internal requests"],
+    external_request_count: ["Requisições externas", "External requests"],
+    external_request_share: ["Proporção de requisições externas", "External request share"],
+    external_origin_count: ["Origens externas distintas", "Distinct external origins"],
+    api_request_count: ["Requisições de API", "API requests"],
+    external_api_request_count: ["Requisições de API externas", "External API requests"],
+    external_api_share: ["Proporção de APIs externas", "External API share"],
+    status_code: ["Status HTTP", "HTTP status"],
+    http_status: ["Status HTTP", "HTTP status"],
+    redirect_count: ["Redirecionamentos", "Redirects"],
+    attempt_count: ["Tentativas", "Attempts"],
+    bytes_observed: ["Bytes observados", "Observed bytes"],
+    response_bytes: ["Bytes recebidos", "Received bytes"],
+    content_length: ["Tamanho declarado", "Declared size"],
+    content_length_matches_observed: ["Tamanho declarado confere", "Declared size matches"],
+    termination_reason: ["Motivo do término", "Termination reason"],
+    outcome: ["Resultado da coleta", "Collection outcome"],
+    parseable: ["Conteúdo analisável", "Parseable content"],
+    parse_result: ["Resultado do parser", "Parser result"],
+    directive_count: ["Diretivas encontradas", "Found directives"],
+    declared_url_count: ["URLs declaradas", "Declared URLs"],
+    urls_extracted: ["URLs extraídas", "Extracted URLs"],
+    feed_count: ["Feeds encontrados", "Found feeds"],
+    total: ["Total", "Total"],
+    internal: ["Internas", "Internal"],
+    external: ["Externas", "External"],
+    truncated: ["Coleta truncada", "Collection truncated"],
+    successful: ["Recuperações bem-sucedidas", "Successful retrievals"],
+    success_count: ["Recuperações bem-sucedidas", "Successful retrievals"],
+    broken_count: ["Links quebrados", "Broken links"],
+    visited: ["URLs visitadas", "Visited URLs"],
+    enqueued: ["URLs incluídas na fila", "Queued URLs"],
+    discovered_references: ["Referências descobertas", "Discovered references"],
+    additional_url_count: ["URLs adicionais após renderização", "Additional URLs after rendering"],
+    raw_url_count: ["URLs no HTML original", "URLs in raw HTML"],
+    rendered_url_count: ["URLs após renderização", "URLs after rendering"],
+    rendered_gain_share: ["Ganho de URLs após renderização", "Rendered URL gain"],
+    dependency_graph_observed: ["Grafo de dependências observado", "Dependency graph observed"],
+    external_script: ["Scripts externos", "External scripts"],
+    external_stylesheet: ["Folhas de estilo externas", "External stylesheets"],
+    external_image: ["Imagens externas", "External images"],
+    external_font: ["Fontes externas", "External fonts"],
+    external_api: ["APIs externas", "External APIs"],
+    external_frame: ["Frames externos", "External frames"],
+    external_other: ["Outros recursos externos", "Other external resources"],
+    rendered_content_changed: ["Conteúdo renderizado mudou", "Rendered content changed"],
+    raw_dom_bytes: ["Tamanho do HTML original", "Raw HTML size"],
+    rendered_dom_bytes: ["Tamanho após renderização", "Rendered content size"],
+    dom_delta_share: ["Variação do conteúdo após renderização", "Rendered content change"],
+    elapsed_milliseconds: ["Duração observada", "Observed duration"],
+    sample_size: ["Tamanho da amostra", "Sample size"],
+    reason: ["Motivo", "Reason"],
+  };
+
+  const evidenceValueLabels = {
+    browser_observation_unavailable: ["observação do navegador indisponível", "browser observation unavailable"],
+    observation_schema_does_not_support_measurement: ["a versão da observação não oferece esta medição", "the observation version does not provide this measurement"],
+    measurement_not_implemented: ["esta medição ainda não está implementada na versão atual", "this measurement is not yet implemented in the current version"],
+    complete: ["coleta concluída", "collection completed"],
+    response: ["resposta recebida", "response received"],
+  };
+
+  const evidenceFieldLabel = (path) => {
+    const key = path.split(".").at(-1);
+    const translated = evidenceFieldLabels[key];
+    if (translated) return localized(...translated);
+    return key.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+  };
+
+  const formatEvidenceValue = (path, value) => {
+    if (value === null || value === undefined) return localized("Não disponível", "Unavailable");
+    if (typeof value === "boolean") return value ? localized("Sim", "Yes") : localized("Não", "No");
+    const key = path.split(".").at(-1);
+    if (typeof value === "number" && key.endsWith("_share")) {
+      return new Intl.NumberFormat(isPortuguese ? "pt-BR" : "en", { style: "percent", maximumFractionDigits: 1 }).format(value);
+    }
+    if (typeof value === "number" && key.includes("milliseconds")) return `${new Intl.NumberFormat(isPortuguese ? "pt-BR" : "en").format(value)} ms`;
+    if (Array.isArray(value)) return value.join(", ");
+    const translated = evidenceValueLabels[String(value)];
+    return translated ? localized(...translated) : String(value).replaceAll("_", " ");
+  };
+
+  const flattenEvidenceData = (value, prefix = "", depth = 0) => {
+    if (!value || typeof value !== "object" || depth > 2) return [];
+    return Object.entries(value).flatMap(([key, item]) => {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (key.includes("hash") || ["budgets", "limits", "threshold_basis", "profile_id", "parser_version"].includes(key)) return [];
+      if (item && typeof item === "object" && !Array.isArray(item)) return flattenEvidenceData(item, path, depth + 1);
+      return [[path, item]];
+    });
+  };
+
+  const evidenceNarrative = (indicatorId, evidence) => {
+    const data = evidence?.data || {};
+    if (data.reason) {
+      return localized(
+        `Não foi possível medir este indicador nesta execução: ${formatEvidenceValue("reason", data.reason)}.`,
+        `This indicator could not be measured in this run: ${formatEvidenceValue("reason", data.reason)}.`,
+      );
+    }
+    if (indicatorId === "C01" && Number.isFinite(data.request_count)) {
+      const share = formatEvidenceValue("external_request_share", data.external_request_share || 0);
+      const requests = localized(data.request_count === 1 ? "requisição" : "requisições", data.request_count === 1 ? "request" : "requests");
+      const externalRequests = localized(data.external_request_count === 1 ? "foi externa" : "foram externas", data.external_request_count === 1 ? "was external" : "were external");
+      const origins = localized(data.external_origin_count === 1 ? "origem externa" : "origens externas", data.external_origin_count === 1 ? "external origin" : "external origins");
+      return localized(
+        `O navegador fez ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), distribuídas em ${data.external_origin_count || 0} ${origins}. Os endereços individuais não são armazenados.`,
+        `The browser made ${data.request_count} ${requests}. ${data.external_request_count || 0} ${externalRequests} (${share}), across ${data.external_origin_count || 0} ${origins}. Individual addresses are not stored.`,
+      );
+    }
+    return localized(
+      "A conclusão foi calculada a partir dos valores agregados observados abaixo. Nenhum corpo de página, cookie ou endereço individual faz parte desta evidência.",
+      "The conclusion was calculated from the aggregate values observed below. No page body, cookie, or individual address is included in this evidence.",
+    );
+  };
+
+  const renderEvidence = (result, evidenceById) => {
+    const evidenceItems = (result.evidence_ids || []).map((id) => evidenceById.get(id)).filter(Boolean);
+    const panel = document.createElement("section");
+    panel.className = "indicator-evidence";
+    const title = document.createElement("h4");
+    title.textContent = localized("O que foi observado", "What was observed");
+    panel.append(title);
+    if (!evidenceItems.length) {
+      const unavailable = document.createElement("p");
+      unavailable.textContent = localized("Os detalhes desta evidência não estão disponíveis neste relatório.", "Evidence details are not available in this report.");
+      panel.append(unavailable);
+      return panel;
+    }
+    evidenceItems.forEach((evidence, index) => {
+      const narrative = document.createElement("p");
+      narrative.className = "evidence-narrative";
+      narrative.textContent = evidenceNarrative(result.indicator_id, evidence);
+      panel.append(narrative);
+      const facts = flattenEvidenceData(evidence.data).slice(0, 12);
+      if (facts.length) {
+        const values = document.createElement("dl");
+        values.className = "evidence-facts";
+        facts.forEach(([path, value]) => {
+          const term = document.createElement("dt");
+          term.textContent = evidenceFieldLabel(path);
+          const description = document.createElement("dd");
+          description.textContent = formatEvidenceValue(path, value);
+          values.append(term, description);
+        });
+        panel.append(values);
+      }
+      const trace = document.createElement("details");
+      trace.className = "evidence-trace";
+      const traceTitle = document.createElement("summary");
+      traceTitle.textContent = localized(`Rastreabilidade técnica${evidenceItems.length > 1 ? ` ${index + 1}` : ""}`, `Technical trace${evidenceItems.length > 1 ? ` ${index + 1}` : ""}`);
+      const source = (evidence.sources || [])[0];
+      const traceText = document.createElement("p");
+      traceText.textContent = localized(
+        `Método ${evidence.method_id}@${evidence.method_version}; observada em ${formatDate(source?.observed_at || evidence.created_at)} por ${source?.tool_name || "probe"} ${source?.tool_version || ""}; confiança ${Math.round((evidence.confidence || 0) * 100)}%; evidência ${evidence.evidence_id}.`,
+        `Method ${evidence.method_id}@${evidence.method_version}; observed ${formatDate(source?.observed_at || evidence.created_at)} by ${source?.tool_name || "probe"} ${source?.tool_version || ""}; ${Math.round((evidence.confidence || 0) * 100)}% confidence; evidence ${evidence.evidence_id}.`,
+      );
+      trace.append(traceTitle, traceText);
+      panel.append(trace);
+    });
+    return panel;
+  };
+
+  const renderIndicators = (results, catalogById, evidenceItems) => {
     const section = $("#findings-section");
     section.hidden = !results.length;
     const list = $("#indicator-list");
+    const evidenceById = new Map((evidenceItems || []).map((item) => [item.evidence_id, item]));
     list.replaceChildren();
     $("#nav-indicator-count").textContent = results.length;
     $("#filter-all-count").textContent = results.length;
@@ -366,17 +532,17 @@
       detail.className = "indicator-detail";
       const description = document.createElement("p");
       description.textContent = definition?.description || localized("Consulte a documentação metodológica para interpretar este indicador.", "Review the methodology documentation to interpret this indicator.");
-      const evidence = document.createElement("p");
-      evidence.className = "muted";
-      evidence.textContent = localized(
-        `${(result.evidence_ids || []).length} evidência(s) derivada(s) · ${definition?.measurement || "Medição documentada na metodologia."}`,
-        `${(result.evidence_ids || []).length} derived evidence item(s) · ${definition?.measurement || "Measurement documented in the methodology."}`,
+      const measurement = document.createElement("p");
+      measurement.className = "muted";
+      measurement.textContent = localized(
+        `Como medimos: ${definition?.measurement || "medição documentada na metodologia."}`,
+        `How we measure: ${definition?.measurement || "measurement documented in the methodology."}`,
       );
       const indicatorLink = document.createElement("a");
       indicatorLink.className = "indicator-method-link";
       indicatorLink.href = definition?.path || `/methodology/indicators/${encodeURIComponent(result.indicator_id)}`;
       indicatorLink.textContent = t("indicator.viewMethod");
-      detail.append(description, evidence, indicatorLink);
+      detail.append(description, measurement, renderEvidence(result, evidenceById), indicatorLink);
       row.append(summary, detail);
       list.append(row);
     });
@@ -535,6 +701,7 @@
 
   const renderRecommendations = (report, catalogById) => {
     const actionable = (report.indicator_results || []).filter((result) => ["fail", "warning"].includes(result.state));
+    const evidenceById = new Map((report.evidence || []).map((item) => [item.evidence_id, item]));
     const section = $("#recommendations-section");
     section.hidden = !actionable.length;
     $("#nav-recommendation-count").textContent = actionable.length;
@@ -552,9 +719,12 @@
       state.textContent = stateLabel(result.state);
       summary.append(title, state);
       const details = document.createElement("dl");
+      const primaryEvidence = (result.evidence_ids || []).map((id) => evidenceById.get(id)).find(Boolean);
       const rows = [
         [localized("Problema", "Issue"), stateLabel(result.state)],
-        [localized("Evidência", "Evidence"), localized(`${(result.evidence_ids || []).length} evidência(s); confiança ${Math.round((result.confidence || 0) * 100)}%.`, `${(result.evidence_ids || []).length} evidence item(s); ${Math.round((result.confidence || 0) * 100)}% confidence.`)],
+        [localized("Evidência", "Evidence"), primaryEvidence
+          ? `${evidenceNarrative(result.indicator_id, primaryEvidence)} ${t("common.confidence", { value: Math.round((result.confidence || 0) * 100) })}.`
+          : localized("Detalhes da evidência indisponíveis.", "Evidence details unavailable.")],
         [localized("Impacto", "Impact"), definition.description || localized("Pode afetar a captura ou a interpretação do resultado.", "May affect capture or interpretation of the result.")],
         [localized("Possível correção", "Possible fix"), localized(`Revisar a condição pelo método: ${definition.measurement || "consulte a documentação do indicador"}.`, `Review the condition using this method: ${definition.measurement || "see the indicator documentation"}.`)],
         [localized("Responsabilidade", "Responsibility"), definition.classification === "intrinsic" ? localized("Depende principalmente do administrador do site.", "Depends mainly on the website administrator.") : definition.classification === "observation_context" ? localized("Depende principalmente do contexto/probe de coleta.", "Depends mainly on the collection context/probe.") : localized("Pode depender do site e da configuração do coletor.", "May depend on the website and collector configuration.")],
@@ -579,7 +749,7 @@
     $("#cancel-button").hidden = terminalStates.has(report.state);
     renderProgress(report);
     renderAssessment(report);
-    renderIndicators(report.indicator_results || [], catalogById);
+    renderIndicators(report.indicator_results || [], catalogById, report.evidence || []);
     renderCriticalFindings(report, catalogById);
     renderBlockingConditions(report.assessment);
     renderLegacyComparison(report.assessment);
