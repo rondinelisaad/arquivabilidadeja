@@ -26,6 +26,7 @@
     metadata_context: "Metadados",
     operational_harvestability: "Operação de coleta",
   };
+  let pendingSubmission = null;
 
   const request = async (path, options = {}) => {
     const response = await fetch(path, {
@@ -384,13 +385,24 @@
       const input = $("#subject-uri");
       const status = $("#form-status");
       if (!input.reportValidity()) return;
+      const subjectUri = input.value.trim();
+      if (!pendingSubmission || pendingSubmission.subjectUri !== subjectUri) {
+        pendingSubmission = {
+          subjectUri,
+          key: crypto.randomUUID(),
+        };
+      }
       status.textContent = "Criando avaliação…";
       try {
         const outcome = await request("/v1/analyses", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subject_uri: input.value.trim() }),
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": pendingSubmission.key,
+          },
+          body: JSON.stringify({ subject_uri: subjectUri }),
         });
+        pendingSubmission = null;
         window.location.assign(`/analyses/${encodeURIComponent(outcome.analysis_id)}`);
       } catch (error) {
         status.textContent = errorMessage(error);

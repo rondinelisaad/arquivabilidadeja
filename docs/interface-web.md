@@ -4,6 +4,8 @@
 
 A página inicial contém um único dado de entrada: a URL pública a avaliar. Ao enviar, o navegador chama `POST /v1/analyses`, recebe o identificador opaco e navega para `/analyses/{analysis_id}`. A página de acompanhamento consulta periodicamente o relatório até um estado terminal e representa as etapas coleta HTTP, browser isolado, derivação e relatório.
 
+A submissão gera uma `Idempotency-Key` criptograficamente aleatória e a reutiliza enquanto a mesma URL permanecer pendente após uma falha de transporte. Assim, repetir o envio não duplica a análise; a chave é descartada ao receber uma resposta bem-sucedida ou ao mudar a URL.
+
 Quando disponível, o relatório mostra estado geral, score e cobertura por dimensão, indicadores derivados, limitações metodológicas, exportação JSON e comparação com a execução anterior compatível. A página inicial também lista as 20 avaliações mais recentes do proprietário.
 
 Enquanto uma avaliação está ativa, a página de relatório oferece “Cancelar avaliação”. O comando chama `POST /v1/analyses/{analysis_id}/cancel`, exige `analysis:cancel`, é idempotente e desaparece quando a análise alcança qualquer estado terminal.

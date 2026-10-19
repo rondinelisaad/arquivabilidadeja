@@ -251,6 +251,8 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `POST /v1/batches` aceita de 1 a 25 URLs previamente validadas e cria análises duráveis independentes. A resposta preserva a posição e os IDs sem repetir os alvos; falhas por item são explícitas e o acesso gera `access.analysis_api_batch_create`. O bucket de rate limit é separado da criação unitária.
 
+`POST /v1/analyses` aceita o cabeçalho opcional `Idempotency-Key` (1–256 caracteres ASCII visíveis). A chave é vinculada ao proprietário autenticado e ao hash da URL/metodologia: um replay idêntico retorna `202` com o mesmo `analysis_id` e `replayed: true`; reutilização com conteúdo diferente retorna `409 IDEMPOTENCY_CONFLICT`. Apenas hashes SHA-256 da chave e da requisição ficam na tabela append-only `analysis_idempotency_keys`; a chave recebida não entra no banco nem na auditoria.
+
 `GET /v1/methodology` publica a identidade, versão, hash da fonte, dimensões, regras de scoring, gates e limitações da mesma configuração carregada pelo motor. `GET /v1/indicators` publica as 45 definições e aceita filtros exatos `version`, `dimension` e `classification`; `GET /v1/indicators/{id-ou-slug}` entrega a documentação individual. Essas leituras exigem `analysis:read` ou `analysis:read:any`, têm rate limit próprio e geram auditoria sem copiar o conteúdo metodológico.
 
 `GET /openapi.json` publica o contrato OpenAPI 3.1 das operações efetivamente implementadas. A especificação declara autenticação Bearer JWT, schemas fechados e limites das entradas de criação unitária e em lote. A leitura exige permissão de análise, compartilha o rate limit metodológico e gera `access.analysis_api_openapi_read`.

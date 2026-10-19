@@ -511,6 +511,8 @@ O contrato operacional também está publicado em `GET /openapi.json` como OpenA
 
 O cancelamento `POST /v1/analyses/{id}/cancel` também está operacional e documentado no OpenAPI. Ele é privado, exige permissão explícita mais autorização sobre a análise, cancela tentativas ativas, bloqueia novos claims nas filas e aceita replay idempotente.
 
+A criação unitária implementa `Idempotency-Key` durável e por proprietário. A chave e a requisição são persistidas somente como SHA-256 numa tabela append-only; replay idêntico reutiliza a análise original, enquanto mudança de URL ou metodologia sob a mesma chave falha com `409`.
+
 ### 16.1 Estratégia de testes
 
 - Testes unitários para normalização, classificação de IP, parsing, derivação, cobertura e fórmulas.
