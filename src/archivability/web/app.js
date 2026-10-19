@@ -292,6 +292,7 @@
     $("#report-origin").textContent = report.target_origin;
     $("#report-title").textContent = terminalStates.has(report.state) ? "Relatório de arquivabilidade" : "Avaliação em andamento";
     $("#report-updated").textContent = `Atualizado em ${formatDate(report.updated_at)}`;
+    $("#cancel-button").hidden = terminalStates.has(report.state);
     renderProgress(report);
     renderAssessment(report);
     renderIndicators(report.indicator_results || []);
@@ -339,6 +340,20 @@
     }
   };
 
+  const cancelAnalysis = async (analysisId) => {
+    const button = $("#cancel-button");
+    const status = $("#report-status");
+    button.disabled = true;
+    status.textContent = "Cancelando avaliação…";
+    try {
+      await request(`/v1/analyses/${encodeURIComponent(analysisId)}/cancel`, { method: "POST" });
+      await loadReport(analysisId);
+    } catch (error) {
+      status.textContent = errorMessage(error);
+      button.disabled = false;
+    }
+  };
+
   const initialize = () => {
     const indicatorMatch = window.location.pathname.match(/^\/methodology\/indicators\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
     if (indicatorMatch) {
@@ -360,6 +375,7 @@
       $("#report-view").hidden = false;
       $("#export-link").href = `/v1/analyses/${encodeURIComponent(analysisId)}/export.json`;
       $("#compare-button").addEventListener("click", () => loadComparison(analysisId));
+      $("#cancel-button").addEventListener("click", () => cancelAnalysis(analysisId));
       loadReport(analysisId);
       return;
     }

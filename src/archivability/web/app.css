@@ -20,7 +20,7 @@
 body { margin: 0; min-width: 320px; overflow-x: hidden; background: radial-gradient(circle at 85% 2%, #dbe8df 0, transparent 30rem), var(--paper); }
 a { color: inherit; }
 button, input { font: inherit; }
-button, .quiet-button { min-height: 44px; }
+button, .quiet-button, .danger-button { min-height: 44px; }
 .skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 10; background: var(--ink); color: white; padding: .75rem 1rem; }
 .skip-link:focus { top: 1rem; }
 .site-header { max-width: 1240px; margin: 0 auto; padding: 1.35rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
@@ -56,6 +56,9 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.7rem); }
 .section-heading.compact h2 { font-size: 1.45rem; }
 .quiet-button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ink); border-radius: 3px; padding: .65rem 1rem; background: transparent; color: var(--ink); text-decoration: none; font-weight: 750; cursor: pointer; }
 .quiet-button:hover { background: var(--ink); color: white; }
+.danger-button { border: 1px solid var(--red); border-radius: 3px; padding: .65rem 1rem; background: transparent; color: var(--red); font-weight: 750; cursor: pointer; }
+.danger-button:hover { background: var(--red); color: white; }
+.danger-button:disabled { cursor: wait; opacity: .55; }
 .history-grid, .dimension-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.5rem; }
 .history-card, .dimension-card { padding: 1.25rem; border: 1px solid var(--line); background: var(--white); }
 .history-card { display: block; text-decoration: none; }

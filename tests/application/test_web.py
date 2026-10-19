@@ -102,6 +102,7 @@ class WebAsgiAppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, home[0])
         self.assertIn(b"Arquivabilidade J", home[2])
         self.assertEqual(200, report[0])
+        self.assertIn(b"cancel-button", report[2])
         self.assertEqual(200, methodology[0])
         self.assertIn(b"methodology-view", methodology[2])
         self.assertEqual(200, catalog[0])
