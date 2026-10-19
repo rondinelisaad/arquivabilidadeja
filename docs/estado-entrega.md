@@ -23,10 +23,10 @@ zero.
 | 1 — fundação segura | concluída | Domínio, migrações, SSRF, autenticação/autorização, auditoria append-only, filas e separação de papéis do banco possuem testes. |
 | 2 — análise HTTP | concluída | Homepage, robots, sitemap, HTML agregado, cabeçalhos allowlisted, formatos e latência geram observações reproduzíveis sem persistir corpo, cookie, IP ou URL descoberta. |
 | 3 — crawl limitado | concluída | Fronteira de mesma origem, robots RFC 9309, redirects revalidados, quotas e resultados agregados estão ligados ao worker durável. |
-| 4 — browser isolado | funcional; validação operacional pendente | Contrato, sidecar, budgets, atestação, fila, derivação e testes Node estão implementados. O build/execução da imagem ainda depende de um daemon Docker funcional. |
+| 4 — browser isolado | concluída tecnicamente | Contrato, sidecar, budgets, atestação, fila, derivação e testes Node estão implementados. Build, sandbox e renderização HTTPS real foram validados no Compose local. |
 | 5 — scoring e relatório | concluída tecnicamente | Cobertura, estados, gates inativos, exportação canônica, histórico, comparação e interface Web possuem golden tests. CLEAR+ legado continua nulo por decisão metodológica. |
 | 6 — validação científica | infraestrutura concluída; estudo externo pendente | Schema, exemplo e analisador reproduzível existem. Dataset real, especialistas, calibração, holdout e pareceres não podem ser substituídos por dados sintéticos. |
-| 7 — escala e probes | implementação de referência concluída | Lotes, identidade/localização declarada de probes, métricas, Compose e manifests estão implementados. Implantação multiprobe real e teste PostgreSQL/Chromium dependem do ambiente operacional. Object storage não se aplica enquanto nenhum artefato binário for persistido. |
+| 7 — escala e probes | implementação de referência concluída | Lotes, identidade/localização declarada de probes, métricas, Compose e manifests estão implementados. PostgreSQL e Chromium foram testados no Compose local; implantação multiprobe real depende do ambiente alvo. Object storage não se aplica enquanto nenhum artefato binário for persistido. |
 
 ## Cobertura executável da metodologia
 
@@ -48,18 +48,20 @@ declarada no catálogo.
 
 ## Verificações executadas
 
-- suíte Python: `274 passed`, `23 skipped`, `91 subtests passed`;
+- suíte Python sem integrações condicionais: `276 passed`, `23 skipped`, `91 subtests passed`;
+- integrações PostgreSQL no Compose: `35 passed`;
 - sidecar Node: `3 passed`;
+- renderização HTTPS real: Chromium `156.0.8078.4`, término `complete`, atestação de isolamento aprovada;
 - sintaxe JavaScript da interface: válida;
 - `docker compose --env-file deploy/compose/.env.example config --quiet`: válido;
 - diff Git: sem erros de whitespace;
 - varredura das adições antes dos commits: nenhum padrão de segredo encontrado.
 
-Os 23 skips são integrações PostgreSQL/Docker condicionadas por variável de ambiente.
-Em 2026-10-19, o Docker Desktop abriu, mas permaneceu em `Resource Saver mode` após
-tentativas de `Resume`; o cliente continuou sem acesso ao socket do daemon. Por isso,
-build do Chromium, subida do Compose e testes PostgreSQL não foram declarados como
-executados.
+Os skips da suíte sem variáveis continuam sendo integrações PostgreSQL condicionadas.
+Elas foram executadas separadamente contra o banco real via socket Unix. A auditoria
+efetiva confirmou os papéis `archivability_migration` e `archivability_runtime` sem
+superuser, `CREATEDB`, `CREATEROLE`, replicação ou `BYPASSRLS`; somente migração cria
+schema, e o runtime não possui DDL nem `DELETE` nas tabelas de domínio.
 
 ## Bloqueios para release pública
 
@@ -68,7 +70,8 @@ executados.
 2. aprovar responsável, papéis LGPD, finalidade, base legal, retenção, exclusão e
    transferências entre probes;
 3. configurar OIDC, DNS/TLS, segredos e políticas de egress do ambiente alvo;
-4. restabelecer o daemon Docker e executar o runbook operacional completo;
+4. executar o runbook no ambiente alvo, incluindo backup/restauração, DNS/TLS,
+   egress, OIDC, rotação de segredos e implantação multiprobe;
 5. realizar a validação científica externa antes de promover a metodologia de
    candidata ou ativar gates;
 6. implementar os vinte métodos restantes somente quando seus contratos de dados e

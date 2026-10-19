@@ -58,14 +58,15 @@ usuários e mensagens de erro não entram nas métricas. A leitura continua audi
 ### Docker Compose local
 
 O arquivo [`compose.yaml`](../compose.yaml) inicia PostgreSQL, migração, grants,
-API, worker e sidecar Chromium. Migração e runtime usam papéis diferentes; o runtime
-é validado contra privilégios administrativos/DDL. API e worker usam o socket Unix
+API, worker e sidecar Chromium. Bootstrap administrativo, migração e runtime usam
+credenciais distintas; migração e runtime não recebem atributos administrativos, e o
+runtime é validado contra DDL. API e worker usam o socket Unix
 compartilhado, enquanto worker e browser compartilham somente o namespace de rede
 necessário para o renderer loopback.
 
 ```bash
 cp deploy/compose/.env.example deploy/compose/.env
-# substitua senhas e parâmetros OIDC
+# substitua as três senhas de banco e os parâmetros OIDC
 # defina ARCHIVABILITY_PROBE_COUNTRY e ARCHIVABILITY_PROBE_REGION
 docker compose --env-file deploy/compose/.env up --build
 ```
@@ -102,7 +103,7 @@ bucket.
 
 - O Compose é uma implantação local de referência, não alta disponibilidade.
 - Escala horizontal exige observar leases, pool do banco, quotas por destino e egress.
-- O build do sidecar Chromium precisa ser validado novamente quando o daemon Docker
-  estiver disponível.
+- A implantação no ambiente alvo ainda exige validação própria de DNS/TLS, egress,
+  OIDC, armazenamento persistente, backup e restauração.
 - A identidade do probe registra contexto; não prova localização nem causa de uma
   divergência.

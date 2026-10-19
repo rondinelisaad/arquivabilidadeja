@@ -1,6 +1,6 @@
 # Fase 4 — browser isolado
 
-Status: implementação funcional concluída em 2026-10-18; validação operacional da imagem pendente do daemon Docker local.
+Status: implementação e validação operacional local concluídas em 2026-10-19.
 
 ## Contrato inicial
 
@@ -32,7 +32,7 @@ SQLite e PostgreSQL persistem a fila com revisão otimista, constraint de unicid
 
 Cada navegação e subrequest revalida esquema, credenciais, DNS e todos os endereços resolvidos, bloqueando redes privadas, loopback, link-local, documentação, multicast e especiais. A NetworkPolicy do pod fornece a segunda barreira contra rebinding. O resultado guarda somente hashes, contagens e medidas truncadas nos budgets.
 
-O container só responde saudável quando confirma sandbox habilitado, UID não-root, raiz read-only, perfil efêmero e ausência de secrets, mounts de host e socket Docker. No Kubernetes ele não recebe `envFrom`, Secret ou token de ServiceAccount e usa volume temporário próprio. O worker de produção passa a drenar, em ordem, coleta HTTP, browser e avaliação; a coleta só pula o browser nos testes legados que injetam explicitamente a fila HTTP.
+O container só responde saudável quando confirma sandbox habilitado, UID não-root, raiz read-only, perfil efêmero e ausência de secrets, mounts de host e socket Docker. No Compose, o perfil seccomp recomendado pelo Playwright libera a criação do namespace de usuário, todas as capabilities são removidas e somente `SYS_CHROOT` é devolvida para o sandbox do Chromium; `no-new-privileges` permanece ativo. No Kubernetes ele não recebe `envFrom`, Secret ou token de ServiceAccount e usa volume temporário próprio. O worker de produção passa a drenar, em ordem, coleta HTTP, browser e avaliação; a coleta só pula o browser nos testes legados que injetam explicitamente a fila HTTP.
 
 ## Derivação inicial
 
@@ -44,7 +44,7 @@ As fórmulas, limites e ressalvas estão em `docs/metodos-derivacao-browser.md`.
 
 O snapshot transacional inclui jobs `collection`, `browser` e `assessment`, com fases `browser_queued`, `rendering`, `browser_failed` e `assessment_queued_degraded`. `browser_runs` valida novamente o contrato persistido e expõe somente IDs opacos, hash da observação, perfil, budgets e contagens/medidas. Hashes de DOM e conjuntos de URL, atestação interna, URL, DOM e payload bruto não entram na resposta. A auditoria registra apenas `browser_count` junto às demais contagens.
 
-## Próximos incrementos
+## Validação operacional
 
-1. validação operacional da imagem em Docker/Kubernetes com filesystem read-only e sandbox ativo.
+Em 2026-10-19, o sidecar respondeu saudável e concluiu uma renderização HTTPS real com Chromium 156.0.8078.4. A atestação confirmou sandbox ativo, UID não-root, raiz read-only, perfil efêmero e ausência de segredos, mounts de host e socket Docker. A validação em Kubernetes permanece parte do runbook do ambiente alvo.
 
