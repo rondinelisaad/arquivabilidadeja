@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -147,6 +148,47 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertIn("archivability.analysis_idempotency_keys", grants)
         self.assertNotIn("CREATE ROLE", grants)
         self.assertNotIn("PASSWORD", grants.upper())
+
+    def test_compose_bootstrap_separates_admin_migration_and_runtime_roles(self) -> None:
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        bootstrap = (
+            ROOT / "deploy/compose/init-runtime-role.sql"
+        ).read_text(encoding="utf-8")
+        environment = (
+            ROOT / "deploy/compose/.env.example"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("POSTGRES_USER: postgres", compose)
+        self.assertNotIn("POSTGRES_USER: archivability_migration", compose)
+        self.assertIn("ARCHIVABILITY_ADMIN_DB_PASSWORD", compose)
+        self.assertIn("PGUSER: postgres", compose)
+        self.assertIn("CREATE ROLE archivability_migration", bootstrap)
+        self.assertIn("CREATE ROLE archivability_runtime", bootstrap)
+        self.assertEqual(2, bootstrap.count("NOSUPERUSER"))
+        self.assertEqual(2, bootstrap.count("NOCREATEDB"))
+        self.assertEqual(2, bootstrap.count("NOCREATEROLE"))
+        self.assertIn("GRANT CONNECT, CREATE ON DATABASE", bootstrap)
+        self.assertIn("ARCHIVABILITY_ADMIN_DB_PASSWORD=", environment)
+        self.assertIn("ARCHIVABILITY_MIGRATION_DB_PASSWORD=", environment)
+        self.assertIn("ARCHIVABILITY_RUNTIME_DB_PASSWORD=", environment)
+
+    def test_browser_compose_uses_restricted_chromium_sandbox_profile(self) -> None:
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        profile_path = ROOT / "deploy/compose/chromium-seccomp.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        allowed = {
+            name
+            for rule in profile["syscalls"]
+            if rule["action"] == "SCMP_ACT_ALLOW"
+            for name in rule["names"]
+        }
+
+        self.assertIn('cap_drop: ["ALL"]', compose)
+        self.assertIn('cap_add: ["SYS_CHROOT"]', compose)
+        self.assertIn("no-new-privileges:true", compose)
+        self.assertIn("seccomp:deploy/compose/chromium-seccomp.json", compose)
+        self.assertEqual("SCMP_ACT_ERRNO", profile["defaultAction"])
+        self.assertTrue({"clone", "setns", "unshare"}.issubset(allowed))
 
 
 if __name__ == "__main__":

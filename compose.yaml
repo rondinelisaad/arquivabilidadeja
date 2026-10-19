@@ -12,8 +12,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: archivability
-      POSTGRES_USER: archivability_migration
-      POSTGRES_PASSWORD: ${ARCHIVABILITY_MIGRATION_DB_PASSWORD:?set in deploy/compose/.env}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ARCHIVABILITY_ADMIN_DB_PASSWORD:?set in deploy/compose/.env}
+      ARCHIVABILITY_MIGRATION_DB_PASSWORD: ${ARCHIVABILITY_MIGRATION_DB_PASSWORD:?set in deploy/compose/.env}
       ARCHIVABILITY_RUNTIME_DB_PASSWORD: ${ARCHIVABILITY_RUNTIME_DB_PASSWORD:?set in deploy/compose/.env}
       POSTGRES_INITDB_ARGS: --auth-local=trust --auth-host=scram-sha-256
     volumes:
@@ -22,7 +23,7 @@ services:
       - ./deploy/compose/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
       - ./deploy/compose/init-runtime-role.sql:/opt/arquivabilidade/init-runtime-role.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U archivability_migration -d archivability"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d archivability"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -54,7 +55,7 @@ services:
     environment:
       PGHOST: /var/run/postgresql
       PGDATABASE: archivability
-      PGUSER: archivability_migration
+      PGUSER: postgres
     command:
       - psql
       - --set=ON_ERROR_STOP=1
@@ -114,8 +115,10 @@ services:
       - /tmp:size=512m,nosuid,nodev
     shm_size: 256m
     cap_drop: ["ALL"]
+    cap_add: ["SYS_CHROOT"]
     security_opt:
       - no-new-privileges:true
+      - seccomp:deploy/compose/chromium-seccomp.json
 
   worker:
     build:
