@@ -438,6 +438,91 @@ class AnalysisApi:
             result="success",
         )
 
+    def list_site_history(
+        self,
+        domain: str,
+        *,
+        context: ApiRequestContext,
+    ) -> ApiResponse:
+        denied = self._authenticate(context, "site_history")
+        if denied is not None:
+            return denied
+        principal = context.principal
+        assert principal is not None
+        if not principal.permissions.intersection({"analysis:read", "analysis:read:any"}):
+            return self._error(
+                context,
+                operation="site_history",
+                status_code=403,
+                code="ACCESS_DENIED",
+                message="Access denied.",
+                result="unauthorized",
+            )
+        try:
+            within_limit = self._rate_limiter.allow(principal, "analysis.read")
+        except Exception:
+            return self._error(
+                context,
+                operation="site_history",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+        if not within_limit:
+            return self._error(
+                context,
+                operation="site_history",
+                status_code=429,
+                code="RATE_LIMITED",
+                message="Request limit exceeded.",
+            )
+        try:
+            history = self._reports.list_site_history(
+                domain,
+                principal.user_id,
+                audit=context.audit_context(),
+            )
+        except ReportError:
+            return self._error(
+                context,
+                operation="site_history",
+                status_code=400,
+                code="INVALID_REQUEST",
+                message="Request is invalid.",
+            )
+        except Exception:
+            return self._error(
+                context,
+                operation="site_history",
+                status_code=500,
+                code="INTERNAL_ERROR",
+                message="Unable to process the request.",
+            )
+        strata: dict[tuple[str, str, tuple[str, ...]], int] = {}
+        for item in history:
+            key = (item.methodology_id, item.methodology_version, item.probe_ids)
+            strata[key] = strata.get(key, 0) + 1
+        return self._response(
+            context,
+            operation="site_history",
+            status_code=200,
+            body={
+                "site_history_schema_version": "1.0",
+                "strata": [
+                    {
+                        "methodology_id": methodology_id,
+                        "methodology_version": methodology_version,
+                        "probe_ids": list(probe_ids),
+                        "item_count": item_count,
+                    }
+                    for (methodology_id, methodology_version, probe_ids), item_count
+                    in sorted(strata.items())
+                ],
+                "items": [item.to_dict() for item in history],
+            },
+            result="success",
+        )
+
     def get_methodology(self, *, context: ApiRequestContext) -> ApiResponse:
         denied = self._authorize_catalog_read(context, "methodology_read")
         if denied is not None:

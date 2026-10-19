@@ -314,6 +314,44 @@ class AnalysisReportServiceTests(unittest.TestCase):
         self.assertEqual("access.analysis_history", event[0])
         self.assertEqual(0, json.loads(event[1])["item_count"])
 
+    def test_site_history_matches_exact_normalized_owned_domain(self) -> None:
+        history = self.service.list_site_history(
+            "EXAMPLE.ORG.", "user-opaque-1", audit=self.audit
+        )
+        absent = self.service.list_site_history(
+            "www.example.org", "user-opaque-1", audit=self.audit
+        )
+
+        self.assertEqual(["analysis-report-1"], [item.analysis_id for item in history])
+        self.assertEqual((), absent)
+        events = self.connection.execute(
+            """
+            SELECT action, extra_json FROM audit_events
+            WHERE action = 'access.analysis_site_history'
+            ORDER BY event_id
+            """
+        ).fetchall()
+        self.assertEqual(2, len(events))
+        self.assertEqual(1, json.loads(events[0][1])["item_count"])
+        self.assertNotIn("example.org", events[0][1])
+
+    def test_site_history_rejects_invalid_domain_and_audits_failure(self) -> None:
+        with self.assertRaises(ReportError):
+            self.service.list_site_history(
+                "invalid/domain", "user-opaque-1", audit=self.audit
+            )
+
+        event = self.connection.execute(
+            """
+            SELECT action, result, extra_json FROM audit_events
+            WHERE action = 'access.analysis_site_history'
+            """
+        ).fetchone()
+        self.assertEqual(("access.analysis_site_history", "failure"), event[:2])
+        self.assertEqual(
+            "SITE_HISTORY_BUILD_FAILED", json.loads(event[2])["error_code"]
+        )
+
     def test_completed_report_contains_results_and_hash_only_provenance(self) -> None:
         report = self._complete_analysis()
         document = report.to_dict()

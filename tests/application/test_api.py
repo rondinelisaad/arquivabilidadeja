@@ -227,6 +227,9 @@ class AnalysisApiTests(unittest.TestCase):
             context=self.context("request-export-1"),
         )
         history = self.api.list_analyses(context=self.context("request-history-1"))
+        site_history = self.api.list_site_history(
+            "EXAMPLE.ORG.", context=self.context("request-site-history-1")
+        )
 
         self.assertEqual(202, created.status_code)
         self.assertEqual("collection_queued", created.body["status"])
@@ -239,6 +242,9 @@ class AnalysisApiTests(unittest.TestCase):
         self.assertEqual(report.body, exported.body)
         self.assertEqual(200, history.status_code)
         self.assertEqual(1, len(history.body["items"]))
+        self.assertEqual(200, site_history.status_code)
+        self.assertEqual(1, len(site_history.body["items"]))
+        self.assertEqual(1, site_history.body["strata"][0]["item_count"])
         self.assertEqual(
             "analysis-api-1", history.body["items"][0]["analysis_id"]
         )
@@ -260,10 +266,21 @@ class AnalysisApiTests(unittest.TestCase):
                 report.to_dict(),
                 exported.to_dict(),
                 history.to_dict(),
+                site_history.to_dict(),
             ]
         )
         self.assertNotIn("private", serialized)
         self.assertNotIn("must-not-be-logged", serialized)
+
+    def test_site_history_rejects_invalid_domain_without_leaking_it(self) -> None:
+        response = self.api.list_site_history(
+            "invalid/domain",
+            context=self.context("request-site-history-invalid"),
+        )
+
+        self.assertEqual(400, response.status_code)
+        serialized = json.dumps(response.to_dict())
+        self.assertNotIn("invalid/domain", serialized)
 
     def test_batch_submits_independent_durable_analyses(self) -> None:
         response = self.api.create_batch(

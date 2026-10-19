@@ -960,13 +960,14 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
         try:
             valid_error = {
                 "history": "HISTORY_BUILD_FAILED",
+                "site_history": "SITE_HISTORY_BUILD_FAILED",
                 "comparison": "COMPARISON_BUILD_FAILED",
             }.get(operation)
             valid_failure_codes = {valid_error}
             if operation == "comparison":
                 valid_failure_codes.add("COMPARISON_NOT_FOUND")
             valid = (
-                operation in {"history", "comparison"}
+                operation in {"history", "site_history", "comparison"}
                 and isinstance(item_count, int)
                 and not isinstance(item_count, bool)
                 and item_count >= 0
@@ -977,7 +978,8 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                     (result == "success" and error_code is None)
                     or (result == "failure" and error_code in valid_failure_codes)
                 )
-                and (operation == "history") == (analysis_id is None)
+                and (operation in {"history", "site_history"})
+                == (analysis_id is None)
             )
             if not valid:
                 raise IntegrityViolation(
@@ -1035,6 +1037,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                 "read",
                 "export",
                 "history",
+                "site_history",
                 "compare",
                 "methodology_read",
                 "indicator_list",
@@ -1049,6 +1052,7 @@ class PostgreSqlAssessmentJobRepository(PostgreSqlEvidenceRepository):
                         or operation
                         in {
                             "history",
+                            "site_history",
                             "batch_create",
                             "methodology_read",
                             "indicator_list",

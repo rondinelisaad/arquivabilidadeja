@@ -25,6 +25,7 @@ _BATCH_PATH = "/v1/batches"
 _METHODOLOGY_PATH = "/v1/methodology"
 _INDICATORS_PATH = "/v1/indicators"
 _INDICATOR_PATH = re.compile(r"^/v1/indicators/([^/]+)$")
+_SITE_HISTORY_PATH = re.compile(r"^/v1/sites/([^/]+)/history$")
 _PRINCIPAL_STATE_KEY = "archivability.principal"
 _REQUEST_ID_STATE_KEY = "archivability.request_id"
 _SAFE_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
@@ -151,6 +152,18 @@ class AnalysisAsgiApp:
                 response = await self._sync_runner.run(
                     lambda: self._api.get_methodology(context=context)
                 )
+            elif route == "site_history":
+                if method != "GET":
+                    raise _RequestFailure(
+                        405, "METHOD_NOT_ALLOWED", "Method is not allowed."
+                    )
+                self._query_filters(scope, allowed=frozenset())
+                assert analysis_id is not None
+                response = await self._sync_runner.run(
+                    lambda: self._api.list_site_history(
+                        analysis_id, context=context
+                    )
+                )
             elif route == "indicators_collection":
                 if method != "GET":
                     raise _RequestFailure(
@@ -270,6 +283,8 @@ class AnalysisAsgiApp:
             return "indicators_collection", None
         if match := _INDICATOR_PATH.fullmatch(path):
             return "indicator_item", match.group(1)
+        if match := _SITE_HISTORY_PATH.fullmatch(path):
+            return "site_history", match.group(1)
         export_match = _ANALYSIS_EXPORT_PATH.fullmatch(path)
         if export_match is not None:
             return "analysis_export", export_match.group(1)

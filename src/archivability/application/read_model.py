@@ -35,6 +35,7 @@ from archivability.methodology.scoring import ScoringEngine
 from archivability.storage.audit import AuditContext
 
 _CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
+_DOMAIN_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class ReportError(ValueError):
@@ -662,6 +663,57 @@ class AnalysisReportService:
         )
         return history
 
+    def list_site_history(
+        self,
+        domain: str,
+        owner_user_id: str,
+        *,
+        limit: int = 1000,
+        audit: AuditContext = AuditContext(),
+    ) -> tuple[AnalysisHistoryEntry, ...]:
+        self._validate_owner_and_limit(owner_user_id, limit)
+        try:
+            normalized_domain = _normalize_domain(domain)
+            entries: list[AnalysisHistoryEntry] = []
+            for analysis_id in self._repository.list_owned_analysis_ids(
+                owner_user_id, limit=limit
+            ):
+                snapshot = self._repository.load_analysis_report_snapshot(analysis_id)
+                if snapshot is None:
+                    raise ReportError("site history snapshot disappeared")
+                hostname = urlsplit(snapshot.analysis.subject_uri).hostname
+                if hostname is None:
+                    continue
+                try:
+                    normalized_hostname = _normalize_domain(hostname)
+                except ReportError:
+                    continue
+                if normalized_hostname != normalized_domain:
+                    continue
+                entries.append(AnalysisHistoryEntry.from_report(self._build(snapshot)))
+            history = tuple(entries)
+        except Exception:
+            self._repository.record_analysis_history_access(
+                operation="site_history",
+                analysis_id=None,
+                result="failure",
+                error_code="SITE_HISTORY_BUILD_FAILED",
+                item_count=0,
+                change_count=0,
+                audit=audit,
+            )
+            raise
+        self._repository.record_analysis_history_access(
+            operation="site_history",
+            analysis_id=None,
+            result="success",
+            error_code=None,
+            item_count=len(history),
+            change_count=0,
+            audit=audit,
+        )
+        return history
+
     def compare_with_previous(
         self,
         analysis_id: str,
@@ -950,6 +1002,25 @@ def _safe_origin(subject_uri: str) -> str:
     default_port = 443 if parsed.scheme == "https" else 80
     authority = display_host if port in {None, default_port} else f"{display_host}:{port}"
     return f"{parsed.scheme}://{authority}/"
+
+
+def _normalize_domain(value: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 253
+        or _CONTROL_CHARACTER_PATTERN.search(value)
+    ):
+        raise ReportError("site history domain is invalid")
+    candidate = value.rstrip(".").lower()
+    try:
+        candidate = candidate.encode("idna").decode("ascii")
+    except UnicodeError:
+        raise ReportError("site history domain is invalid") from None
+    labels = candidate.split(".")
+    if not labels or any(not _DOMAIN_LABEL_PATTERN.fullmatch(label) for label in labels):
+        raise ReportError("site history domain is invalid")
+    return candidate
 
 
 def _freeze_report_json(value: Any) -> Any:

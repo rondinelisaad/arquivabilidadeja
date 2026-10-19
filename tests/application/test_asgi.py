@@ -94,6 +94,16 @@ class CapturingApi:
             headers={"Cache-Control": "no-store"},
         )
 
+    def list_site_history(
+        self, domain: str, *, context: ApiRequestContext
+    ) -> ApiResponse:
+        self.calls.append(("site_history", domain, context))
+        return ApiResponse(
+            status_code=200,
+            body={"site_history_schema_version": "1.0", "strata": [], "items": []},
+            headers={"Cache-Control": "no-store"},
+        )
+
     def compare_analysis(
         self, analysis_id: str, *, context: ApiRequestContext
     ) -> ApiResponse:
@@ -393,12 +403,26 @@ class AnalysisAsgiAppTests(unittest.IsolatedAsyncioTestCase):
             ),
             [],
         )
+        site_history = await self.request(
+            self.scope(
+                method="GET",
+                path="/v1/sites/example.org/history",
+                state=state,
+            ),
+            [],
+        )
 
         self.assertEqual(200, history[0])
         self.assertEqual("1.0", history[2]["history_schema_version"])
         self.assertEqual(200, comparison[0])
+        self.assertEqual(200, site_history[0])
+        self.assertEqual("1.0", site_history[2]["site_history_schema_version"])
         self.assertEqual("no_observed_change", comparison[2]["classification"])
-        self.assertEqual(["history", "compare"], [item[0] for item in self.api.calls])
+        self.assertEqual(
+            ["history", "compare", "site_history"],
+            [item[0] for item in self.api.calls],
+        )
+        self.assertEqual("example.org", self.api.calls[2][1])
 
     async def test_oversized_body_is_rejected_and_audited_without_content(self) -> None:
         secret = b"sensitive-body-value"
