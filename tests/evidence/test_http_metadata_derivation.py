@@ -110,7 +110,7 @@ def discovery_observation() -> Observation:
     )
 
 
-def latency_observation() -> Observation:
+def latency_observation(*, successful_samples: int = 5) -> Observation:
     base = discovery_observation()
     payload = dict(base.payload)
     sample = {
@@ -130,6 +130,26 @@ def latency_observation() -> Observation:
         "address_family": "ipv4",
         "redirect_exchanges": 1,
     }
+    failure = {
+        "outcome": "failure",
+        "failure_class": "timeout",
+        "status_code": None,
+        "total_milliseconds": None,
+        "dns_milliseconds": None,
+        "tcp_milliseconds": None,
+        "tls_milliseconds": None,
+        "ttfb_milliseconds": None,
+        "null_reasons": {
+            "total": "sample_failed_timeout",
+            "dns": "sample_failed_timeout",
+            "tcp": "sample_failed_timeout",
+            "tls": "sample_failed_timeout",
+            "ttfb": "sample_failed_timeout",
+        },
+        "address_family": None,
+        "redirect_exchanges": 0,
+    }
+    deviation = 0.0 if successful_samples >= 2 else None
     payload["latency"] = {
         "primary": sample,
         "profile": {
@@ -140,15 +160,19 @@ def latency_observation() -> Observation:
             "interval_milliseconds": 200.0,
         },
         "requested_samples": 5,
-        "samples": [sample] * 5,
+        "samples": [sample] * successful_samples + [failure] * (5 - successful_samples),
         "summary": {
-            "sample_size": 5,
-            "success_rate": 1.0,
-            "minimum_milliseconds": 40.0,
-            "maximum_milliseconds": 40.0,
-            "median_milliseconds": 40.0,
-            "sample_standard_deviation_milliseconds": 0.0,
-            "sample_standard_deviation_null_reason": None,
+            "sample_size": successful_samples,
+            "success_rate": successful_samples / 5,
+            "minimum_milliseconds": 40.0 if successful_samples else None,
+            "maximum_milliseconds": 40.0 if successful_samples else None,
+            "median_milliseconds": 40.0 if successful_samples else None,
+            "sample_standard_deviation_milliseconds": deviation,
+            "sample_standard_deviation_null_reason": (
+                None
+                if successful_samples >= 2
+                else "minimum_2_successful_samples_required"
+            ),
             "p95_milliseconds": None,
             "p95_null_reason": "minimum_20_successful_samples_required",
         },
@@ -304,6 +328,7 @@ class HttpMetadataDerivationTests(unittest.TestCase):
         evidence = {item.indicator_id: item for item in derived.evidence}
         self.assertEqual(ResultState.CONTEXT, by_id["N01"].state)
         self.assertEqual(ResultState.CONTEXT, by_id["N02"].state)
+        self.assertEqual(ResultState.PASS, by_id["O01"].state)
         self.assertEqual(5.0, evidence["N01"].data["timings"]["tcp_milliseconds"])
         self.assertEqual(5, evidence["N02"].data["sample_size"])
         self.assertIsNone(evidence["N02"].data["statistics"]["p95_milliseconds"])
@@ -311,6 +336,25 @@ class HttpMetadataDerivationTests(unittest.TestCase):
             "minimum_20_successful_samples_required",
             evidence["N02"].data["null_reasons"]["p95"],
         )
+
+    def test_retrieval_repetition_scores_failures_not_latency_magnitude(self) -> None:
+        warning = derive_http_metadata_indicators(
+            self.methodology, latency_observation(successful_samples=4)
+        )
+        failure = derive_http_metadata_indicators(
+            self.methodology, latency_observation(successful_samples=3)
+        )
+
+        warning_results = {
+            item.indicator_id: item for item in warning.indicator_results
+        }
+        failure_results = {
+            item.indicator_id: item for item in failure.indicator_results
+        }
+        failure_evidence = {item.indicator_id: item for item in failure.evidence}
+        self.assertEqual(ResultState.WARNING, warning_results["O01"].state)
+        self.assertEqual(ResultState.FAIL, failure_results["O01"].state)
+        self.assertEqual({"timeout": 2}, failure_evidence["O01"].data["failure_classes"])
 
     def test_crawl_contract_derives_d03_d08_and_r03_without_urls(self) -> None:
         derived = derive_http_metadata_indicators(

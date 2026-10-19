@@ -33,8 +33,14 @@ def derive_indicator_result(
         raise EvidenceValidationError("all evidence must belong to one analysis")
     if len({item.evidence_id for item in evidence}) != len(evidence):
         raise EvidenceValidationError("evidence entries must be unique")
-    if not definition.score_enabled and state is not ResultState.CONTEXT:
-        raise ScoringInputError(f"unscored indicator {indicator_id} must use context state")
+    if not definition.score_enabled and state not in {
+        ResultState.CONTEXT,
+        ResultState.UNKNOWN,
+        ResultState.NOT_APPLICABLE,
+    }:
+        raise ScoringInputError(
+            f"unscored indicator {indicator_id} must use a non-scored state"
+        )
     if definition.score_enabled and state is ResultState.CONTEXT:
         raise ScoringInputError(f"scored indicator {indicator_id} cannot use context state")
 

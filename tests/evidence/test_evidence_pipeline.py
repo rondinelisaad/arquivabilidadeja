@@ -197,6 +197,13 @@ class EvidenceAndDerivationTests(unittest.TestCase):
             evidence=[context_proof],
         )
         self.assertEqual(ResultState.CONTEXT, context.state)
+        unknown = derive_indicator_result(
+            self.methodology,
+            indicator_id="N01",
+            state=ResultState.UNKNOWN,
+            evidence=[context_proof],
+        )
+        self.assertEqual(ResultState.UNKNOWN, unknown.state)
         with self.assertRaises(ScoringInputError):
             derive_indicator_result(
                 self.methodology, indicator_id="N01", state=ResultState.PASS,

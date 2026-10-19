@@ -389,6 +389,45 @@ def derive_http_metadata_indicators(
         if observation.payload_schema_version == "1.3":
             latency = payload["latency"]
             primary = latency["primary"]
+            samples = latency["samples"]
+            successful = sum(
+                sample["outcome"] == "success" for sample in samples
+            )
+            success_rate = latency["summary"]["success_rate"]
+            failure_classes: dict[str, int] = {}
+            for sample in samples:
+                if sample["outcome"] == "failure":
+                    failure_class = sample["failure_class"]
+                    failure_classes[failure_class] = (
+                        failure_classes.get(failure_class, 0) + 1
+                    )
+            operational_state = (
+                ResultState.PASS
+                if success_rate == 1
+                else ResultState.WARNING
+                if success_rate >= 0.8
+                else ResultState.FAIL
+            )
+            add(
+                "O01",
+                operational_state,
+                "bounded-homepage-retrieval-repetition",
+                {
+                    "attempt_count": latency["requested_samples"],
+                    "successful_attempts": successful,
+                    "success_rate": success_rate,
+                    "failure_classes": failure_classes,
+                    "interval_milliseconds": latency["profile"][
+                        "interval_milliseconds"
+                    ],
+                    "response_byte_limit": latency["profile"][
+                        "response_byte_limit"
+                    ],
+                    "threshold_basis": "project_hypothesis_v1",
+                    "interpretation": "retrieval_reliability_not_latency",
+                },
+                "Repeated bounded retrieval outcomes, independent of latency magnitude.",
+            )
             add(
                 "N01",
                 ResultState.CONTEXT,
