@@ -20,6 +20,12 @@ A ação `access.analysis_api_export` registra request, ator/sessão opacos, IP,
 
 O arquivo declara que pesos e thresholds ainda são hipótese versionada, que gates candidatos não estão ativos e que a comparação CLEAR+ não está disponível. Essas limitações fazem parte do contrato público e não dependem de documentação externa à exportação.
 
+## Leitura humana do resultado
+
+A interface organiza o mesmo snapshot em achados críticos, gates, perfil dimensional, comparação CLEAR+, indicadores/evidências, contexto de probes, dependências agregadas, detalhes técnicos e recomendações. Definições e severidades vêm do catálogo da mesma versão metodológica.
+
+Recomendações são geradas somente para estados `FAIL` e `WARNING` e exibem problema, quantidade de evidências, confiança, impacto documentado, método de revisão e responsabilidade provável. Indicadores de `observation_context` permanecem contextuais; dependências são mostradas por agregados, pois URLs brutas e conteúdo capturado não são persistidos pelo escopo atual.
+
 ## Histórico e comparação
 
 `GET /v1/analyses` lista até 20 análises do proprietário autenticado em ordem decrescente de atualização. Cada item contém somente origem normalizada, versão metodológica, estado, tempos e resumo dimensional; caminho, query string, payloads e URLs descobertas não são expostos.

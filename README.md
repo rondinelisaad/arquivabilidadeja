@@ -261,6 +261,8 @@ As filas de coleta, browser e avaliação formam o pipeline durável. Cada tenta
 
 `GET /` serve uma interface responsiva e sem dependências de frontend. Depois da autenticação, a página inicial pede somente a URL; o navegador cria a análise pelo contrato JSON existente e acompanha coleta, browser e derivação até o relatório terminal. A mesma interface lista histórico, exibe dimensões/cobertura e indicadores, solicita comparação compatível e baixa o snapshot canônico.
 
+O relatório humano organiza separadamente achados críticos, condições impeditivas, perfil dimensional, comparação CLEAR+ (ou a indisponibilidade metodológica declarada), indicadores/evidências, contexto de probes, dependências agregadas, detalhes técnicos, recomendações e metodologia. Recomendações mostram problema, evidência, impacto, método de revisão e se a ação depende do administrador do site, do coletor ou de ambos; não transformam contexto de rede em defeito intrínseco.
+
 `GET /methodology` e `GET /methodology/indicators` apresentam a metodologia e o catálogo completos. Cada definição possui uma projeção própria em `GET /methodology/indicators/{id-ou-slug}`, com definição, relevância, medição, evidências, classificação, pontuação, limitações e referências obtidas do pacote versionado — sem uma segunda fonte editorial que possa divergir da execução.
 
 HTML, CSS, JavaScript e favicon são assets locais empacotados com a aplicação. A interface usa CSP sem código inline, `textContent` para dados dinâmicos, `Cache-Control: no-store` nas páginas e não renderiza conteúdo coletado. `access.web_ui` registra acesso às páginas com rota lógica e identidade opaca, sem URL submetida ou conteúdo do relatório.
