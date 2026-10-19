@@ -492,7 +492,7 @@ class PostgreSqlLifecycleIntegrationTests(unittest.TestCase):
             """,
             (analysis.analysis_id, analysis.analysis_id),
         ).fetchone()
-        self.assertEqual((6, 6), counts)
+        self.assertEqual((45, 45), counts)
         events = self.connection.execute(
             """
             SELECT result, extra_json

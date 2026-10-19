@@ -159,8 +159,7 @@ async function render(request) {
   await validatePublicUrl(request.subject_uri);
   const isolation = isolationAttestation();
   assertIsolation(isolation);
-  const requested = Date.parse(request.requested_at);
-  const startedMs = Math.max(Date.now(), requested);
+  const startedMs = Date.now();
   const stats = {
     requestCount: 0, internalRequests: 0, externalRequests: 0, apiRequests: 0,
     externalApiRequests: 0, failedRequests: 0, blockedRequests: 0,
@@ -177,7 +176,10 @@ async function render(request) {
     const renderedBytes = Buffer.from(rendered.content, "utf8");
     if (renderedBytes.length > request.budgets.max_dom_bytes) stats.termination = "dom_budget";
     if (stats.transferBytes >= request.budgets.max_total_transfer_bytes) stats.termination = "byte_budget";
-    const elapsed = Math.min(Date.now() - startedMs, request.budgets.total_timeout_milliseconds);
+    const elapsed = Math.max(
+      0,
+      Math.min(Date.now() - startedMs, request.budgets.total_timeout_milliseconds),
+    );
     if (elapsed >= request.budgets.total_timeout_milliseconds) stats.termination = "time_budget";
     const rawHashBytes = rawBytes.subarray(0, request.budgets.max_dom_bytes);
     const renderedHashBytes = renderedBytes.subarray(0, request.budgets.max_dom_bytes);
