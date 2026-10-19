@@ -75,6 +75,19 @@ A API fica em `http://127.0.0.1:8080` por padrão. A interface de negócio exige
 `/health/live`, `/health/ready` e `/internal/metrics` são rotas operacionais. Não
 publique métricas nem PostgreSQL na Internet.
 
+O `.env.example` habilita autenticação local somente para essa implantação de
+desenvolvimento. Ela não usa senha ou token fictício, é recusada fora do ambiente
+`development` ou com banco remoto e audita a identidade opaca fixa. Defina
+`ARCHIVABILITY_LOCAL_AUTH_ENABLED=false` ao conectar um proxy OIDC real e nunca
+publique esse perfil local em rede compartilhada.
+
+Worker e browser usam os resolvedores públicos configuráveis
+`ARCHIVABILITY_DNS_SERVER_PRIMARY` e `ARCHIVABILITY_DNS_SERVER_SECONDARY` no Compose
+local. Isso evita que DNS split-horizon da máquina converta alvos públicos em endereços
+privados, que são corretamente recusados pela proteção SSRF. A escolha do resolvedor
+deve ser revista conforme privacidade e política de rede do ambiente alvo; endereços
+privados continuam bloqueados mesmo quando retornados pelo resolvedor configurado.
+
 O comando `archivability-migrate` aceita a conexão exclusivamente por
 `ARCHIVABILITY_MIGRATION_DATABASE_DSN`, rejeita usuários administrativos genéricos e
 exige `sslmode=verify-full` em conexões remotas. A tabela `schema_migrations` registra

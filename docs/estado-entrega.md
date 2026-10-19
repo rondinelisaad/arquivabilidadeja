@@ -48,10 +48,11 @@ declarada no catálogo.
 
 ## Verificações executadas
 
-- suíte Python sem integrações condicionais: `276 passed`, `23 skipped`, `91 subtests passed`;
+- suíte Python sem integrações condicionais: `279 passed`, `23 skipped`, `91 subtests passed`;
 - integrações PostgreSQL no Compose: `35 passed`;
 - sidecar Node: `3 passed`;
 - renderização HTTPS real: Chromium `156.0.8078.4`, término `complete`, atestação de isolamento aprovada;
+- jornada local autenticada: análise completa de `https://www.scielo.br/`, com coleta, crawl, browser e avaliação concluídos;
 - sintaxe JavaScript da interface: válida;
 - `docker compose --env-file deploy/compose/.env.example config --quiet`: válido;
 - diff Git: sem erros de whitespace;

@@ -171,6 +171,11 @@ class PostgreSqlMigrationTests(unittest.TestCase):
         self.assertIn("ARCHIVABILITY_ADMIN_DB_PASSWORD=", environment)
         self.assertIn("ARCHIVABILITY_MIGRATION_DB_PASSWORD=", environment)
         self.assertIn("ARCHIVABILITY_RUNTIME_DB_PASSWORD=", environment)
+        self.assertIn("ARCHIVABILITY_LOCAL_AUTH_ENABLED", compose)
+        self.assertIn("ARCHIVABILITY_LOCAL_AUTH_ENABLED=true", environment)
+        self.assertIn('127.0.0.1:${ARCHIVABILITY_HTTP_PORT:-8080}:8000', compose)
+        self.assertIn("ARCHIVABILITY_DNS_SERVER_PRIMARY", compose)
+        self.assertIn("ARCHIVABILITY_DNS_SERVER_SECONDARY", compose)
 
     def test_browser_compose_uses_restricted_chromium_sandbox_profile(self) -> None:
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")

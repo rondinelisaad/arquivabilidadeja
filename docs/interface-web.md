@@ -33,6 +33,8 @@ A aplicação verifica access tokens OIDC Bearer e não armazena senha nem token
 
 Os escopos mínimos para a jornada são `analysis:create` e `analysis:read`. Sem sessão, a interface continua carregando, mas mostra uma mensagem de autenticação ao tentar acessar dados ou criar uma avaliação.
 
+Para testes manuais no Compose local, `ARCHIVABILITY_LOCAL_AUTH_ENABLED=true` injeta uma identidade opaca fixa com os escopos mínimos da jornada. O modo falha na inicialização fora de `development` ou com banco remoto, rejeita cabeçalhos `Authorization` e registra `auth.local_development` sem credenciais. Ele não substitui OIDC e deve permanecer desabilitado em ambientes compartilhados ou públicos.
+
 ## Validação
 
 Os testes ASGI verificam página inicial, shell do relatório, assets, `HEAD`, delegação das rotas JSON, método rejeitado, CSP e auditoria SQLite. A composição real com pool PostgreSQL e role restrita também serve a interface e persiste `access.web_ui`. O JavaScript passa por `node --check`; a prévia local foi inspecionada nos layouts estreito e amplo sem erros no console.

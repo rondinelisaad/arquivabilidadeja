@@ -86,6 +86,7 @@ services:
       ARCHIVABILITY_OIDC_ISSUER: ${ARCHIVABILITY_OIDC_ISSUER:?set in deploy/compose/.env}
       ARCHIVABILITY_OIDC_AUDIENCE: ${ARCHIVABILITY_OIDC_AUDIENCE:?set in deploy/compose/.env}
       ARCHIVABILITY_OIDC_JWKS_URI: ${ARCHIVABILITY_OIDC_JWKS_URI:?set in deploy/compose/.env}
+      ARCHIVABILITY_LOCAL_AUTH_ENABLED: ${ARCHIVABILITY_LOCAL_AUTH_ENABLED:-false}
     depends_on:
       grants:
         condition: service_completed_successfully
@@ -110,6 +111,9 @@ services:
     build:
       context: browser-sidecar
     restart: unless-stopped
+    dns:
+      - ${ARCHIVABILITY_DNS_SERVER_PRIMARY:-1.1.1.1}
+      - ${ARCHIVABILITY_DNS_SERVER_SECONDARY:-8.8.8.8}
     read_only: true
     tmpfs:
       - /tmp:size=512m,nosuid,nodev
