@@ -10,11 +10,11 @@ O pacote `archivability.browser` define a fronteira entre o processo principal e
 
 `BrowserIsolationAttestation` falha fechado se o sandbox estiver desligado, o processo executar como root, o filesystem raiz for gravável, o perfil não for efêmero ou houver mounts, segredos ou socket Docker disponíveis. Essa atestação é parte do resultado e deverá ser produzida pelo launcher isolado, não pelo site analisado.
 
-`BrowserRenderAggregate` não aceita DOM, corpos, mensagens de console nem URLs. Ele contém apenas hashes SHA-256 de integridade, contagens de URLs e requests, escopo interno/externo, requests de API, falhas, bloqueios, bytes, tamanho do DOM, tempo e motivo de término. `BrowserRenderResult.validate_against` exige identidade correspondente, timestamps coerentes, isolamento seguro e respeito aos budgets.
+`BrowserRenderAggregate` não aceita DOM, corpos, mensagens de console nem URLs. Ele contém apenas hashes SHA-256 de integridade, contagens de URLs e requests, escopo interno/externo, requests de API, origens externas distintas e arestas agregadas por tipo (script, stylesheet, imagem, fonte, API, frame e outros), falhas, bloqueios, bytes, tamanho do DOM, tempo e motivo de término. `BrowserRenderResult.validate_against` exige identidade correspondente, timestamps coerentes, isolamento seguro e respeito aos budgets.
 
 ## Execução, persistência e auditoria
 
-`BrowserExecutionService` autoriza o vínculo com uma tentativa HTTP concluída, exige resultado compatível com a requisição, cria uma observação imutável `browser_render` 1.0 e persiste somente o contrato agregado. Uma repetição do mesmo trabalho reutiliza a observação existente sem executar novamente o renderer; mudanças de budgets ou perfil falham fechadas.
+`BrowserExecutionService` autoriza o vínculo com uma tentativa HTTP concluída, exige resultado compatível com a requisição, cria uma observação imutável `browser_render` 1.1 e persiste somente o contrato agregado. A versão 1.0 permanece legível e representa o grafo como `UNKNOWN`. Uma repetição do mesmo trabalho reutiliza a observação existente sem executar novamente o renderer; mudanças de budgets ou perfil falham fechadas.
 
 SQLite e PostgreSQL localizam no máximo uma observação de browser por tentativa e validam o estado do ciclo de vida antes da execução. A ação auditável `job.browser_render` registra início, sucesso, reuso ou falha com código estável. Os eventos incluem apenas IDs opacos, budgets, perfil, política de isolamento e contagens; não incluem URL, DOM, hashes do conteúdo, mensagens do console ou corpos de resposta.
 
@@ -36,7 +36,7 @@ O container só responde saudável quando confirma sandbox habilitado, UID não-
 
 ## Derivação inicial
 
-A observação 1.0 agora inclui tamanho bruto/renderizado do DOM e contagem explícita de requests de API externos. O método versionado deriva `D07`, `C01`, `C05` e `O05` com thresholds declarados como hipótese de projeto. Budget interrompido gera `UNKNOWN`; ausência de observação após falha terminal também gera evidência `UNKNOWN` com confiança zero. A fixture controlada separa HTML bruto, script, API em outra origem e link inserido no DOM.
+A observação 1.1 inclui tamanho bruto/renderizado do DOM, requests de API externos, diversidade de origens e grafo agregado por tipo. O método versionado 1.1.0 deriva `D07`, `C01`, `C04`, `C05` e `O05` com thresholds declarados como hipótese de projeto. `C04` usa `WARNING` somente como sinal de atenção quando há conteúdo ativo externo; a presença externa não é tratada como falha. Budget interrompido gera `UNKNOWN`; ausência de observação após falha terminal também gera evidência `UNKNOWN` com confiança zero. A fixture controlada separa HTML bruto, script, API em outra origem e link inserido no DOM.
 
 As fórmulas, limites e ressalvas estão em `docs/metodos-derivacao-browser.md`. Esses resultados não devem ser apresentados como cientificamente validados até revisão externa e calibração com dataset estratificado.
 

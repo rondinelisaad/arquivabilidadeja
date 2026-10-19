@@ -1,8 +1,8 @@
-# Métodos de derivação do browser 1.0.0
+# Métodos de derivação do browser 1.1.0
 
 Status: hipótese de projeto, ainda sem validação científica externa.
 
-Este método interpreta exclusivamente a observação agregada e limitada produzida pelo perfil `chromium-baseline-1`. Nenhum resultado prova causalidade geral, essencialidade de conteúdo ou comportamento fora da janela observada. Se o render termina por budget, os quatro indicadores ficam `UNKNOWN` com confiança zero.
+Este método interpreta exclusivamente a observação agregada e limitada produzida pelo perfil `chromium-baseline-1`. Nenhum resultado prova causalidade geral, essencialidade de conteúdo ou comportamento fora da janela observada. Se o render termina por budget, os cinco indicadores ficam `UNKNOWN` com confiança zero.
 
 ## Medidas comuns
 
@@ -27,6 +27,14 @@ Hashes diferentes indicam conteúdo serializado diferente, não relevância edit
 - `PASS`: até 25%.
 
 O limiar não declara que recursos externos são ruins; sinaliza ampliação relevante do escopo de captura. Esta regra deve ser reavaliada antes de validação científica porque a configuração metodológica atual ainda pontua C01.
+
+### C04 — third-party active content
+
+- `PASS`: nenhuma aresta externa ativa observada;
+- `WARNING`: ao menos um script, stylesheet, fonte, API ou frame externo;
+- `UNKNOWN`: observação legada sem grafo agregado ou render incompleto.
+
+O grafo possui uma raiz lógica `site` e arestas agregadas por tipo. Ele registra quantidade de origens distintas, mas não nomes, URLs ou caminhos. `WARNING` significa dependência que merece inspeção para captura, não erro nem indisponibilidade comprovada.
 
 ### C05 — external API dependency
 
